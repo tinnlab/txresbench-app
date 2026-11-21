@@ -4,7 +4,7 @@
 # Output (all committed):
 #   list-dir/catalogue.json          the catalogue generator's own fixture output
 #                                    (schema 2: 3 synthetic methods with their disease/
-#                                    treatment facts and the study_options block)
+#                                    treatment facts and the filter_options block)
 #   list-dir/method-env-images.json  synthetic schema 2 list: two of its methods on amd64, both bases
 #   list-dir/method-list.json        assembled with --first at SOURCE_DATE_EPOCH 1767225600
 #   list-dir/method-list.json.minisig        good signature, "txresbench-method-list format=2 sequence=1"
@@ -28,7 +28,7 @@ export PYTHONDONTWRITEBYTECODE=1
 
 mkdir -p "$FIX/list-dir" "$FIX/signatures"
 # The catalogue fixture: the generator's own fixture output (schema 2 — the disease/
-# treatment facts and the study_options block come from the generator's fixture tables,
+# treatment facts and the filter_options block come from the generator's fixture tables,
 # the same tables that produce fixtures/expected-catalogue.json).
 SOURCE_DATE_EPOCH=1767225600 python3 "$REPO/scripts/method-catalogue/gen_method_catalogue.py" \
   --fixtures --out "$FIX/list-dir/catalogue.json"

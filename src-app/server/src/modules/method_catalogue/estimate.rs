@@ -387,7 +387,7 @@ mod tests {
             "methods": methods,
             "markers": [],
             "groups": [{"id": "ctdna", "display_name": "Tumour DNA in blood (ctDNA)"}],
-            "study_options": {"disease_categories": [
+            "filter_options": {"disease_categories": [
                 {"id": "Solid tumours", "diseases": [
                     {"id": "lung cancer", "children": ["non-small cell lung cancer"]}
                 ]}

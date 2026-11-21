@@ -1,4 +1,4 @@
-# The closed list of treatment base classes the study step offers, in display order.
+# The closed list of treatment base classes the method filters offer, in display order.
 # Reviewed in the PR. Columns: id<TAB>label.
 id	label
 immune checkpoint inhibitor	Immune checkpoint inhibitor

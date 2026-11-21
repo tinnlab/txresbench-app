@@ -713,8 +713,8 @@ pub enum ModelReasonCode {
     // The engine's marker-count rule (the provider's code, mapped 1:1).
     #[serde(rename = "MARKER_COUNT_UNMET")]
     MarkerCountUnmet,
-    /// The provider's study-answer filters (the store's saved models never
-    /// receive study answers, but the wire language is the provider's — the
+    /// The provider's filter reasons (the store's saved models never
+    /// receive method filters, but the wire language is the provider's — the
     /// 1:1 mapper below keeps the two vocabularies drift-proof).
     #[serde(rename = "DISEASE_NOT_MATCHED")]
     DiseaseNotMatched,
@@ -1079,7 +1079,7 @@ mod tests {
             markers: vec![],
             covariates: vec![],
             outcomes: None,
-            study: None,
+            filters: None,
         };
         let eligibility_req =
             |model_ids: Vec<String>| ModelEligibilityRequest {

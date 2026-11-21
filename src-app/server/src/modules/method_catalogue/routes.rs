@@ -1,8 +1,8 @@
 //! ITEM-5 — the six HTTP endpoints of the method catalogue (PROV-MC-2..6 plus
-//! the study-options vocabulary).
+//! the filter-options vocabulary).
 //!
 //! All endpoints mount through [`super::MethodCatalogueModule::register_routes`]
-//! under the framework's `/api` prefix — `/api/methods`, `/api/methods/study-options`,
+//! under the framework's `/api` prefix — `/api/methods`, `/api/methods/filter-options`,
 //! `/api/methods/{id}`, `/api/markers`, `/api/methods/eligibility`,
 //! `/api/methods/estimate` — and are
 //! gated by the REUSED `projects::use` permission (DEC-10: no new permission, so
@@ -34,8 +34,8 @@
 //!   (ITEM-4's unit tests) — never silently dropped here.
 //! - `POST /api/methods/eligibility`: a body that is syntactically invalid JSON
 //!   is the framework's `400` (JsonSyntaxError); a body that parses but does
-//!   not match the schema is the framework's `422` (JsonDataError). A study
-//!   answer id outside the catalogue's `study_options` is `422` with the
+//!   not match the schema is the framework's `422` (JsonDataError). A filter
+//!   answer id outside the catalogue's `filter_options` is `422` with the
 //!   engine's named code (`UNKNOWN_DISEASE_GROUP` /
 //!   `UNKNOWN_TREATMENT_CLASS`, the message naming the id) — the eligibility
 //!   engine itself has no other failure variant: a request always yields a
@@ -74,7 +74,7 @@ use super::estimate::estimate_for_runtime_calibrated;
 use super::types::{
     Catalogue, EligibilityRequest, EligibilityResponse, EstimateRequest, EstimateResponse,
     MarkerVocabularyResponse, Method, MethodDetail, MethodGroup, MethodListResponse,
-    MethodSummary, StudyOptions,
+    MethodSummary, FilterOptions,
 };
 
 /**
@@ -100,8 +100,8 @@ pub fn method_catalogue_routes() -> ApiRouter {
     ApiRouter::new()
         .api_route("/methods", get_with(list_methods, list_methods_docs))
         .api_route(
-            "/methods/study-options",
-            get_with(get_study_options, get_study_options_docs),
+            "/methods/filter-options",
+            get_with(get_filter_options, get_filter_options_docs),
         )
         .api_route(
             "/methods/{method_id}",
@@ -195,36 +195,36 @@ fn list_methods_docs(op: TransformOperation) -> TransformOperation {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The study-options vocabulary (the filters' disease categories + treatment
+// The filter-options vocabulary (the filters' disease categories + treatment
 // classes)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `GET /api/methods/study-options` — the catalogue's `study_options` verbatim:
+/// `GET /api/methods/filter-options` — the catalogue's `filter_options` verbatim:
 /// the disease categories (with the diseases and their children) and the
-/// treatment classes the screen B/C study answers are ids of. The route sits
+/// treatment classes the screen B/C method filters are ids of. The route sits
 /// next to the method list route (same auth/permission), so a screen building
 /// its filters reads ONE snapshot of the same list the eligibility request
 /// will be answered against.
-async fn get_study_options(
+async fn get_filter_options(
     _auth: RequirePermissions<(ProjectsUse,)>,
-) -> ApiResult<Json<StudyOptions>> {
+) -> ApiResult<Json<FilterOptions>> {
     let list = crate::modules::method_list::current();
-    Ok((StatusCode::OK, Json(study_options_of(&list.catalogue))))
+    Ok((StatusCode::OK, Json(filter_options_of(&list.catalogue))))
 }
 
-/// The study-options payload — the catalogue's `study_options` block as-is
+/// The filter-options payload — the catalogue's `filter_options` block as-is
 /// (no projection, no reorder; the block's ids are the exact ids the filters
 /// validate answers against). The pure seam the route test pins.
-fn study_options_of(cat: &Catalogue) -> StudyOptions {
-    cat.study_options.clone()
+fn filter_options_of(cat: &Catalogue) -> FilterOptions {
+    cat.filter_options.clone()
 }
 
-fn get_study_options_docs(op: TransformOperation) -> TransformOperation {
+fn get_filter_options_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("The catalogue's study_options vocabulary: the disease categories (each with its diseases and their children, the ids the disease answer names) and the treatment classes (the ids the treatment answer names).")
-        .id("MethodCatalogue.studyOptions")
+        .description("The catalogue's filter_options vocabulary: the disease categories (each with its diseases and their children, the ids the disease answer names) and the treatment classes (the ids the treatment answer names).")
+        .id("MethodCatalogue.filterOptions")
         .tag("method-catalogue")
-        .response::<200, Json<StudyOptions>>()
+        .response::<200, Json<FilterOptions>>()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -316,26 +316,26 @@ async fn post_eligibility(
     .map_err(|e| {
         AppError::internal_error(format!("eligibility task join failed: {e}")).to_api_error()
     })?
-    .map_err(|e| study_answer_error(e).to_api_error())?;
+    .map_err(|e| method_filter_error(e).to_api_error())?;
     Ok((StatusCode::OK, Json(response)))
 }
 
-/// A study answer that names nothing in the catalogue (a stale screen
+/// A method filter that names nothing in the catalogue (a stale screen
 /// vocabulary) is a request error, never a silent "any": the named code
 /// carries the id in the message. The pure seam the route test pins.
-fn study_answer_error(e: super::eligibility::StudyAnswerError) -> AppError {
+fn method_filter_error(e: super::eligibility::MethodFilterError) -> AppError {
     AppError::new(StatusCode::UNPROCESSABLE_ENTITY, e.code(), e.to_string())
 }
 
 fn post_eligibility_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule + study answers) or `inventory` (the file validator's inventory, with the optional `study` answers). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).")
+        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule + method filters) or `inventory` (the file validator's inventory, with the optional `filters` block). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).")
         .id("MethodCatalogue.eligibility")
         .tag("method-catalogue")
         .response::<200, Json<EligibilityResponse>>()
         .response_with::<400, (), _>(|r| r.description("Malformed JSON body"))
         .response_with::<422, (), _>(|r| {
-            r.description("JSON body that does not match the request schema, or a study answer id outside the catalogue (UNKNOWN_DISEASE_GROUP / UNKNOWN_TREATMENT_CLASS)")
+            r.description("JSON body that does not match the request schema, or a method filter id outside the catalogue (UNKNOWN_DISEASE_GROUP / UNKNOWN_TREATMENT_CLASS)")
         })
 }
 
@@ -602,9 +602,9 @@ mod tests {
         assert_eq!(scaled, at_reference, "300 patients on 8 CPUs = the reference (DEC-7 linear shape)");
     }
 
-    // ---- the study-options payload + the study-answer error mapping --------
+    // ---- the filter-options payload + the filter-answer error mapping --------
 
-    /// A schema-2 fixture catalogue with a two-category `study_options` block
+    /// A schema-2 fixture catalogue with a two-category `filter_options` block
     /// (the loader's validation runs, so the method entry must be complete).
     fn fixture_catalogue() -> Catalogue {
         let doc: serde_json::Value = serde_json::from_str(
@@ -637,7 +637,7 @@ mod tests {
                 }],
                 "markers": [],
                 "groups": [{"id": "g1", "display_name": "G1"}],
-                "study_options": {
+                "filter_options": {
                     "disease_categories": [
                         {"id": "Solid tumours", "diseases": [
                             {"id": "lung cancer", "children": ["non-small cell lung cancer"]}
@@ -659,30 +659,30 @@ mod tests {
         .expect("fixture catalogue")
     }
 
-    /// The study-options payload is the catalogue's block as-is (the ids the
+    /// The filter-options payload is the catalogue's block as-is (the ids the
     /// eligibility filters validate answers against are the very ids the
     /// route hands back — nothing is projected or reordered).
     #[test]
-    fn study_options_payload_is_the_catalogue_block_verbatim() {
+    fn filter_options_payload_is_the_catalogue_block_verbatim() {
         let cat = fixture_catalogue();
-        let payload = study_options_of(&cat);
-        assert_eq!(payload, cat.study_options);
+        let payload = filter_options_of(&cat);
+        assert_eq!(payload, cat.filter_options);
         let json = serde_json::to_value(&payload).expect("serialize");
         assert_eq!(json["disease_categories"][0]["id"], "Solid tumours");
         assert_eq!(json["disease_categories"][0]["diseases"][0]["id"], "lung cancer");
         assert_eq!(json["disease_categories"][1]["id"], "Blood cancers");
         assert_eq!(json["treatment_classes"][0]["id"], "chemotherapy");
-        let back: StudyOptions = serde_json::from_value(json).expect("round trip");
-        assert_eq!(back, cat.study_options);
+        let back: FilterOptions = serde_json::from_value(json).expect("round trip");
+        assert_eq!(back, cat.filter_options);
     }
 
     /// An unknown answer id is the route's 422 with the named error code and
-    /// a message naming the id (the engine's [`StudyAnswerError`] → [`AppError`]
+    /// a message naming the id (the engine's [`MethodFilterError`] → [`AppError`]
     /// mapping; a schema-invalid body keeps the framework's own 422).
     #[test]
-    fn study_answer_error_maps_to_the_422_named_code() {
-        let err = study_answer_error(
-            super::super::eligibility::StudyAnswerError::UnknownDiseaseGroup(
+    fn method_filter_error_maps_to_the_422_named_code() {
+        let err = method_filter_error(
+            super::super::eligibility::MethodFilterError::UnknownDiseaseGroup(
                 "renal cell carcinoma".to_string(),
             ),
         );
@@ -693,8 +693,8 @@ mod tests {
             "the message names the id: {err}"
         );
 
-        let err = study_answer_error(
-            super::super::eligibility::StudyAnswerError::UnknownTreatmentClass("statins".to_string()),
+        let err = method_filter_error(
+            super::super::eligibility::MethodFilterError::UnknownTreatmentClass("statins".to_string()),
         );
         assert_eq!(err.status_code(), 422);
         assert_eq!(err.error_code(), "UNKNOWN_TREATMENT_CLASS");

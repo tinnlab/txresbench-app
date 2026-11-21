@@ -433,7 +433,7 @@ mod tests {
                 markers: vec![],
                 covariates: vec![],
                 outcomes: None,
-                study: None,
+                filters: None,
             },
         };
         let resp = methods_eligibility(&bundle, &body);

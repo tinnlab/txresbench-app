@@ -9,7 +9,7 @@ DEC-1: the per-method package manifests (`methods/methods/<id>/method.json`), th
 draw facts (`dev/code/benchmark/schema/per-method/mindraws/*.json`), the curated marker
 vocabulary (`dev/analysis-catalog/datasets/*/{markers,mapping}.yaml`), the benchmark's own
 stored aggregate results (`results/benchmark/{runs,scores}.csv`), and — schema version 2 —
-the study facts: the benchmark's disease assertions (`site/public/data/methods.json`,
+the filter facts: the benchmark's disease assertions (`site/public/data/methods.json`,
 `biomarkers.defined_for`), the disease categories
 (`dev/analysis-catalog/disease_group_categories.csv` + the repo's
 `disease-categories-extra.tsv` rows the benchmark file lacks), the one-level disease
@@ -18,7 +18,7 @@ parents (`disease-parents.tsv`) and the treatment mapping (`method-treatment.tsv
 `scripts/method-catalogue/`). The candidate spec YAMLs stay out (DEC-1). The runnable set only
 is emitted (DEC-2).
 
-study_options ordering (schema 2): the curated tables give the order, so the CSV/TSV rows are
+filter_options ordering (schema 2): the curated tables give the order, so the CSV/TSV rows are
 emitted in first-seen order — categories and diseases per the categories CSV (with the extra
 table's rows appended after the CSV's per category, in extra-file order), children per the
 parents TSV, and treatment classes per the display order of treatment-base-classes.tsv. A
@@ -43,11 +43,11 @@ Usage:
                           source_revision (the newest, when the arches were built at several
                           commits of one method folder); every other row is carried byte for byte, missing
                           vocabulary markers are added, n_methods is recounted, and the rebuilt row's
-                          disease/treatment facts and the study_options block are refreshed from the
+                          disease/treatment facts and the filter_options block are refreshed from the
                           benchmark tree; writes --previous in place unless --out is given
-        --study-facts --previous CATALOGUE [--out FILE]
+        --filter-facts --previous CATALOGUE [--out FILE]
                           schema-2 upgrade mode (how the shipped catalogue is migrated): rewrite
-                          ONLY `disease`/`treatment` on every row and the `study_options` block,
+                          ONLY `disease`/`treatment` on every row and the `filter_options` block,
                           set `schema_version` 2, and carry everything else (row order,
                           generated_at, every other field) byte for byte
         --propose-groups  write `marker-groups.proposed.tsv` with the auto-derived
@@ -389,7 +389,7 @@ def derive_unit(text):
     return "none", ""
 
 
-# ---- schema-2 study facts (disease, treatment) -------------------------------
+# ---- schema-2 filter facts (disease, treatment) -------------------------------
 # Every fact below is read at BUILD time only (INV-1). The disease facts come from the
 # benchmark's site/public/data/methods.json (biomarkers.defined_for), the disease categories
 # from the benchmark's dev/analysis-catalog/disease_group_categories.csv plus the repo's
@@ -451,7 +451,7 @@ def load_methods_json(path):
 def load_disease_categories(csv_path, extra_tsv_path):
     """The disease vocabulary: (categories, disease_set, category_of), where `categories` is an
     OrderedDict category -> OrderedDict disease (first-seen order — the curated tables'
-    order is the study_options order), `disease_set` is every name the two tables list (a
+    order is the filter_options order), `disease_set` is every name the two tables list (a
     child that disease-parents.tsv names may be listed here too — the benchmark's CSV does)
     and `category_of` is disease -> category for the same set (the child-level rule compares
     a child's category against its parent's)."""
@@ -587,8 +587,8 @@ def load_treatment_facts(method_treatment_tsv, treatment_classes_tsv, base_class
     return per_method, base_classes, class_to_bases
 
 
-def load_study_tables(registry):
-    """The schema-2 study facts of one registry (fixture or benchmark tree): the raw tables
+def load_filter_tables(registry):
+    """The schema-2 filter facts of one registry (fixture or benchmark tree): the raw tables
     plus the derived lookups the row builder reads. The child level is below the disease
     level: even when the categories file (or the extra table) lists a child as a group — the
     benchmark's CSV does — it is not a disease-level entry, so `categories` and `disease_set`
@@ -617,12 +617,12 @@ def load_study_tables(registry):
     }
 
 
-def disease_for(study, mid, runnable, warnings_out):
+def disease_for(facts, mid, runnable, warnings_out):
     """One method's disease fact. A runnable method missing from methods.json is a hard
     error (the catalogue must carry a fact for every runnable row); a non-runnable row
     missing from it gets scope `any` and a warning. A `defined_for` list mixing an `any…`
     phrase with disease names uses the broadest `any…` scope and drops the names."""
-    entry = study["methods_json"].get(mid)
+    entry = facts["methods_json"].get(mid)
     if entry is None:
         if runnable:
             raise ValueError(f"DISEASE_UNKNOWN: runnable method {mid} is not in methods.json "
@@ -638,22 +638,22 @@ def disease_for(study, mid, runnable, warnings_out):
                          "in methods.json")
     groups = sorted({str(g).strip() for g in names})
     for g in groups:
-        if g not in study["disease_set"] and g not in study["child_set"]:
+        if g not in facts["disease_set"] and g not in facts["child_set"]:
             raise ValueError(f"DISEASE_UNGROUPED: disease name {g!r} used by method {mid} is in "
                              "neither disease_group_categories.csv nor disease-parents.tsv")
     return {"scope": "group", "groups": groups}
 
 
-def treatment_for(study, mid, warnings_out):
+def treatment_for(facts, mid, warnings_out):
     """One method's treatment fact: the base classes its benchmark class maps to (sorted,
     unique), confidence from the table — `not-stated` whenever the classes are empty. A
     method missing from method-treatment.tsv is `not-stated` with a warning."""
-    entry = study["treatment"].get(mid)
+    entry = facts["treatment"].get(mid)
     if entry is None:
         warnings_out.append(f"{mid}: no row in method-treatment.tsv — treatment not stated")
         return {"classes": [], "confidence": "not-stated"}
     confidence = entry["confidence"]
-    classes = study["class_to_bases"].get(entry["class"], [])
+    classes = facts["class_to_bases"].get(entry["class"], [])
     if confidence != "not-stated" and not classes:
         warnings_out.append(f"{mid}: treatment class {entry['class']!r} maps to no base class in "
                             "treatment-classes.tsv — confidence not-stated")
@@ -662,26 +662,26 @@ def treatment_for(study, mid, warnings_out):
     return {"classes": [], "confidence": "not-stated"}
 
 
-def study_options_for(study):
-    """The `study_options` block: the categories table's diseases (with their one-level
+def filter_options_for(facts):
+    """The `filter_options` block: the categories table's diseases (with their one-level
     children) in table order, and the closed treatment base classes in display order."""
     return {
         "disease_categories": [
             {"id": category, "diseases": [
-                {"id": disease, "children": list(study["parents"].get(disease, []))}
+                {"id": disease, "children": list(facts["parents"].get(disease, []))}
                 for disease in diseases]}
-            for category, diseases in study["categories"].items()],
+            for category, diseases in facts["categories"].items()],
         "treatment_classes": [{"id": cid, "label": label}
-                              for cid, label in study["base_classes"]],
+                              for cid, label in facts["base_classes"]],
     }
 
 
-def validate_row_study_facts(methods, study, where="previous"):
-    """Every carried row's disease/treatment facts must name known study_options entries and
+def validate_row_filter_facts(methods, facts, where="previous"):
+    """Every carried row's disease/treatment facts must name known filter_options entries and
     keep the scope/confidence discipline — the Rust loader refuses a catalogue that breaks it
     at boot, so the generator fails HERE with a named error."""
-    disease_ids = study["disease_set"] | study["child_set"]
-    class_ids = {cid for cid, _ in study["base_classes"]}
+    disease_ids = facts["disease_set"] | facts["child_set"]
+    class_ids = {cid for cid, _ in facts["base_classes"]}
     for m in methods:
         mid = m.get("id")
         d = m.get("disease") or {}
@@ -693,7 +693,7 @@ def validate_row_study_facts(methods, study, where="previous"):
         for g in d.get("groups") or []:
             if g not in disease_ids:
                 raise ValueError(f"{where} catalogue row {mid}: disease group {g!r} is not a "
-                                 "disease or a child in study_options")
+                                 "disease or a child in filter_options")
         t = m.get("treatment") or {}
         if t.get("confidence") not in TREATMENT_CONFIDENCES:
             raise ValueError(f"{where} catalogue row {mid}: unknown treatment confidence "
@@ -704,24 +704,24 @@ def validate_row_study_facts(methods, study, where="previous"):
         for c in t.get("classes") or []:
             if c not in class_ids:
                 raise ValueError(f"{where} catalogue row {mid}: treatment class {c!r} is not an "
-                                 "id of study_options.treatment_classes")
+                                 "id of filter_options.treatment_classes")
     return methods
 
 
-def build_study_facts(doc, study, warnings_out):
-    """`--study-facts`: the previous catalogue (schema 1 or 2) with ONLY `disease`/`treatment`
-    on every row and the `study_options` block rewritten, `schema_version` set to 2; row
+def build_filter_facts(doc, facts, warnings_out):
+    """`--filter-facts`: the previous catalogue (schema 1 or 2) with ONLY `disease`/`treatment`
+    on every row and the `filter_options` block rewritten, `schema_version` set to 2; row
     order, `generated_at` and every other field are carried untouched."""
     rows = []
     for m in doc["methods"]:
         m = dict(m)
-        m["disease"] = disease_for(study, m["id"], bool(m.get("runnable", True)), warnings_out)
-        m["treatment"] = treatment_for(study, m["id"], warnings_out)
+        m["disease"] = disease_for(facts, m["id"], bool(m.get("runnable", True)), warnings_out)
+        m["treatment"] = treatment_for(facts, m["id"], warnings_out)
         rows.append(m)
     out = dict(doc)
     out["methods"] = rows
     out["schema_version"] = SCHEMA_VERSION
-    out["study_options"] = study_options_for(study)
+    out["filter_options"] = filter_options_for(facts)
     return out
 
 
@@ -740,7 +740,7 @@ class Registry:
             self.catalog_dir = self.root / "catalog" / "datasets"
             self.runs_csv = self.root / "results" / "runs.csv"
             self.scores_csv = self.root / "results" / "scores.csv"
-            # schema-2 study-fact sources (fixture copies of the build-time inputs)
+            # schema-2 filter-fact sources (fixture copies of the build-time inputs)
             self.methods_json = self.root / "methods.json"
             self.disease_categories_csv = self.root / "disease_group_categories.csv"
             self.disease_categories_extra = self.root / "disease-categories-extra.tsv"
@@ -756,7 +756,7 @@ class Registry:
             self.catalog_dir = self.root / "dev" / "analysis-catalog" / "datasets"
             self.runs_csv = self.root / "results" / "benchmark" / "runs.csv"
             self.scores_csv = self.root / "results" / "benchmark" / "scores.csv"
-            # schema-2 study-fact sources: the benchmark's assertion file + category CSV, and
+            # schema-2 filter-fact sources: the benchmark's assertion file + category CSV, and
             # the repo tables (the extension/curation tables live with the generator)
             self.methods_json = self.root / "site" / "public" / "data" / "methods.json"
             self.disease_categories_csv = self.root / "dev" / "analysis-catalog" / "disease_group_categories.csv"
@@ -1147,9 +1147,9 @@ def required_keys(mj):
     return out
 
 
-def method_row(mid, mj, gate, inputs, perf, warnings_out, study):
+def method_row(mid, mj, gate, inputs, perf, warnings_out, facts):
     """One catalogue row. `build_vocabulary` must have run first (the marker-group fallback
-    reads its alias map); `study` is the loaded schema-2 fact tables (disease/treatment)."""
+    reads its alias map); `facts` is the loaded schema-2 fact tables (disease/treatment)."""
     row = inputs["manifest"].get(mid, {})
     md = inputs["mindraws"].get(mid, {})
     group_map = inputs["group_map"]
@@ -1216,8 +1216,8 @@ def method_row(mid, mj, gate, inputs, perf, warnings_out, study):
         "timing": _timing_for(mid, inputs["timings"], language),
         "performance": _performance_for(mid, perf),
         "embeds_training_data": bool(inputs["warnings"].get(mid, False)),
-        "disease": disease_for(study, mid, True, warnings_out),
-        "treatment": treatment_for(study, mid, warnings_out),
+        "disease": disease_for(facts, mid, True, warnings_out),
+        "treatment": treatment_for(facts, mid, warnings_out),
     }
 
 
@@ -1226,7 +1226,7 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
     gates = inputs["gates"]
     run_ids = sorted(m for m, g in gates.items() if g.get("pass") and g.get("image_digest"))
     perf = load_performance(registry.scores_csv, set(run_ids))
-    study = load_study_tables(registry)
+    facts = load_filter_tables(registry)
 
     # pre-pass: collect required (system, id) pairs -> vocabulary; keep the manifest's original
     # id casing for display (the match key is case-folded, the shipped id is not)
@@ -1252,7 +1252,7 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
         if mj is None:
             warnings_out.append(f"{mid}: no method.json — skipped")
             continue
-        methods.append(method_row(mid, mj, gates[mid], inputs, perf, warnings_out, study))
+        methods.append(method_row(mid, mj, gates[mid], inputs, perf, warnings_out, facts))
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1260,7 +1260,7 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
         "methods": methods,
         "markers": markers,
         "groups": [{"id": gid, "display_name": label} for gid, label in BOARD_GROUPS],
-        "study_options": study_options_for(study),
+        "filter_options": filter_options_for(facts),
     }, warnings_out
 
 
@@ -1363,9 +1363,9 @@ def build_only(mid, previous, images, methods_dir, registry, marker_groups_tsv, 
 
     inputs = load_inputs(registry, marker_groups_tsv, model_warnings_tsv)
     perf = load_performance(registry.scores_csv, {mid})
-    study = load_study_tables(registry)
+    facts = load_filter_tables(registry)
     rows = [m for m in previous["methods"] if m["id"] != mid]
-    validate_row_study_facts(rows, study, "only-mode previous")
+    validate_row_filter_facts(rows, facts, "only-mode previous")
     used_required = collections.Counter()
     required_case = {}
     for m in rows:
@@ -1381,7 +1381,7 @@ def build_only(mid, previous, images, methods_dir, registry, marker_groups_tsv, 
     vocab = build_vocabulary(used_required, required_case, inputs["names"], inputs["map_rows"],
                              inputs["group_map"])
     warnings_out = []
-    row = sanitize_value(method_row(mid, mj, gate, inputs, perf, warnings_out, study))
+    row = sanitize_value(method_row(mid, mj, gate, inputs, perf, warnings_out, facts))
 
     def mkey(v):
         return (v["system"].lower(), v["id"].lower())
@@ -1403,10 +1403,10 @@ def build_only(mid, previous, images, methods_dir, registry, marker_groups_tsv, 
     doc = dict(previous)
     doc["methods"] = methods
     doc["markers"] = markers
-    # The rebuilt row's disease/treatment facts and the study_options vocabulary are
+    # The rebuilt row's disease/treatment facts and the filter_options vocabulary are
     # refreshed from the benchmark tree (schema 2); everything else is carried as it is.
-    doc["study_options"] = sanitize_value(study_options_for(study))
-    validate_row_study_facts(doc["methods"], study, "only-mode output")
+    doc["filter_options"] = sanitize_value(filter_options_for(facts))
+    validate_row_filter_facts(doc["methods"], facts, "only-mode output")
     return doc, warnings_out, commit
 
 
@@ -1543,7 +1543,7 @@ def selftest(fixtures_dir):
               and m["treatment"]["confidence"] in TREATMENT_CONFIDENCES
               and (m["treatment"]["confidence"] == "not-stated") == (not m["treatment"]["classes"])
               for m in catalogue["methods"]))
-    expected_study_options = {
+    expected_filter_options = {
         "disease_categories": [
             {"id": "Solid tumours", "diseases": [
                 {"id": "lung cancer", "children": ["non-small cell lung cancer", "small cell lung cancer"]},
@@ -1560,37 +1560,37 @@ def selftest(fixtures_dir):
             {"id": "targeted therapy", "label": "Targeted therapy"},
         ],
     }
-    check("study_options is the fixture tables in table order (categories, diseases, "
+    check("filter_options is the fixture tables in table order (categories, diseases, "
           "children, classes; the extra table's row is merged in)",
-          catalogue["study_options"] == expected_study_options,
-          str(catalogue["study_options"]))
+          catalogue["filter_options"] == expected_filter_options,
+          str(catalogue["filter_options"]))
     with open(fixtures_dir / "disease_group_categories.csv", encoding="utf-8", newline="") as f:
         csv_groups = [parts[0].strip() for parts in csv.reader(f)
                       if parts and not parts[0].startswith("#")
                       and parts[0].strip().lower() not in ("disease_group", "disease group")]
-    study_disease_ids = [d["id"] for cat in catalogue["study_options"]["disease_categories"]
+    filter_disease_ids = [d["id"] for cat in catalogue["filter_options"]["disease_categories"]
                          for d in cat["diseases"]]
-    study_child_ids = [c for cat in catalogue["study_options"]["disease_categories"]
+    filter_child_ids = [c for cat in catalogue["filter_options"]["disease_categories"]
                        for d in cat["diseases"] for c in d["children"]]
     check("a child the categories file lists as a group goes under its parent only (not at the "
           "disease level; methods may still name the child)",
           "non-small cell lung cancer" in csv_groups
           and "small cell lung cancer" in csv_groups
           and "diffuse large B-cell lymphoma" in csv_groups
-          and set(study_child_ids) == {"non-small cell lung cancer", "small cell lung cancer",
+          and set(filter_child_ids) == {"non-small cell lung cancer", "small cell lung cancer",
                                        "diffuse large B-cell lymphoma"}
-          and not set(study_child_ids) & set(study_disease_ids)
+          and not set(filter_child_ids) & set(filter_disease_ids)
           and fx["fx-asm-methylation-panel"]["disease"]["groups"] == ["non-small cell lung cancer"],
-          str((csv_groups, study_disease_ids, study_child_ids)))
+          str((csv_groups, filter_disease_ids, filter_child_ids)))
 
-    with tempfile.TemporaryDirectory(prefix="gen-catalogue-study-") as tmp:
-        study = load_study_tables(registry)
+    with tempfile.TemporaryDirectory(prefix="gen-catalogue-filter-") as tmp:
+        facts = load_filter_tables(registry)
         # each disease scope and the mixed defined_for rule (the fixture methods
         # themselves cover `group` and `any-solid-tumour`; `any`, `any-cancer` and the
         # mixed rule are probed here — 0 of the 3 fixture methods mix an `any…` value
         # with a disease name)
-        probe = dict(study)
-        probe["methods_json"] = dict(study["methods_json"])
+        probe = dict(facts)
+        probe["methods_json"] = dict(facts["methods_json"])
         scope_cases = [
             ("fx-probe-any", ["any disease"], ("any", [])),
             ("fx-probe-cancer", ["any cancer"], ("any-cancer", [])),
@@ -1605,14 +1605,14 @@ def selftest(fixtures_dir):
                   for mid, _defined, _want in scope_cases),
               str({mid: disease_for(probe, mid, True, []) for mid, _d, _w in scope_cases}))
         check("0 of 3 fixture methods mix an `any…` value with a disease name",
-              all(not any([d for d in study["methods_json"][m] if d in _DEFINED_FOR_SCOPES]
-                          and [d for d in study["methods_json"][m] if d not in _DEFINED_FOR_SCOPES])
-                  for m in study["methods_json"]),
-              str(study["methods_json"]))
+              all(not any([d for d in facts["methods_json"][m] if d in _DEFINED_FOR_SCOPES]
+                          and [d for d in facts["methods_json"][m] if d not in _DEFINED_FOR_SCOPES])
+                  for m in facts["methods_json"]),
+              str(facts["methods_json"]))
         # a benchmark class mapping to several base classes (sorted, unique) and the
         # table rows whose confidence is missing/not-stated keep empty classes
-        probe2 = dict(study)
-        probe2["treatment"] = dict(study["treatment"])
+        probe2 = dict(facts)
+        probe2["treatment"] = dict(facts["treatment"])
         probe2["treatment"]["fx-probe-multi"] = {"class": "systemic therapy", "confidence": "stated"}
         probe2["treatment"]["fx-probe-empty"] = {"class": "chemotherapy", "confidence": "not-stated"}
         ws2 = []
@@ -1654,7 +1654,7 @@ def selftest(fixtures_dir):
             reg.disease_categories_csv.write_text(
                 text.replace("non-small cell lung cancer,Solid tumours,",
                              "non-small cell lung cancer,Haematological,"), encoding="utf-8")
-            load_study_tables(reg)
+            load_filter_tables(reg)
             check("a child whose CSV category differs from its parent's is a hard error "
                   "(child, parent and both categories named)", False, "no error raised")
         except ValueError as e:
@@ -1668,7 +1668,7 @@ def selftest(fixtures_dir):
             text = reg.disease_categories_csv.read_text(encoding="utf-8")
             lines = [ln for ln in text.splitlines() if not ln.startswith("lung cancer,")]
             reg.disease_categories_csv.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            load_study_tables(reg)
+            load_filter_tables(reg)
             check("a child whose parent is not a known group is a hard error (the parent named)",
                   False, "no error raised")
         except ValueError as e:
@@ -1715,16 +1715,16 @@ def selftest(fixtures_dir):
         except ValueError as e:
             check("a base class outside the closed list is a hard error",
                   "not-a-base" in str(e), str(e))
-        # --study-facts: a schema-1 previous catalogue comes back as the schema-2 fixture
+        # --filter-facts: a schema-1 previous catalogue comes back as the schema-2 fixture
         # catalogue with every OTHER field (and generated_at + row order) untouched.
         previous = copy.deepcopy(catalogue)
         for m in previous["methods"]:
             m.pop("disease", None)
             m.pop("treatment", None)
-        previous.pop("study_options", None)
+        previous.pop("filter_options", None)
         previous["schema_version"] = 1
-        upgraded = build_study_facts(previous, study, [])
-        check("--study-facts carries every other field byte for byte (schema 1 -> 2)",
+        upgraded = build_filter_facts(previous, facts, [])
+        check("--filter-facts carries every other field byte for byte (schema 1 -> 2)",
               upgraded == catalogue
               and upgraded["generated_from"]["generated_at"]
               == catalogue["generated_from"]["generated_at"]
@@ -1733,7 +1733,7 @@ def selftest(fixtures_dir):
               "" if upgraded == catalogue else "the upgraded catalogue differs from a fresh build")
         # a retired (runnable: false) row missing from methods.json gets scope any + a warning
         warnings_out = []
-        retired = disease_for(study, "fx-not-runnable", False, warnings_out)
+        retired = disease_for(facts, "fx-not-runnable", False, warnings_out)
         check("a retired row missing from methods.json gets scope any + a warning",
               retired == {"scope": "any", "groups": []}
               and any("fx-not-runnable" in w and "not in methods.json" in w for w in warnings_out),
@@ -1910,7 +1910,7 @@ def main_only(a):
         print("ONLY_USAGE: --only needs --previous <catalogue> and --methods-dir <methods repository>",
               file=sys.stderr)
         return 2
-    if a.check or a.selftest or a.human_names or a.propose_groups or a.study_facts:
+    if a.check or a.selftest or a.human_names or a.propose_groups or a.filter_facts:
         print("ONLY_USAGE: --only is a separate run", file=sys.stderr)
         return 2
     previous_path = Path(a.previous)
@@ -1935,33 +1935,33 @@ def main_only(a):
     return 0
 
 
-def main_study_facts(a):
-    """`--study-facts --previous <catalogue>`: see build_study_facts (the shipped-catalogue
+def main_filter_facts(a):
+    """`--filter-facts --previous <catalogue>`: see build_filter_facts (the shipped-catalogue
     schema-2 upgrade; --fixtures reads the fixture tables for the hermetic selftest)."""
     if not a.previous:
-        print("STUDY_USAGE: --study-facts needs --previous <catalogue>", file=sys.stderr)
+        print("FILTER_USAGE: --filter-facts needs --previous <catalogue>", file=sys.stderr)
         return 2
     if a.check or a.selftest or a.human_names or a.propose_groups or a.only:
-        print("STUDY_USAGE: --study-facts is a separate run", file=sys.stderr)
+        print("FILTER_USAGE: --filter-facts is a separate run", file=sys.stderr)
         return 2
     previous_path = Path(a.previous)
     try:
         previous = json.loads(previous_path.read_text(encoding="utf-8"))
         registry = Registry(SCRIPT_DIR / "fixtures" if a.fixtures else Path(a.root), is_fixture=a.fixtures)
-        study = load_study_tables(registry)
+        facts = load_filter_tables(registry)
         warnings_out = []
-        doc = build_study_facts(previous, study, warnings_out)
-        validate_row_study_facts(doc["methods"], study, "study-facts output")
+        doc = build_filter_facts(previous, facts, warnings_out)
+        validate_row_filter_facts(doc["methods"], facts, "filter-facts output")
     except (OSError, ValueError) as e:
-        print(f"gen_method_catalogue --study-facts: {e}", file=sys.stderr)
+        print(f"gen_method_catalogue --filter-facts: {e}", file=sys.stderr)
         return 1
     for w in warnings_out:
         print(f"warning: {w}")
     out = Path(a.out) if a.out else previous_path
     out.write_text(dump_to_text(doc), encoding="utf-8")
     print(f"wrote {out}: {len(doc['methods'])} methods, {len(doc['markers'])} markers, "
-          f"{len(doc['study_options']['disease_categories'])} disease categories, "
-          f"{len(doc['study_options']['treatment_classes'])} treatment classes "
+          f"{len(doc['filter_options']['disease_categories'])} disease categories, "
+          f"{len(doc['filter_options']['treatment_classes'])} treatment classes "
           f"(schema_version {doc['schema_version']})")
     return 0
 
@@ -1971,7 +1971,7 @@ def main(argv=None):
         description="Generate the TxResBench method catalogue (data/method-catalogue/catalogue.json)")
     ap.add_argument("--out", default=None,
                     help="the file to write (default data/method-catalogue/catalogue.json; with "
-                         "--only or --study-facts, the --previous file)")
+                         "--only or --filter-facts, the --previous file)")
     ap.add_argument("--fixtures", action="store_true", help="use the synthetic fixture registry")
     ap.add_argument("--check", action="store_true", help="generate and byte-compare with the target file")
     ap.add_argument("--selftest", action="store_true", help="run the generator invariants (TEST-MC-15/16)")
@@ -1985,14 +1985,14 @@ def main(argv=None):
                     help="one-method mode: rebuild (or add) this method's row of --previous, carry "
                          "every other row byte for byte, add the vocabulary markers it needs, "
                          "recount n_methods and refresh the row's disease/treatment facts and the "
-                         "study_options block; method.json and the gate are read from --methods-dir "
+                         "filter_options block; method.json and the gate are read from --methods-dir "
                          "at the method's image entries' source_revision")
-    ap.add_argument("--study-facts", action="store_true",
+    ap.add_argument("--filter-facts", action="store_true",
                     help="schema-2 upgrade mode: rewrite ONLY every row's disease/treatment facts "
-                         "and the study_options block of --previous, set schema_version 2, and "
+                         "and the filter_options block of --previous, set schema_version 2, and "
                          "carry everything else (row order, generated_at) byte for byte")
     ap.add_argument("--previous", metavar="FILE",
-                    help="with --only or --study-facts: the catalogue to change (the methods "
+                    help="with --only or --filter-facts: the catalogue to change (the methods "
                          "repository's method-list/catalogue.json, or the shipped catalogue being "
                          "upgraded)")
     ap.add_argument("--methods-dir", metavar="DIR", default=os.environ.get("TXR_METHODS_DIR"),
@@ -2006,10 +2006,10 @@ def main(argv=None):
 
     if a.only:
         return main_only(a)
-    if a.study_facts:
-        return main_study_facts(a)
+    if a.filter_facts:
+        return main_filter_facts(a)
     if a.previous or a.images or a.revision:
-        ap.error("--previous, --images and --revision go with --only or --study-facts")
+        ap.error("--previous, --images and --revision go with --only or --filter-facts")
     a.out = a.out or str(DEFAULT_CATALOGUE)
 
     if a.selftest:

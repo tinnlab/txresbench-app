@@ -1,4 +1,591 @@
 {
+ "filter_options": {
+  "disease_categories": [
+   {
+    "diseases": [
+     {
+      "children": [],
+      "id": "COVID-19"
+     },
+     {
+      "children": [],
+      "id": "HIV infection"
+     },
+     {
+      "children": [],
+      "id": "Lyme disease"
+     },
+     {
+      "children": [],
+      "id": "community-acquired pneumonia"
+     },
+     {
+      "children": [],
+      "id": "cryptococcal meningitis"
+     },
+     {
+      "children": [],
+      "id": "hepatitis B"
+     },
+     {
+      "children": [],
+      "id": "hepatitis C"
+     },
+     {
+      "children": [],
+      "id": "malaria"
+     },
+     {
+      "children": [],
+      "id": "sepsis / critical illness"
+     },
+     {
+      "children": [],
+      "id": "strongyloidiasis"
+     },
+     {
+      "children": [],
+      "id": "tuberculosis"
+     },
+     {
+      "children": [],
+      "id": "pulmonary aspergillosis"
+     },
+     {
+      "children": [],
+      "id": "dengue"
+     },
+     {
+      "children": [],
+      "id": "invasive aspergillosis"
+     }
+    ],
+    "id": "Infectious diseases"
+   },
+   {
+    "diseases": [
+     {
+      "children": [],
+      "id": "COVID-19 (vaccination)"
+     },
+     {
+      "children": [],
+      "id": "HIV (vaccination)"
+     },
+     {
+      "children": [],
+      "id": "colorectal cancer (vaccination)"
+     },
+     {
+      "children": [],
+      "id": "influenza (vaccination)"
+     },
+     {
+      "children": [],
+      "id": "malaria (vaccination)"
+     },
+     {
+      "children": [],
+      "id": "pneumococcal disease (vaccination)"
+     },
+     {
+      "children": [],
+      "id": "typhoid (vaccination)"
+     },
+     {
+      "children": [],
+      "id": "yellow fever (vaccination)"
+     }
+    ],
+    "id": "Vaccination"
+   },
+   {
+    "diseases": [
+     {
+      "children": [],
+      "id": "Castleman disease"
+     },
+     {
+      "children": [],
+      "id": "Kawasaki disease"
+     },
+     {
+      "children": [],
+      "id": "allergic rhinitis"
+     },
+     {
+      "children": [],
+      "id": "alopecia areata"
+     },
+     {
+      "children": [],
+      "id": "asthma"
+     },
+     {
+      "children": [],
+      "id": "axial spondyloarthritis"
+     },
+     {
+      "children": [],
+      "id": "chronic graft-versus-host disease"
+     },
+     {
+      "children": [],
+      "id": "food allergy"
+     },
+     {
+      "children": [],
+      "id": "hidradenitis suppurativa"
+     },
+     {
+      "children": [],
+      "id": "immune thrombocytopenia"
+     },
+     {
+      "children": [],
+      "id": "inflammatory bowel disease"
+     },
+     {
+      "children": [],
+      "id": "multiple sclerosis"
+     },
+     {
+      "children": [],
+      "id": "psoriasis"
+     },
+     {
+      "children": [],
+      "id": "rheumatoid arthritis"
+     },
+     {
+      "children": [],
+      "id": "systemic lupus erythematosus"
+     },
+     {
+      "children": [],
+      "id": "systemic sclerosis"
+     },
+     {
+      "children": [],
+      "id": "type 1 diabetes"
+     },
+     {
+      "children": [
+       "kidney transplant rejection",
+       "kidney transplant graft failure"
+      ],
+      "id": "kidney transplant"
+     },
+     {
+      "children": [],
+      "id": "juvenile idiopathic arthritis"
+     },
+     {
+      "children": [],
+      "id": "lung transplant"
+     },
+     {
+      "children": [],
+      "id": "Graves' disease"
+     },
+     {
+      "children": [],
+      "id": "bullous pemphigoid"
+     },
+     {
+      "children": [],
+      "id": "membranous nephropathy"
+     }
+    ],
+    "id": "Immune-mediated and allergic diseases"
+   },
+   {
+    "diseases": [
+     {
+      "children": [],
+      "id": "Kaposi sarcoma"
+     },
+     {
+      "children": [],
+      "id": "Merkel cell carcinoma"
+     },
+     {
+      "children": [],
+      "id": "anal cancer"
+     },
+     {
+      "children": [],
+      "id": "biliary tract cancer"
+     },
+     {
+      "children": [],
+      "id": "breast cancer"
+     },
+     {
+      "children": [],
+      "id": "cancer of unknown primary"
+     },
+     {
+      "children": [],
+      "id": "cervical cancer"
+     },
+     {
+      "children": [],
+      "id": "colorectal cancer"
+     },
+     {
+      "children": [],
+      "id": "endometrial cancer"
+     },
+     {
+      "children": [],
+      "id": "gastric / gastro-oesophageal adenocarcinoma"
+     },
+     {
+      "children": [],
+      "id": "glioma"
+     },
+     {
+      "children": [
+       "nasopharyngeal carcinoma"
+      ],
+      "id": "head and neck cancer"
+     },
+     {
+      "children": [
+       "hepatocellular carcinoma"
+      ],
+      "id": "liver cancer"
+     },
+     {
+      "children": [
+       "non-small cell lung cancer",
+       "small cell lung cancer"
+      ],
+      "id": "lung cancer"
+     },
+     {
+      "children": [
+       "uveal melanoma"
+      ],
+      "id": "melanoma"
+     },
+     {
+      "children": [],
+      "id": "mesothelioma"
+     },
+     {
+      "children": [],
+      "id": "neuroendocrine neoplasm"
+     },
+     {
+      "children": [
+       "oesophageal squamous cell carcinoma"
+      ],
+      "id": "oesophageal cancer"
+     },
+     {
+      "children": [],
+      "id": "other or unspecified cancer"
+     },
+     {
+      "children": [],
+      "id": "ovarian cancer"
+     },
+     {
+      "children": [],
+      "id": "pancreatic cancer"
+     },
+     {
+      "children": [],
+      "id": "penile cancer"
+     },
+     {
+      "children": [],
+      "id": "prostate cancer"
+     },
+     {
+      "children": [],
+      "id": "renal cell carcinoma"
+     },
+     {
+      "children": [],
+      "id": "salivary gland cancer"
+     },
+     {
+      "children": [
+       "Ewing sarcoma",
+       "bone sarcoma",
+       "soft tissue sarcoma"
+      ],
+      "id": "sarcoma"
+     },
+     {
+      "children": [],
+      "id": "skin cancer"
+     },
+     {
+      "children": [],
+      "id": "skin squamous cell carcinoma"
+     },
+     {
+      "children": [],
+      "id": "small bowel / duodenal cancer"
+     },
+     {
+      "children": [],
+      "id": "thyroid cancer"
+     },
+     {
+      "children": [],
+      "id": "urethral cancer"
+     },
+     {
+      "children": [],
+      "id": "urothelial (bladder) cancer"
+     },
+     {
+      "children": [],
+      "id": "uterine cancer"
+     },
+     {
+      "children": [],
+      "id": "vulvar cancer"
+     },
+     {
+      "children": [],
+      "id": "thymoma"
+     }
+    ],
+    "id": "Solid tumours"
+   },
+   {
+    "diseases": [
+     {
+      "children": [],
+      "id": "Hodgkin lymphoma"
+     },
+     {
+      "children": [],
+      "id": "acute lymphoblastic leukaemia"
+     },
+     {
+      "children": [],
+      "id": "acute myeloid leukaemia"
+     },
+     {
+      "children": [],
+      "id": "chronic lymphocytic leukaemia"
+     },
+     {
+      "children": [],
+      "id": "chronic myeloid leukaemia"
+     },
+     {
+      "children": [],
+      "id": "cutaneous T-cell lymphoma"
+     },
+     {
+      "children": [],
+      "id": "large B-cell lymphoma"
+     },
+     {
+      "children": [],
+      "id": "multiple myeloma"
+     },
+     {
+      "children": [],
+      "id": "myelodysplastic syndrome"
+     },
+     {
+      "children": [],
+      "id": "myeloproliferative neoplasm"
+     },
+     {
+      "children": [],
+      "id": "other lymphoma"
+     },
+     {
+      "children": [],
+      "id": "acute promyelocytic leukaemia"
+     }
+    ],
+    "id": "Blood cancers"
+   },
+   {
+    "diseases": [
+     {
+      "children": [],
+      "id": "acute kidney injury"
+     },
+     {
+      "children": [],
+      "id": "cystic fibrosis"
+     },
+     {
+      "children": [],
+      "id": "female infertility"
+     },
+     {
+      "children": [],
+      "id": "glucocorticoid-induced osteoporosis"
+     },
+     {
+      "children": [],
+      "id": "hereditary transthyretin amyloidosis"
+     },
+     {
+      "children": [],
+      "id": "idiopathic pulmonary fibrosis"
+     },
+     {
+      "children": [],
+      "id": "iron deficiency anaemia"
+     },
+     {
+      "children": [],
+      "id": "liver cirrhosis"
+     },
+     {
+      "children": [],
+      "id": "osteoarthritis"
+     },
+     {
+      "children": [],
+      "id": "secondary hyperparathyroidism"
+     },
+     {
+      "children": [],
+      "id": "testosterone deficiency syndrome"
+     },
+     {
+      "children": [],
+      "id": "type 2 diabetes"
+     },
+     {
+      "children": [],
+      "id": "burn injury"
+     },
+     {
+      "children": [],
+      "id": "focal segmental glomerulosclerosis"
+     },
+     {
+      "children": [],
+      "id": "stroke"
+     },
+     {
+      "children": [],
+      "id": "amyotrophic lateral sclerosis"
+     },
+     {
+      "children": [],
+      "id": "acute limb ischemia"
+     },
+     {
+      "children": [],
+      "id": "pulmonary arterial hypertension"
+     },
+     {
+      "children": [],
+      "id": "sarcopenia / muscle-function decline"
+     },
+     {
+      "children": [],
+      "id": "tuberous sclerosis"
+     },
+     {
+      "children": [],
+      "id": "end-stage kidney disease"
+     },
+     {
+      "children": [],
+      "id": "ectopic pregnancy"
+     },
+     {
+      "children": [],
+      "id": "acute coronary syndrome"
+     },
+     {
+      "children": [],
+      "id": "neonatal necrotizing enterocolitis"
+     },
+     {
+      "children": [],
+      "id": "NAFLD / MASLD"
+     }
+    ],
+    "id": "Other diseases"
+   },
+   {
+    "diseases": [
+     {
+      "children": [],
+      "id": "bipolar disorder"
+     },
+     {
+      "children": [],
+      "id": "major depressive disorder"
+     },
+     {
+      "children": [],
+      "id": "post-traumatic stress disorder"
+     }
+    ],
+    "id": "Psychiatric disorders"
+   }
+  ],
+  "treatment_classes": [
+   {
+    "id": "immune checkpoint inhibitor",
+    "label": "Immune checkpoint inhibitor"
+   },
+   {
+    "id": "chemotherapy",
+    "label": "Chemotherapy"
+   },
+   {
+    "id": "targeted therapy",
+    "label": "Targeted therapy"
+   },
+   {
+    "id": "hormone therapy",
+    "label": "Hormone therapy"
+   },
+   {
+    "id": "radiotherapy",
+    "label": "Radiotherapy"
+   },
+   {
+    "id": "cell therapy",
+    "label": "Cell therapy"
+   },
+   {
+    "id": "anti-infective",
+    "label": "Anti-infective (antiviral, antibacterial, antifungal or anti-TB)"
+   },
+   {
+    "id": "biologic immunomodulator",
+    "label": "Biologic immunomodulator"
+   },
+   {
+    "id": "small-molecule immunomodulator or immunosuppressant",
+    "label": "Small-molecule immunomodulator or immunosuppressant"
+   },
+   {
+    "id": "corticosteroid",
+    "label": "Corticosteroid"
+   },
+   {
+    "id": "vaccine",
+    "label": "Vaccine"
+   },
+   {
+    "id": "other drug",
+    "label": "Other drug"
+   }
+  ]
+ },
  "generated_from": {
   "generated_at": "2026-11-02T17:19:41Z",
   "manifest_commit": "47f142124dc684ccd075c3764560dcc4dd7285dc",
@@ -73784,592 +74371,5 @@
    "year": 2025
   }
  ],
- "schema_version": 2,
- "study_options": {
-  "disease_categories": [
-   {
-    "diseases": [
-     {
-      "children": [],
-      "id": "COVID-19"
-     },
-     {
-      "children": [],
-      "id": "HIV infection"
-     },
-     {
-      "children": [],
-      "id": "Lyme disease"
-     },
-     {
-      "children": [],
-      "id": "community-acquired pneumonia"
-     },
-     {
-      "children": [],
-      "id": "cryptococcal meningitis"
-     },
-     {
-      "children": [],
-      "id": "hepatitis B"
-     },
-     {
-      "children": [],
-      "id": "hepatitis C"
-     },
-     {
-      "children": [],
-      "id": "malaria"
-     },
-     {
-      "children": [],
-      "id": "sepsis / critical illness"
-     },
-     {
-      "children": [],
-      "id": "strongyloidiasis"
-     },
-     {
-      "children": [],
-      "id": "tuberculosis"
-     },
-     {
-      "children": [],
-      "id": "pulmonary aspergillosis"
-     },
-     {
-      "children": [],
-      "id": "dengue"
-     },
-     {
-      "children": [],
-      "id": "invasive aspergillosis"
-     }
-    ],
-    "id": "Infectious diseases"
-   },
-   {
-    "diseases": [
-     {
-      "children": [],
-      "id": "COVID-19 (vaccination)"
-     },
-     {
-      "children": [],
-      "id": "HIV (vaccination)"
-     },
-     {
-      "children": [],
-      "id": "colorectal cancer (vaccination)"
-     },
-     {
-      "children": [],
-      "id": "influenza (vaccination)"
-     },
-     {
-      "children": [],
-      "id": "malaria (vaccination)"
-     },
-     {
-      "children": [],
-      "id": "pneumococcal disease (vaccination)"
-     },
-     {
-      "children": [],
-      "id": "typhoid (vaccination)"
-     },
-     {
-      "children": [],
-      "id": "yellow fever (vaccination)"
-     }
-    ],
-    "id": "Vaccination"
-   },
-   {
-    "diseases": [
-     {
-      "children": [],
-      "id": "Castleman disease"
-     },
-     {
-      "children": [],
-      "id": "Kawasaki disease"
-     },
-     {
-      "children": [],
-      "id": "allergic rhinitis"
-     },
-     {
-      "children": [],
-      "id": "alopecia areata"
-     },
-     {
-      "children": [],
-      "id": "asthma"
-     },
-     {
-      "children": [],
-      "id": "axial spondyloarthritis"
-     },
-     {
-      "children": [],
-      "id": "chronic graft-versus-host disease"
-     },
-     {
-      "children": [],
-      "id": "food allergy"
-     },
-     {
-      "children": [],
-      "id": "hidradenitis suppurativa"
-     },
-     {
-      "children": [],
-      "id": "immune thrombocytopenia"
-     },
-     {
-      "children": [],
-      "id": "inflammatory bowel disease"
-     },
-     {
-      "children": [],
-      "id": "multiple sclerosis"
-     },
-     {
-      "children": [],
-      "id": "psoriasis"
-     },
-     {
-      "children": [],
-      "id": "rheumatoid arthritis"
-     },
-     {
-      "children": [],
-      "id": "systemic lupus erythematosus"
-     },
-     {
-      "children": [],
-      "id": "systemic sclerosis"
-     },
-     {
-      "children": [],
-      "id": "type 1 diabetes"
-     },
-     {
-      "children": [
-       "kidney transplant rejection",
-       "kidney transplant graft failure"
-      ],
-      "id": "kidney transplant"
-     },
-     {
-      "children": [],
-      "id": "juvenile idiopathic arthritis"
-     },
-     {
-      "children": [],
-      "id": "lung transplant"
-     },
-     {
-      "children": [],
-      "id": "Graves' disease"
-     },
-     {
-      "children": [],
-      "id": "bullous pemphigoid"
-     },
-     {
-      "children": [],
-      "id": "membranous nephropathy"
-     }
-    ],
-    "id": "Immune-mediated and allergic diseases"
-   },
-   {
-    "diseases": [
-     {
-      "children": [],
-      "id": "Kaposi sarcoma"
-     },
-     {
-      "children": [],
-      "id": "Merkel cell carcinoma"
-     },
-     {
-      "children": [],
-      "id": "anal cancer"
-     },
-     {
-      "children": [],
-      "id": "biliary tract cancer"
-     },
-     {
-      "children": [],
-      "id": "breast cancer"
-     },
-     {
-      "children": [],
-      "id": "cancer of unknown primary"
-     },
-     {
-      "children": [],
-      "id": "cervical cancer"
-     },
-     {
-      "children": [],
-      "id": "colorectal cancer"
-     },
-     {
-      "children": [],
-      "id": "endometrial cancer"
-     },
-     {
-      "children": [],
-      "id": "gastric / gastro-oesophageal adenocarcinoma"
-     },
-     {
-      "children": [],
-      "id": "glioma"
-     },
-     {
-      "children": [
-       "nasopharyngeal carcinoma"
-      ],
-      "id": "head and neck cancer"
-     },
-     {
-      "children": [
-       "hepatocellular carcinoma"
-      ],
-      "id": "liver cancer"
-     },
-     {
-      "children": [
-       "non-small cell lung cancer",
-       "small cell lung cancer"
-      ],
-      "id": "lung cancer"
-     },
-     {
-      "children": [
-       "uveal melanoma"
-      ],
-      "id": "melanoma"
-     },
-     {
-      "children": [],
-      "id": "mesothelioma"
-     },
-     {
-      "children": [],
-      "id": "neuroendocrine neoplasm"
-     },
-     {
-      "children": [
-       "oesophageal squamous cell carcinoma"
-      ],
-      "id": "oesophageal cancer"
-     },
-     {
-      "children": [],
-      "id": "other or unspecified cancer"
-     },
-     {
-      "children": [],
-      "id": "ovarian cancer"
-     },
-     {
-      "children": [],
-      "id": "pancreatic cancer"
-     },
-     {
-      "children": [],
-      "id": "penile cancer"
-     },
-     {
-      "children": [],
-      "id": "prostate cancer"
-     },
-     {
-      "children": [],
-      "id": "renal cell carcinoma"
-     },
-     {
-      "children": [],
-      "id": "salivary gland cancer"
-     },
-     {
-      "children": [
-       "Ewing sarcoma",
-       "bone sarcoma",
-       "soft tissue sarcoma"
-      ],
-      "id": "sarcoma"
-     },
-     {
-      "children": [],
-      "id": "skin cancer"
-     },
-     {
-      "children": [],
-      "id": "skin squamous cell carcinoma"
-     },
-     {
-      "children": [],
-      "id": "small bowel / duodenal cancer"
-     },
-     {
-      "children": [],
-      "id": "thyroid cancer"
-     },
-     {
-      "children": [],
-      "id": "urethral cancer"
-     },
-     {
-      "children": [],
-      "id": "urothelial (bladder) cancer"
-     },
-     {
-      "children": [],
-      "id": "uterine cancer"
-     },
-     {
-      "children": [],
-      "id": "vulvar cancer"
-     },
-     {
-      "children": [],
-      "id": "thymoma"
-     }
-    ],
-    "id": "Solid tumours"
-   },
-   {
-    "diseases": [
-     {
-      "children": [],
-      "id": "Hodgkin lymphoma"
-     },
-     {
-      "children": [],
-      "id": "acute lymphoblastic leukaemia"
-     },
-     {
-      "children": [],
-      "id": "acute myeloid leukaemia"
-     },
-     {
-      "children": [],
-      "id": "chronic lymphocytic leukaemia"
-     },
-     {
-      "children": [],
-      "id": "chronic myeloid leukaemia"
-     },
-     {
-      "children": [],
-      "id": "cutaneous T-cell lymphoma"
-     },
-     {
-      "children": [],
-      "id": "large B-cell lymphoma"
-     },
-     {
-      "children": [],
-      "id": "multiple myeloma"
-     },
-     {
-      "children": [],
-      "id": "myelodysplastic syndrome"
-     },
-     {
-      "children": [],
-      "id": "myeloproliferative neoplasm"
-     },
-     {
-      "children": [],
-      "id": "other lymphoma"
-     },
-     {
-      "children": [],
-      "id": "acute promyelocytic leukaemia"
-     }
-    ],
-    "id": "Blood cancers"
-   },
-   {
-    "diseases": [
-     {
-      "children": [],
-      "id": "acute kidney injury"
-     },
-     {
-      "children": [],
-      "id": "cystic fibrosis"
-     },
-     {
-      "children": [],
-      "id": "female infertility"
-     },
-     {
-      "children": [],
-      "id": "glucocorticoid-induced osteoporosis"
-     },
-     {
-      "children": [],
-      "id": "hereditary transthyretin amyloidosis"
-     },
-     {
-      "children": [],
-      "id": "idiopathic pulmonary fibrosis"
-     },
-     {
-      "children": [],
-      "id": "iron deficiency anaemia"
-     },
-     {
-      "children": [],
-      "id": "liver cirrhosis"
-     },
-     {
-      "children": [],
-      "id": "osteoarthritis"
-     },
-     {
-      "children": [],
-      "id": "secondary hyperparathyroidism"
-     },
-     {
-      "children": [],
-      "id": "testosterone deficiency syndrome"
-     },
-     {
-      "children": [],
-      "id": "type 2 diabetes"
-     },
-     {
-      "children": [],
-      "id": "burn injury"
-     },
-     {
-      "children": [],
-      "id": "focal segmental glomerulosclerosis"
-     },
-     {
-      "children": [],
-      "id": "stroke"
-     },
-     {
-      "children": [],
-      "id": "amyotrophic lateral sclerosis"
-     },
-     {
-      "children": [],
-      "id": "acute limb ischemia"
-     },
-     {
-      "children": [],
-      "id": "pulmonary arterial hypertension"
-     },
-     {
-      "children": [],
-      "id": "sarcopenia / muscle-function decline"
-     },
-     {
-      "children": [],
-      "id": "tuberous sclerosis"
-     },
-     {
-      "children": [],
-      "id": "end-stage kidney disease"
-     },
-     {
-      "children": [],
-      "id": "ectopic pregnancy"
-     },
-     {
-      "children": [],
-      "id": "acute coronary syndrome"
-     },
-     {
-      "children": [],
-      "id": "neonatal necrotizing enterocolitis"
-     },
-     {
-      "children": [],
-      "id": "NAFLD / MASLD"
-     }
-    ],
-    "id": "Other diseases"
-   },
-   {
-    "diseases": [
-     {
-      "children": [],
-      "id": "bipolar disorder"
-     },
-     {
-      "children": [],
-      "id": "major depressive disorder"
-     },
-     {
-      "children": [],
-      "id": "post-traumatic stress disorder"
-     }
-    ],
-    "id": "Psychiatric disorders"
-   }
-  ],
-  "treatment_classes": [
-   {
-    "id": "immune checkpoint inhibitor",
-    "label": "Immune checkpoint inhibitor"
-   },
-   {
-    "id": "chemotherapy",
-    "label": "Chemotherapy"
-   },
-   {
-    "id": "targeted therapy",
-    "label": "Targeted therapy"
-   },
-   {
-    "id": "hormone therapy",
-    "label": "Hormone therapy"
-   },
-   {
-    "id": "radiotherapy",
-    "label": "Radiotherapy"
-   },
-   {
-    "id": "cell therapy",
-    "label": "Cell therapy"
-   },
-   {
-    "id": "anti-infective",
-    "label": "Anti-infective (antiviral, antibacterial, antifungal or anti-TB)"
-   },
-   {
-    "id": "biologic immunomodulator",
-    "label": "Biologic immunomodulator"
-   },
-   {
-    "id": "small-molecule immunomodulator or immunosuppressant",
-    "label": "Small-molecule immunomodulator or immunosuppressant"
-   },
-   {
-    "id": "corticosteroid",
-    "label": "Corticosteroid"
-   },
-   {
-    "id": "vaccine",
-    "label": "Vaccine"
-   },
-   {
-    "id": "other drug",
-    "label": "Other drug"
-   }
-  ]
- }
+ "schema_version": 2
 }

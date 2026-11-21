@@ -347,7 +347,7 @@ async fn pick_is_deterministic_three_fast_saving_methods() {
             inventory: inputs.validation.inventory.clone(),
         },
     )
-    .expect("the example inventory carries no study answers");
+    .expect("the example inventory carries no method filters");
     for id in &a {
         let method = cat.method(id).expect("catalogue method");
         assert!(txresbench::modules::method_list::builtin().has_env(id), "{id} has a published environment");

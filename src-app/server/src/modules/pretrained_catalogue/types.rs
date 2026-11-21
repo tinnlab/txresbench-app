@@ -707,8 +707,8 @@ pub enum PretrainedReasonCode {
     // The engine's marker-count rule (the provider's code, mapped 1:1).
     #[serde(rename = "MARKER_COUNT_UNMET")]
     MarkerCountUnmet,
-    /// The provider's study-answer filters (pretrained entries never receive
-    /// study answers, but the wire language is the provider's — the 1:1
+    /// The provider's filter reasons (pretrained entries never receive
+    /// method filters, but the wire language is the provider's — the 1:1
     /// mapper below keeps the two vocabularies drift-proof).
     #[serde(rename = "DISEASE_NOT_MATCHED")]
     DiseaseNotMatched,
@@ -1125,7 +1125,7 @@ mod tests {
                 has_event: true,
                 has_survival_day: true,
             }),
-            study: None,
+            filters: None,
         };
 
         // The provider's own union wraps THE SAME value (imported type): the

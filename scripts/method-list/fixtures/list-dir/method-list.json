@@ -1,6 +1,55 @@
 {
  "assembled_at": "2026-01-01T00:00:00Z",
  "catalogue": {
+  "filter_options": {
+   "disease_categories": [
+    {
+     "diseases": [
+      {
+       "children": [
+        "non-small cell lung cancer",
+        "small cell lung cancer"
+       ],
+       "id": "lung cancer"
+      },
+      {
+       "children": [],
+       "id": "breast cancer"
+      },
+      {
+       "children": [],
+       "id": "prostate cancer"
+      }
+     ],
+     "id": "Solid tumours"
+    },
+    {
+     "diseases": [
+      {
+       "children": [
+        "diffuse large B-cell lymphoma"
+       ],
+       "id": "lymphoma"
+      }
+     ],
+     "id": "Haematological"
+    }
+   ],
+   "treatment_classes": [
+    {
+     "id": "immune checkpoint inhibitor",
+     "label": "Immune checkpoint inhibitor"
+    },
+    {
+     "id": "chemotherapy",
+     "label": "Chemotherapy"
+    },
+    {
+     "id": "targeted therapy",
+     "label": "Targeted therapy"
+    }
+   ]
+  },
   "generated_from": {
    "generated_at": "2026-01-01T00:00:00Z",
    "manifest_commit": "fixture",
@@ -385,56 +434,7 @@
     "year": 2026
    }
   ],
-  "schema_version": 2,
-  "study_options": {
-   "disease_categories": [
-    {
-     "diseases": [
-      {
-       "children": [
-        "non-small cell lung cancer",
-        "small cell lung cancer"
-       ],
-       "id": "lung cancer"
-      },
-      {
-       "children": [],
-       "id": "breast cancer"
-      },
-      {
-       "children": [],
-       "id": "prostate cancer"
-      }
-     ],
-     "id": "Solid tumours"
-    },
-    {
-     "diseases": [
-      {
-       "children": [
-        "diffuse large B-cell lymphoma"
-       ],
-       "id": "lymphoma"
-      }
-     ],
-     "id": "Haematological"
-    }
-   ],
-   "treatment_classes": [
-    {
-     "id": "immune checkpoint inhibitor",
-     "label": "Immune checkpoint inhibitor"
-    },
-    {
-     "id": "chemotherapy",
-     "label": "Chemotherapy"
-    },
-    {
-     "id": "targeted therapy",
-     "label": "Targeted therapy"
-    }
-   ]
-  }
+  "schema_version": 2
  },
  "format": "txresbench-method-list",
  "format_version": 2,
