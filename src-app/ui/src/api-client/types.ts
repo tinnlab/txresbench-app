@@ -1478,9 +1478,9 @@ export interface MethodListQuery {
   /** Case-insensitive substring on the method id. */
   q?: string
   /**
-   * Filter to runnable / non-runnable entries. (The shipped catalogue is the
-   *  runnable set — DEC-2 — so this is a contract future for the fixture
-   *  world and for consumers that must reason about both.)
+   * Filter to runnable / non-runnable entries. A method the list retires
+   *  keeps its row (`runnable: false`) so saved models and history still
+   *  resolve it; a screen that offers methods asks for `runnable: true`.
    */
   runnable?: boolean
 }
@@ -2709,6 +2709,12 @@ export interface ResolvedAsset {
    *  `conversions`; absent when none was saved).
    */
   conversions?: any
+  /**
+   * The decision day the model was trained at (the row's `decision_day`;
+   *  the engine element's `decision_day` — a reuse run must run at the
+   *  model's own day, bug 3). Absent on a pre-bug-3 client asset.
+   */
+  decision_day?: number
   env: TxrMethodEnv
   host_dir: string
   /**
@@ -3614,6 +3620,14 @@ export interface TxrModelAsset {
    *  before conversions were kept).
    */
   conversions?: any
+  /**
+   * The decision day the model was trained at (the store row's
+   *  `decision_day`, filled by `model_store::resolve_assets`). A saved
+   *  model runs at its own decision day: `validate` refuses a reuse run
+   *  whose `config.decision_day` differs (`MODEL_DECISION_DAY_MISMATCH`).
+   *  Absent on an asset from an older client: no check.
+   */
+  decision_day?: number
   env: TxrMethodEnv
   host_dir: string
   /**

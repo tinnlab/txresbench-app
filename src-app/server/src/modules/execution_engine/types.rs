@@ -533,6 +533,13 @@ pub struct TxrModelAsset {
     /// its version equals `method_version`, otherwise the model is refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method_facts: Option<TxrMethodFacts>,
+    /// The decision day the model was trained at (the store row's
+    /// `decision_day`, filled by `model_store::resolve_assets`). A saved
+    /// model runs at its own decision day: `validate` refuses a reuse run
+    /// whose `config.decision_day` differs (`MODEL_DECISION_DAY_MISMATCH`).
+    /// Absent on an asset from an older client: no check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_day: Option<f64>,
 }
 
 /// The run-shaping facts of a catalogue row: the method.json contract the
@@ -1063,6 +1070,7 @@ pub enum TxrRequestErrorCode {
     InvalidDecisionDay,
     InvalidLookAhead,
     InvalidModelAsset,
+    ModelDecisionDayMismatch,
 }
 
 impl TxrRequestErrorCode {
@@ -1075,6 +1083,7 @@ impl TxrRequestErrorCode {
             TxrRequestErrorCode::InvalidDecisionDay => "INVALID_DECISION_DAY",
             TxrRequestErrorCode::InvalidLookAhead => "INVALID_LOOK_AHEAD",
             TxrRequestErrorCode::InvalidModelAsset => "INVALID_MODEL_ASSET",
+            TxrRequestErrorCode::ModelDecisionDayMismatch => "MODEL_DECISION_DAY_MISMATCH",
         }
     }
 }
@@ -1120,7 +1129,12 @@ impl CreateRunRequest {
     ///   greater than `decision_day` (`INVALID_LOOK_AHEAD`);
     /// - every model asset carries a non-empty `host_dir`, a 64-hex
     ///   `tree_sha256` and a non-empty `method_id` (`INVALID_MODEL_ASSET` with
-    ///   the named field path).
+    ///   the named field path);
+    /// - reuse mode: an asset whose recorded `decision_day` differs from the
+    ///   run's `config.decision_day` is refused
+    ///   (`MODEL_DECISION_DAY_MISMATCH` — a saved model runs at its own
+    ///   decision day, bug 3); an asset without the field (an older client)
+    ///   is not checked.
     pub fn validate(&self) -> Result<(), TxrRequestError> {
         match self.mode {
             TxrRunMode::Train if self.method_ids.is_empty() => {
@@ -1207,6 +1221,19 @@ impl CreateRunRequest {
                     message: p.problem,
                 });
             }
+            if let Some(day) = asset.decision_day {
+                if day != self.config.decision_day {
+                    return Err(TxrRequestError {
+                        code: TxrRequestErrorCode::ModelDecisionDayMismatch,
+                        field: format!("model_ids[{i}].decision_day"),
+                        message: format!(
+                            "This model was trained at decision day {day}; the run asks for \
+                             day {}. A saved model runs at its own decision day.",
+                            self.config.decision_day
+                        ),
+                    });
+                }
+            }
         }
 
         Ok(())
@@ -1259,6 +1286,7 @@ mod tests {
             contract: "2.0".to_string(),
             conversions: Default::default(),
             method_facts: None,
+            decision_day: None,
         }
     }
 
@@ -1675,6 +1703,49 @@ mod tests {
         let err = req.validate().unwrap_err();
         assert_eq!(err.field, "model_ids[0].conversions[no_response]");
         assert_eq!(err.message, "sd is not a finite number above 0");
+    }
+
+    /// A saved model runs at its own decision day (bug 3): a reuse request
+    /// whose `config.decision_day` differs from the asset's recorded
+    /// `decision_day` is refused with `MODEL_DECISION_DAY_MISMATCH` naming
+    /// `model_ids[i].decision_day`; the model's own day is accepted, and an
+    /// asset without the field (an older client) is not checked.
+    #[test]
+    fn reuse_asset_must_match_the_models_own_decision_day() {
+        let mut req = sample_request(TxrRunMode::Reuse);
+        req.config.decision_day = 28.0;
+        let mut with_day = valid_asset();
+        with_day.decision_day = Some(28.0);
+        req.model_ids = vec![with_day.clone()];
+        assert_eq!(req.validate(), Ok(()), "the model's own day is accepted");
+
+        let mut wrong = valid_asset();
+        wrong.decision_day = Some(56.0);
+        req.model_ids = vec![wrong.clone()];
+        let err = req.validate().unwrap_err();
+        assert_eq!(err.code, TxrRequestErrorCode::ModelDecisionDayMismatch);
+        assert_eq!(err.code.code(), "MODEL_DECISION_DAY_MISMATCH");
+        assert_eq!(err.field, "model_ids[0].decision_day");
+        assert!(
+            err.message.contains("trained at decision day 56"),
+            "{}",
+            err.message
+        );
+        assert!(
+            err.message.contains("asks for day 28"),
+            "{}",
+            err.message
+        );
+
+        // The second asset's mismatch names ITS index.
+        req.model_ids = vec![with_day, wrong];
+        let err = req.validate().unwrap_err();
+        assert_eq!(err.field, "model_ids[1].decision_day");
+        assert_eq!(err.code, TxrRequestErrorCode::ModelDecisionDayMismatch);
+
+        // An asset without the field (an older client) is accepted.
+        req.model_ids = vec![valid_asset()];
+        assert_eq!(req.validate(), Ok(()));
     }
 
     #[test]

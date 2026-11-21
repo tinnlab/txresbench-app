@@ -631,6 +631,11 @@ pub struct ResolvedAsset {
     /// kept).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method_facts: Option<crate::modules::execution_engine::types::TxrMethodFacts>,
+    /// The decision day the model was trained at (the row's `decision_day`;
+    /// the engine element's `decision_day` — a reuse run must run at the
+    /// model's own day, bug 3). Absent on a pre-bug-3 client asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_day: Option<f64>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1112,6 +1117,7 @@ mod tests {
             contract: "2.0".into(),
             conversions: Default::default(),
             method_facts: None,
+            decision_day: Some(28.0),
         };
         let json = serde_json::to_value(&engine_asset).expect("engine asset serializes");
         let mine: ResolvedAsset = serde_json::from_value(json.clone())
@@ -1119,6 +1125,7 @@ mod tests {
         assert_eq!(serde_json::to_value(&mine).expect("store asset serializes"), json);
         assert_eq!(mine.env.base_digest, engine_asset.env.base_digest);
         assert_eq!(mine.env.layer_digest, engine_asset.env.layer_digest);
+        assert_eq!(mine.decision_day, Some(28.0), "the new field round-trips");
 
         // With saved conversions, both directions are still byte-equal (the
         // UI passes the resolve response straight into the run request).

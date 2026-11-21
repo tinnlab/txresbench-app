@@ -914,6 +914,62 @@ async fn the_route_matrix_is_401_403_404_400_and_409() {
     );
 }
 
+/// Bug 3's HTTP surface (the create route's own 400): a reuse run whose
+/// model asset records its training decision day 28 and whose config asks
+/// for day 56 is refused at create-time BEFORE anything is resolved — HTTP
+/// 400 with `MODEL_DECISION_DAY_MISMATCH` in the body. The
+/// drive-level sibling test asserts the same refusal on `start_run`'s
+/// `AppError` with a model saved at day 28; this one pins the route's wire
+/// mapping (the body the UI renders), with the asset's day riding the same
+/// wire field the model-store resolve response fills.
+#[tokio::test]
+async fn a_reuse_run_at_a_different_decision_day_is_400_on_the_create_route() {
+    use txresbench::modules::execution_engine::types::{TxrMethodEnv, TxrModelAsset};
+
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+
+    let asset = TxrModelAsset {
+        model_id: Uuid::new_v4().to_string(),
+        host_dir: "/data/models/day-28".to_string(),
+        tree_sha256: "a".repeat(64),
+        method_id: "cox-cutpoint-risk".to_string(),
+        method_version: "2.0.1".to_string(),
+        env: TxrMethodEnv::digests("b".repeat(64), "c".repeat(64)),
+        contract: "2.0".to_string(),
+        conversions: Default::default(),
+        method_facts: None,
+        decision_day: Some(28.0),
+    };
+    let mut body = cohort_run_body(&[], 1, false);
+    body["mode"] = json!("reuse");
+    body["input"]["patients"] = json!(null);
+    body["config"]["decision_day"] = json!(56.0);
+    body["method_ids"] = json!([]);
+    body["model_ids"] = json!([serde_json::to_value(&asset).expect("asset json")]);
+
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .json(&body)
+        .send()
+        .await
+        .expect("post a reuse run");
+    assert_eq!(resp.status().as_u16(), 400, "{resp:?}");
+    let body: Value = resp.json().await.expect("error json");
+    assert_eq!(error_code(&body), "MODEL_DECISION_DAY_MISMATCH");
+    let error = body["error"].as_str().expect("the error message");
+    assert!(
+        error.contains("trained at decision day 28"),
+        "the body names the model's own day: {body}"
+    );
+    assert!(
+        error.contains("day 56"),
+        "the body names the requested day: {body}"
+    );
+}
+
 /// TEST-EE-25: every ref in the committed manifest is scheme-less on the
 /// allowlisted prefix (never a host literal in the engine — the manifest is
 /// DATA, and its refs pass the provider's OWN validation), and an off-host ref
