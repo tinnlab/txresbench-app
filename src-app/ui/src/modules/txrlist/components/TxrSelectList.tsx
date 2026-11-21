@@ -103,6 +103,9 @@ export interface TxrSelectListBottomBar {
   saveModels?: { checked: boolean; onChange(v: boolean): void }
   /** The research-use notice (DEC-13); not rendered when null. */
   notice?: string | null
+  /** Why the run cannot start with this selection (the reason beside the
+   *  disabled button), or null — the D/I bar's blocked-state idiom. */
+  blockedReason?: string | null
   /** Run clicked: the run keys + the options (atATime, saveModels). */
   onRun(keys: string[], opts: { atATime: number; saveModels: boolean }): void
   /** The host step's Back button, rendered just before Run (absent: nothing extra). */
@@ -468,6 +471,7 @@ export function TxrSelectList({
       atATime={bottomBar.atATime}
       saveModels={bottomBar.saveModels}
       notice={bottomBar.notice}
+      blockedReason={bottomBar.blockedReason}
       onRun={opts => bottomBar.onRun(runKeys(selected, rows), opts)}
       back={bottomBar.back}
     />

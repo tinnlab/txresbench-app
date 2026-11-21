@@ -47,9 +47,13 @@
  *   controls, the research notice, Run) and the reuse Run: resolve FIRST
  *   (CONS-UM-24 — the selected model uuids → assets verbatim), then
  *   `createRun` (CONS-UM-13: mode reuse, input through the intake
- *   builder, config = the FIRST SELECTED model's own endpoint + horizon
- *   — the I screen has no settings controls, ITEM-6's rule — + the
- *   intake's decision day) → `runningPath(runId)`.
+ *   builder, config = the FIRST SELECTED model's own endpoint + horizon +
+ *   decision day — the I screen has no settings controls, ITEM-6's rule,
+ *   and a model runs at the day it was trained at, never the intake's).
+ *   Models trained at different decision days make the Run unavailable
+ *   with the reason (the same rule the engine enforces as
+ *   `MODEL_DECISION_DAY_MISMATCH`, and the registered `models.run` action
+ *   refuses it for the assistant path too).
  *
  * STATES: no validated predict file → the not-ready empty state (never a
  * half-built list; the inventory is the validation's — DEC-6); a saved
@@ -62,7 +66,8 @@
  * boards' numbers are never constants here.
  */
 import { TxrModelHorizonLine } from '../components/TxrModelHorizonLine'
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { type ModelRunFacts, useModelListRun } from '../lib/modelRun'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
@@ -177,12 +182,6 @@ const EMPTY_NOTE =
  *  step the flow needs next). */
 const EMPTY_CTA = 'Go to the measurements step'
 
-/** The empty-selection refusal line (the D page's own rule, stated here). */
-const RUN_EMPTY_LINE = 'Select at least one model to run.'
-
-/** The failure line a create failure folds back to (never blank). */
-const RUN_FAILED_LINE = 'The models could not be prepared.'
-
 /** I's one host chip (the board's words; the other two chips are the
  *  shared bar's built-in counts). */
 interface Ichip {
@@ -199,20 +198,6 @@ const I_SORT_OPTIONS: ReadonlyArray<{ value: TxrModelSortId; label: string }> = 
   { value: 'time', label: 'Time to run' },
 ]
 
-/** The run's failure text (the framework transport's message, else the constant). */
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (
-    error !== null &&
-    typeof error === 'object' &&
-    'message' in error &&
-    typeof (error as { message: unknown }).message === 'string'
-  ) {
-    return (error as { message: string }).message
-  }
-  return RUN_FAILED_LINE
-}
-
 /** The "Checked against your file" line from the validation (CONS-UM-11) —
  *  the I board's own tail ("Models from one training run are grouped;
  *  pick any of them."; the formatter lives in lib/format.ts — the D page
@@ -227,17 +212,18 @@ function checkedLine(raw: {
   )
 }
 
-/** The reuse-mode config: the FIRST SELECTED model's own endpoint/horizon
- *  (the I screen has no settings controls — a model is run at the horizon
- *  it was trained for; ITEM-6's DEC-5 amendment), the intake's decision
- *  day, and the engine-defaults the boards' bars carry (covariates off,
- *  detect CPUs, nothing saved, label day derived). The `unknown` bridge is
- *  the generated client's plain-optional `cpus` / `label_day` (the
- *  toRunConfig class — the wire bytes are the engine's). */
-function reuseConfig(first: ModelSummary, decisionDay: number, atATime: number): RunConfig {
+/** The reuse-mode config: the FIRST SELECTED model's own endpoint/horizon/
+ *  decision day (the I screen has no settings controls — a model is run at
+ *  the horizon and the decision day it was trained for, never at the
+ *  intake's day; ITEM-6's DEC-5 amendment + data-pickup-bugs bug 3), and the
+ *  engine-defaults the boards' bars carry (covariates off, detect CPUs,
+ *  nothing saved, label day derived). The `unknown` bridge is the generated
+ *  client's plain-optional `cpus` / `label_day` (the toRunConfig class — the
+ *  wire bytes are the engine's). */
+function reuseConfig(first: ModelSummary, atATime: number): RunConfig {
   return {
     endpoint: first.endpoint,
-    decision_day: decisionDay,
+    decision_day: first.decision_day,
     look_ahead_day: first.horizon,
     covariates: false,
     at_a_time: atATime,
@@ -258,7 +244,6 @@ const NO_SECTION_ACTION: SectionActionState = { kind: 'rename', set: null }
 export function SavedModelsPage() {
   const navigate = useNavigate()
   const validation = useStore(useTxrIntakeStore, s => s.validation)
-  const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)
   const predictMeasurements = useStore(useTxrIntakeStore, s => s.predictMeasurements)
@@ -496,86 +481,87 @@ export function SavedModelsPage() {
   }, [])
 
   // ── The Run path (CONS-UM-24/13 — the I arm of TEST-MOD-32) ──────────────
-  const [runError, setRunError] = useState<string | null>(null)
-  const creating = useRef(false)
-  /** A create is in flight: Back is unavailable until it settles (the
-   *  success path leaves for the Running screen). */
-  const [starting, setStarting] = useState(false)
-
-  // The step's Back (the step trail): with no trail, Back goes to the file
-  // step. Only the dialogs this page shows count as open (the row Details,
-  // the set Rename/Delete): the store's dialog id is shared with the
-  // published-models page.
-  useStepBack({
-    step: 'saved-models',
-    fallback: predictFilesPath(),
-    blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
-    dialogOpen: dialog.startsWith('details:') || sectionAction.set !== null,
-  })
+  // The page's one guarded Run + the live model-list instance (`models.run`
+  // target) live in the shared `useModelListRun` — the Run button and the
+  // registered action call the SAME `startRun` (one guarded function, so a
+  // selection the engine would refuse — models trained at different decision
+  // days — is refused identically for the human and for the AI path; the
+  // button also carries the refusal as its unavailability reason).
 
   /**
-   * The reuse Run: gate → resolve FIRST (the selected uuids, assets
-   * verbatim — never bare uuids in the create call) → create → navigate.
-   * ONE create is ever in flight; a gated attempt (empty selection) writes
-   * the inline line and NEVER creates the run; a resolve failure (404 /
-   * 409) surfaces the response's line inline with no run created.
+   * The reuse create: resolve FIRST (the selected uuids, assets verbatim —
+   * never bare uuids in the create call) → create → navigate. THROWS on
+   * every refusal/failure (with the response's line): the shared `startRun`
+   * writes the inline line and lets the `models.run` action REJECT with the
+   * same text, so neither path can ever report a run that did not start. A
+   * gated attempt (an empty selection, a mixed-day selection) never reaches
+   * here — the shared guards decide it before this call.
    */
   const createRun = useCallback(
-    async (keys: string[]): Promise<void> => {
-      if (keys.length === 0) {
-        setRunError(RUN_EMPTY_LINE)
-        return
-      }
-      if (creating.current) return
-      creating.current = true
-      setStarting(true)
-      setRunError(null)
-      // A navigation to the Running screen leaves this step: Back stays
-      // unavailable until the route changes (the Running chunk may still load).
-      let leaving = false
-      try {
-        const runModels = saved.summaries.filter(model => keys.includes(model.id))
-        const { assets } = await ApiClient.Models.resolveModels({
-          model_ids: runModels.map(model => model.id),
-        })
-        const input = buildTxrRunInput({
+    async (keys: readonly string[]): Promise<string> => {
+      // The run's order is the SELECTION's order (the keys the list hands
+      // over) — the first selected model is the config's source, never the
+      // first model of the list order.
+      const runModels = keys
+        .map(key => modelById.get(key))
+        .filter((model): model is ModelSummary => model !== undefined)
+      const { assets } = await ApiClient.Models.resolveModels({
+        model_ids: runModels.map(model => model.id),
+      })
+      const input = buildTxrRunInput(
+        {
           patients,
           measurements,
           predictMeasurements,
           joins,
           mapping,
-        } as unknown as IntakeSnapshot)
-        const run = await ApiClient.Txr.createRun({
-          mode: 'reuse',
-          input,
-          config: reuseConfig(
-            runModels[0] ?? firstModel(saved.summaries),
-            parameters.decision_day,
-            atATime,
-          ),
-          model_ids: assets,
-        })
-        leaving = true
-        navigate(runningPath(run.id))
-      } catch (error) {
-        setRunError(errorText(error))
-      } finally {
-        creating.current = false
-        if (!leaving) setStarting(false)
-      }
+        } as unknown as IntakeSnapshot,
+        'predict',
+      )
+      const created = await ApiClient.Txr.createRun({
+        mode: 'reuse',
+        input,
+        config: reuseConfig(runModels[0] ?? firstModel(saved.summaries), atATime),
+        model_ids: assets,
+      })
+      navigate(runningPath(created.id))
+      return created.id
     },
     [
       saved.summaries,
+      modelById,
       patients,
       measurements,
       predictMeasurements,
       joins,
       mapping,
-      parameters,
       atATime,
       navigate,
     ],
   )
+
+  // The step's Back (the step trail): with no trail, Back goes to the file
+  // step. Only the dialogs this page shows count as open (the row Details,
+  // the set Rename/Delete): the store's dialog id is shared with the
+  // published-models page.
+  const run = useModelListRun({
+    rows,
+    selection,
+    getSelection: () => useTxrModelsStore.getState().selection,
+    factsOf: (key: string): ModelRunFacts | undefined => {
+      const model = modelById.get(key)
+      return model === undefined
+        ? undefined
+        : { decision_day: model.decision_day, horizon: model.horizon }
+    },
+    createRun,
+  })
+  useStepBack({
+    step: 'saved-models',
+    fallback: predictFilesPath(),
+    blockedReason: run.starting ? STEP_BACK_STARTING_REASON : null,
+    dialogOpen: dialog.startsWith('details:') || sectionAction.set !== null,
+  })
 
   // ── The composition edge the header reads (the D page's `totals` alias:
   // the store slice's property is mutable, so the null-narrowing needs the
@@ -644,10 +630,8 @@ export function SavedModelsPage() {
   // without the list chrome.
 
   // The look-ahead the run will use (the first chosen model's own, in the
-  // run's order).
-  const chosenHorizons = saved.summaries
-    .filter(model => selection.has(model.id))
-    .map(model => model.horizon)
+  // run's order): the shared hook reads the SAME runnable keys the run
+  // takes — a selected row whose run is disabled is never counted.
   /** The page's fixed top (the list's toolbar joins it in the list branch). */
   const pageTop = (toolbar: ReactNode | null): ReactNode => (
     <div className="txr-models-i-top" style={PAGE_TOP}>
@@ -673,7 +657,11 @@ export function SavedModelsPage() {
             </p>
           ) : null}
           {validation !== null ? (
-            <TxrModelHorizonLine testId="txr-models-i-horizon" horizons={chosenHorizons} />
+            <TxrModelHorizonLine
+              testId="txr-models-i-horizon"
+              horizons={run.horizons}
+              decisionDays={run.decisionDays}
+            />
           ) : null}
         </div>
         {validation !== null ? (
@@ -710,8 +698,8 @@ export function SavedModelsPage() {
           {toolbar}
         </div>
       ) : null}
-      {runError !== null ? (
-        <Alert tone="error" data-testid="txr-models-i-run-error" title={runError} />
+      {run.runError !== null ? (
+        <Alert tone="error" data-testid="txr-models-i-run-error" title={run.runError} />
       ) : null}
     </div>
   )
@@ -849,8 +837,12 @@ export function SavedModelsPage() {
             totalSecondsForSelection(selection, eligibility.byKey),
           ),
           notice: RESEARCH_NOTICE,
+          blockedReason: run.blockedReason,
           onRun: keys => {
-            void createRun(keys)
+            // THE one guarded Run (the same function the `models.run`
+            // action calls): the shared path writes the inline line itself;
+            // only the rejection is swallowed here (never an unhandled one).
+            void run.startRun(keys).catch(() => undefined)
           },
           back: <TxrStepBack look="list-bar" />,
         }}

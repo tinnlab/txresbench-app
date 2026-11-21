@@ -45,8 +45,10 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { Button } from '@txresbench/kit'
 import '@/core/actions/builtin/stepActions'
 import '@/core/actions/builtin/appActions'
+import '@/core/actions/builtin/modelRunActions'
 import { runAction } from '@/core/actions/defineAction'
 import { RouterBridge } from '@/core/actions/navigateBridge'
+import { instancesOfType } from '@/core/actions/instanceRegistry'
 import type {
   PretrainedEligibilityResponse,
   PretrainedListResponse,
@@ -890,6 +892,195 @@ describe('PretrainedModelsPage — the D Run flow (TEST-MOD-32 / CONS-UM-24 + 13
     await settle(0)
     expect(api.createRun).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('the reuse config carries the first selected card\u2019s own decision day, never the intake\u2019s', async () => {
+    // The study step says day 56; the selected card was trained at 28.
+    useTxrIntakeStore.setState({ parameters: { decision_day: 56, baseline_max_day: 0 } })
+    api.listModels.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 3,
+      models: runCatalogue().map(card =>
+        card.id === 'rc-1' ? { ...card, decision_day: 28 } : card,
+      ),
+    } as PretrainedListResponse)
+    api.eligibility.mockResolvedValue(runEligibility())
+    renderPage()
+    await settle(0)
+    await selectRow('ps:rc-1')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    const request = api.createRun.mock.calls[0][0] as { config: Record<string, unknown> }
+    expect(request.config.decision_day).toBe(28)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('cards trained at different decision days: the Run button is unavailable with the reason, no run starts, and the action refuses too', async () => {
+    useTxrIntakeStore.setState({ parameters: { decision_day: 56, baseline_max_day: 0 } })
+    api.listModels.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 3,
+      models: runCatalogue().map(card =>
+        card.id === 'rc-1'
+          ? { ...card, decision_day: 28 }
+          : card.id === 'rc-2'
+            ? { ...card, decision_day: 56 }
+            : card,
+      ),
+    } as PretrainedListResponse)
+    api.eligibility.mockResolvedValue(runEligibility())
+    renderPage()
+    await settle(0)
+    await selectRow('ps:rc-1')
+    await selectRow('ps:rc-2')
+    const reason =
+      'The models you chose were trained at different decision days (day 28 and day 56). Choose models with the same decision day.'
+    expect(screen.getByTestId('txr-list-run').hasAttribute('disabled')).toBe(true)
+    expect(screen.getByTestId('txr-list-blocked-reason').textContent).toBe(reason)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.resolveModels).not.toHaveBeenCalled()
+    expect(api.createRun).not.toHaveBeenCalled()
+    // The assistant path takes the same guard: the registered action refuses.
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const token = live[0].record.getSnapshot()['_state_token'] as string
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('models.run', {
+        view_id: live[0].id,
+        expected: token,
+      }).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toBe(reason)
+  })
+
+  it('two cards at different days, one of them not runnable: not blocked, and the line and the config use the runnable card\u2019s day', async () => {
+    useTxrIntakeStore.setState({ parameters: { decision_day: 56, baseline_max_day: 0 } })
+    api.listModels.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 3,
+      models: runCatalogue().map(card =>
+        card.id === 'rc-1'
+          ? { ...card, decision_day: 28 }
+          : card.id === 'rc-2'
+            ? { ...card, decision_day: 56 }
+            : card,
+      ),
+    } as PretrainedListResponse)
+    // rc-2 cannot run (its verdict changed after it was selected): the
+    // selection keeps the stale key, the run does not take it, and the
+    // mixed-days block goes away — the remaining card's day is the run's.
+    api.eligibility.mockResolvedValue({
+      ...runEligibility(),
+      models: runEligibility().models.map(entry =>
+        entry.id === 'rc-2' ? { ...entry, status: 'cannot_run' as const } : entry,
+      ),
+    } as PretrainedEligibilityResponse)
+    // The stale key in the selection: rc-2 was selected while runnable, then
+    // its verdict changed before this render (the same state a live change
+    // leaves behind — the I-page counterpart drives the live transition).
+    // The store's inventory mirror is already the validation's (the mount's
+    // `loadInventory` sees no change and does not reset the selection).
+    useTxrModelsStore.setState({ inventory: TXRMODELS_INVENTORY })
+    useTxrModelsStore.setState({ selection: new Set(['ps:rc-1', 'ps:rc-2']) })
+    renderPage()
+    await settle(0)
+    expect(useTxrModelsStore.getState().selection.size).toBe(2) // the stale key stays
+    expect(screen.queryByTestId('txr-list-blocked-reason')).toBeNull()
+    expect(screen.getByTestId('txr-list-run').hasAttribute('disabled')).toBe(false)
+    expect(screen.getByTestId('txr-models-d-horizon').textContent).toContain(
+      'Look ahead to: day 240',
+    )
+    expect(screen.getByTestId('txr-models-d-horizon').textContent).toContain(
+      'Decision day: day 28',
+    )
+    // The run uses the runnable card's own day, never the intake's 56.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.resolveModels).toHaveBeenCalledWith({
+      model_ids: ['c0000000-0000-4000-8000-000000000001'],
+    })
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    const request = api.createRun.mock.calls[0][0] as { config: Record<string, unknown> }
+    expect(request.config.decision_day).toBe(28)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('the action rejects with the page\u2019s text when a selected card is still downloading, and no run is started', async () => {
+    setRunCatalogue()
+    renderPage()
+    await settle(0)
+    await selectRow('ps:rc-3') // the not-downloaded card — auto-start (downloading)
+    expect(api.downloadModel).toHaveBeenCalledWith({ id: 'rc-3' })
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const token = live[0].record.getSnapshot()['_state_token'] as string
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('models.run', {
+        view_id: live[0].id,
+        expected: token,
+      }).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toBe(
+      'A selected model is still downloading. Wait for it to finish, or uncheck it.',
+    )
+    expect(api.installModel).not.toHaveBeenCalled()
+    expect(api.resolveModels).not.toHaveBeenCalled()
+    expect(api.createRun).not.toHaveBeenCalled()
+    expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')
+    // The page shows the same line (the button path is the same function).
+    expect(screen.getByTestId('txr-models-d-run-error').textContent).toBe(
+      'A selected model is still downloading. Wait for it to finish, or uncheck it.',
+    )
+  })
+
+  it('the action is refused as stale when the selection changed after the snapshot (same count, other ids)', async () => {
+    setRunCatalogue()
+    renderPage()
+    await settle(0)
+    await selectRow('ps:rc-1')
+    await selectRow('ps:rc-2')
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const first = live[0].record.getSnapshot()['_state_token'] as string
+    // The same-size, different-ids selection must move the token (the
+    // snapshot carries the selected model ids, not only the count).
+    await act(async () => {
+      useTxrModelsStore.getState().setSelection(new Set(['ps:rc-1', 'ps:rc-3']))
+      await Promise.resolve()
+    })
+    await settle(0)
+    const second = live[0].record.getSnapshot()['_state_token'] as string
+    expect(second).not.toBe(first)
+    expect(useTxrModelsStore.getState().selection.size).toBe(2)
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('models.run', {
+        view_id: live[0].id,
+        expected: first,
+      }).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toContain('STALE_STATE')
+    expect(api.resolveModels).not.toHaveBeenCalled()
+    expect(api.createRun).not.toHaveBeenCalled()
   })
 })
 

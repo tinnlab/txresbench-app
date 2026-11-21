@@ -35,10 +35,15 @@
  *   `Models.resolveModels` — never bare uuids into the create call), the
  *   response's assets are passed through VERBATIM as `CreateRunRequest.model_ids`,
  *   and `createRun` (CONS-UM-13) → `runningPath(runId)`. The config's
- *   endpoint + look-ahead day are the FIRST SELECTED card's own facts (the
- *   D screen has no settings controls; a model is run at the horizon it
- *   was trained for — DEC-5's endpoint rule extended to the horizon, the
- *   engine's per-method incompatibility governs a mixed selection).
+ *   endpoint + look-ahead day + decision day are the FIRST SELECTED card's
+ *   own facts (the D screen has no settings controls; a model is run at the
+ *   horizon and the day it was trained for — DEC-5's endpoint rule extended
+ *   to the horizon and the decision day, data-pickup-bugs bug 3; the
+ *   engine's per-method incompatibility governs a mixed selection). Cards
+ *   trained at different decision days make the Run unavailable with the
+ *   reason (the same rule the engine enforces as
+ *   `MODEL_DECISION_DAY_MISMATCH`, and the registered `models.run` action
+ *   refuses it for the assistant path too).
  *
  * STATES: no validated predict file → the not-ready empty state (never a
  * half-built list; the inventory is the validation's — DEC-6); a catalogue
@@ -51,7 +56,8 @@
  * the boards' numbers are never constants here.
  */
 import { TxrModelHorizonLine } from '../components/TxrModelHorizonLine'
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { type ModelRunFacts, useModelListRun } from '../lib/modelRun'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
@@ -185,9 +191,6 @@ const GATE_DOWNLOADING_LINE =
 /** The gate line for a failed selected card's download. */
 const GATE_FAILED_LINE = "A selected model's download failed. Retry it, or uncheck it."
 
-/** The failure line a start/install error folds back to (never blank). */
-const RUN_FAILED_LINE = 'The models could not be prepared.'
-
 /** D's three host chips, fixed order + labels (the boards' words). */
 interface Dchip {
   id: TxrModelFilterId
@@ -208,20 +211,6 @@ const D_SORT_OPTIONS: ReadonlyArray<{ value: TxrModelSortId; label: string }> = 
 ]
 /** The `ps:` row-key prefix (DEC-8 — the row keys are 'ps:<catalogue_id>'). */
 const ROW_KEY_PREFIX = 'ps:'
-
-/** The run's failure text (the framework transport's message, else the constant). */
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (
-    error !== null &&
-    typeof error === 'object' &&
-    'message' in error &&
-    typeof (error as { message: unknown }).message === 'string'
-  ) {
-    return (error as { message: string }).message
-  }
-  return RUN_FAILED_LINE
-}
 
 /** The "Checked against your file" line from the validation (CONS-UM-11) —
  *  the D board's own tail ("Pick as many as you like."; the formatter
@@ -249,21 +238,18 @@ function cardRunnable(
   )
 }
 
-/** The reuse-mode config: the FIRST selected card's own endpoint/horizon
- *  (the D screen has no settings controls — a model is run at the horizon
- *  it was trained for; DEC-5's endpoint rule, extended), the intake's
- *  decision day, and the engine-defaults the boards' D/I bars carry
- *  (covariates off, detect CPUs, nothing saved, label day derived). The
- *  `unknown` bridge is the generated client's plain-optional `cpus` /
- *  `label_day` (the toRunConfig class — the wire bytes are the engine's). */
-function reuseConfig(
-  first: PretrainedSummary,
-  decisionDay: number,
-  atATime: number,
-): RunConfig {
+/** The reuse-mode config: the FIRST SELECTED card's own endpoint/horizon/
+ *  decision day (the D screen has no settings controls — a model is run at
+ *  the horizon and the decision day it was trained for, never at the
+ *  intake's day; DEC-5's endpoint rule, extended + data-pickup-bugs bug 3),
+ *  and the engine-defaults the boards' D/I bars carry (covariates off,
+ *  detect CPUs, nothing saved, label day derived). The `unknown` bridge is
+ *  the generated client's plain-optional `cpus` / `label_day` (the
+ *  toRunConfig class — the wire bytes are the engine's). */
+function reuseConfig(first: PretrainedSummary, atATime: number): RunConfig {
   return {
     endpoint: first.endpoint,
-    decision_day: decisionDay,
+    decision_day: first.decision_day,
     look_ahead_day: first.horizon,
     covariates: false,
     at_a_time: atATime,
@@ -317,7 +303,6 @@ function StripEntry({ id }: { id: string }) {
 export function PretrainedModelsPage() {
   const navigate = useNavigate()
   const validation = useStore(useTxrIntakeStore, s => s.validation)
-  const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)
   const predictMeasurements = useStore(useTxrIntakeStore, s => s.predictMeasurements)
@@ -539,131 +524,129 @@ export function PretrainedModelsPage() {
     [selection, cardById, isDemo],
   )
 
-  const [runError, setRunError] = useState<string | null>(null)
-  const creating = useRef(false)
-  /** A create (with its installs) is in flight: Back is unavailable until it
-   *  settles (the success path leaves for the Running screen). */
-  const [starting, setStarting] = useState(false)
-
-  // The step's Back (the step trail): with no trail, Back goes to the file step.
-  useStepBack({
-    step: 'pretrained-models',
-    fallback: predictFilesPath(),
-    blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
-    // Only the dialog this page shows counts (the model card, in the list
-    // state): the store's dialog id is shared with the saved-models page.
-    dialogOpen: validation !== null && !noCatalogue && dialog.startsWith('card:'),
-  })
+  // ── The Run path (CONS-UM-21/24/13 — the D arm of TEST-MOD-32) ──────────
+  // The page's one guarded Run + the live model-list instance (`models.run`
+  // target) live in the shared `useModelListRun` — the Run button and the
+  // registered action call the SAME `startRun` (one guarded function, so a
+  // selection the engine would refuse — cards trained at different decision
+  // days or a still-downloading/failed selected card — is refused
+  // identically for the human and for the AI path; the button also carries
+  // the refusal as its unavailability reason).
 
   /**
-   * The D Run path (CONS-UM-21/24/13): gate → install-if-needed →
-   * resolve → create → navigate. One create is ever in flight; a gated
-   * attempt (a downloading/failed selected card) writes the inline line
-   * and NEVER creates the run; a resolve failure (404 / 409) surfaces the
-   * response's line inline with no run created.
+   * The D create: gate → install-if-needed → resolve → create → navigate.
+   * THROWS on every refusal/failure (with the response's line): the shared
+   * `startRun` writes the inline line and lets the `models.run` action
+   * REJECT with the same text, so neither path can ever report a run that
+   * did not start. A gated attempt (an empty selection, a mixed-day
+   * selection, a downloading/failed card) NEVER creates the run; a resolve
+   * failure (404 / 409) surfaces the response's line with no run created.
    */
   const createRun = useCallback(
-    async (keys: string[]): Promise<void> => {
-      if (keys.length === 0) {
-        // The empty selection is a user error before the wire: never a run
-        // with no models (the engine's 400 is the same rule, stated here).
-        setRunError('Select at least one model to run.')
-        return
-      }
-      if (creating.current) return
-      creating.current = true
-      setStarting(true)
-      setRunError(null)
-      // A navigation to the Running screen leaves this step: Back stays
-      // unavailable until the route changes (the Running chunk may still load).
-      let leaving = false
-      try {
-        const runCards = cards.filter(card => keys.includes(`${ROW_KEY_PREFIX}${card.id}`))
-        // ITEM-7 demo arm: the cards are included in the demo — no install,
-        // no resolve (both routes are blocked for the demo, and the recorded
-        // replay reads only the method facts). The run's record carries the
-        // card's own method identity; the eligibility verdict (the bundle's
-        // recorded set) is the can-run truth, so the install gate is skipped
-        // too.
-        if (isDemo) {
-          const input = buildTxrRunInput({
+    async (keys: readonly string[]): Promise<string> => {
+      // The run's order is the SELECTION's order (the keys the list hands
+      // over) — the first selected card is the config's source, never the
+      // first card of the catalogue order.
+      const runCards = keys
+        .map(key => cardById.get(key.slice(ROW_KEY_PREFIX.length)))
+        .filter((card): card is PretrainedSummary => card !== undefined)
+      // ITEM-7 demo arm: the cards are included in the demo — no install,
+      // no resolve (both routes are blocked for the demo, and the recorded
+      // replay reads only the method facts). The run's record carries the
+      // card's own method identity; the eligibility verdict (the bundle's
+      // recorded set) is the can-run truth, so the install gate is skipped
+      // too.
+      if (isDemo) {
+        const input = buildTxrRunInput(
+          {
             patients,
             measurements,
             predictMeasurements,
             joins,
             mapping,
-          } as unknown as IntakeSnapshot)
-          const run = await ApiClient.Txr.createRun({
-            mode: 'reuse',
-            input,
-            config: reuseConfig(
-              runCards[0] ?? cardsWithId0(cards),
-              parameters.decision_day,
-              atATime,
-            ),
-            model_ids: runCards.map(card => ({
-              model_id: card.id,
-              method_id: card.method_id,
-              method_version: card.method_version,
-            })) as unknown as TxrModelAsset[],
+          } as unknown as IntakeSnapshot,
+          'predict',
+        )
+        const created = await ApiClient.Txr.createRun({
+          mode: 'reuse',
+          input,
+          config: reuseConfig(runCards[0] ?? cardsWithId0(cards), atATime),
+          model_ids: runCards.map(card => ({
+            model_id: card.id,
+            method_id: card.method_id,
+            method_version: card.method_version,
+          })) as unknown as TxrModelAsset[],
+        })
+        navigate(runningPath(created.id))
+        return created.id
+      }
+      const blocked = runCards.filter(
+        card => !cardRunnable(card, useTxrModelsStore.getState().downloadState[card.id]),
+      )
+      if (blocked.length > 0) {
+        throw new Error(
+          blocked.some(card => {
+            const state = useTxrModelsStore.getState().downloadState[card.id]?.status?.state
+            return state === 'failed'
           })
-          leaving = true
-          navigate(runningPath(run.id))
-          return
-        }
-        const blocked = keys
-          .map(key => cardById.get(key.slice(ROW_KEY_PREFIX.length)))
-          .filter((card): card is PretrainedSummary => card !== undefined)
-          .filter(card => !cardRunnable(card, useTxrModelsStore.getState().downloadState[card.id]))
-        if (blocked.length > 0) {
-          setRunError(
-            blocked.some(card => {
-              const state = useTxrModelsStore.getState().downloadState[card.id]?.status?.state
-              return state === 'failed'
-            })
-              ? GATE_FAILED_LINE
-              : GATE_DOWNLOADING_LINE,
-          )
-          return
-        }
-        // install-if-needed: the installed ids for every selected card
-        // (the run keys are the selection minus the disabled rows — the
-        // same set the engine will see, never a stale key)
-        const installed: string[] = []
-        for (const card of runCards) {
-          installed.push(await installedModelId(card))
-        }
-        // resolve FIRST (CONS-UM-24 — never bare uuids in the create
-        // call; the response's assets pass through VERBATIM)
-        const { assets } = await ApiClient.Models.resolveModels({ model_ids: installed })
-        const input = buildTxrRunInput({
+            ? GATE_FAILED_LINE
+            : GATE_DOWNLOADING_LINE,
+        )
+      }
+      // install-if-needed: the installed ids for every selected card (the
+      // run keys are the selection minus the disabled rows — the same set
+      // the engine will see, never a stale key)
+      const installed: string[] = []
+      for (const card of runCards) {
+        installed.push(await installedModelId(card))
+      }
+      // resolve FIRST (CONS-UM-24 — never bare uuids in the create
+      // call; the response's assets pass through VERBATIM)
+      const { assets } = await ApiClient.Models.resolveModels({ model_ids: installed })
+      const input = buildTxrRunInput(
+        {
           patients,
           measurements,
           predictMeasurements,
           joins,
           mapping,
-        } as unknown as IntakeSnapshot)
-        const run = await ApiClient.Txr.createRun({
-          mode: 'reuse',
-          input,
-          config: reuseConfig(
-            runCards[0] ?? cardsWithId0(cards),
-            parameters.decision_day,
-            atATime,
-          ),
-          model_ids: assets,
-        })
-        leaving = true
-        navigate(runningPath(run.id))
-      } catch (error) {
-        setRunError(errorText(error))
-      } finally {
-        creating.current = false
-        if (!leaving) setStarting(false)
-      }
+        } as unknown as IntakeSnapshot,
+        'predict',
+      )
+      const created = await ApiClient.Txr.createRun({
+        mode: 'reuse',
+        input,
+        config: reuseConfig(runCards[0] ?? cardsWithId0(cards), atATime),
+        model_ids: assets,
+      })
+      navigate(runningPath(created.id))
+      return created.id
     },
-    [cards, patients, measurements, predictMeasurements, joins, mapping, parameters, atATime, navigate, isDemo],
+    [cards, cardById, patients, measurements, predictMeasurements, joins, mapping, atATime, navigate, isDemo],
   )
+
+  // The step's Back (the step trail): with no trail, Back goes to the file
+  // step. Only the dialog this page shows counts (the model card, in the
+  // list state): the store's dialog id is shared with the saved-models
+  // page.
+  const run = useModelListRun({
+    rows,
+    selection,
+    getSelection: () => useTxrModelsStore.getState().selection,
+    factsOf: (key: string): ModelRunFacts | undefined => {
+      const card = cardById.get(key.slice(ROW_KEY_PREFIX.length))
+      return card === undefined
+        ? undefined
+        : { decision_day: card.decision_day, horizon: card.horizon }
+    },
+    createRun,
+  })
+  useStepBack({
+    step: 'pretrained-models',
+    fallback: predictFilesPath(),
+    blockedReason: run.starting ? STEP_BACK_STARTING_REASON : null,
+    dialogOpen: validation !== null && !noCatalogue && dialog.startsWith('card:'),
+  })
 
   // ── The ITEM-3 frame composition ─────────────────────────────────────────
   // The audit route table's row for the D route: fixed top = step + title +
@@ -676,10 +659,8 @@ export function PretrainedModelsPage() {
   // list chrome.
 
   // The look-ahead the run will use (the first chosen model's own, in the
-  // run's order).
-  const chosenHorizons = cards
-    .filter(card => selection.has(`${ROW_KEY_PREFIX}${card.id}`))
-    .map(card => card.horizon)
+  // run's order): the shared hook reads the SAME runnable keys the run
+  // takes — a selected row whose run is disabled is never counted.
   /** The page's fixed top (the list's toolbar joins it in the list branch). */
   const pageTop = (toolbar: ReactNode | null): ReactNode => (
     <div className="txr-models-d-top" style={PAGE_TOP}>
@@ -705,7 +686,11 @@ export function PretrainedModelsPage() {
             </p>
           ) : null}
           {validation !== null ? (
-            <TxrModelHorizonLine testId="txr-models-d-horizon" horizons={chosenHorizons} />
+            <TxrModelHorizonLine
+              testId="txr-models-d-horizon"
+              horizons={run.horizons}
+              decisionDays={run.decisionDays}
+            />
           ) : null}
         </div>
         {validation !== null && cards.length > 0 ? (
@@ -735,8 +720,8 @@ export function PretrainedModelsPage() {
           ))}
         </div>
       ) : null}
-      {runError !== null ? (
-        <Alert tone="error" data-testid="txr-models-d-run-error" title={runError} />
+      {run.runError !== null ? (
+        <Alert tone="error" data-testid="txr-models-d-run-error" title={run.runError} />
       ) : null}
     </div>
   )
@@ -850,8 +835,12 @@ export function PretrainedModelsPage() {
             totalSecondsForSelection(selection, verdictByKey),
           ),
           notice: RESEARCH_NOTICE,
+          blockedReason: run.blockedReason,
           onRun: keys => {
-            void createRun(keys)
+            // THE one guarded Run (the same function the `models.run`
+            // action calls): the shared path writes the inline line itself;
+            // only the rejection is swallowed here (never an unhandled one).
+            void run.startRun(keys).catch(() => undefined)
           },
           back: <TxrStepBack look="list-bar" />,
         }}

@@ -60,6 +60,13 @@ export function registerInstance(id: string, record: InstanceRecord): void {
   instances.set(id, record)
 }
 
+/** A fresh instance `view_id` (a UUID, never reused — ARCHITECTURE.md
+ *  Layer 6's "a NEW instance registers under a fresh id" rule). Lives here
+ *  because the id has exactly one consumer. */
+export function newViewId(): string {
+  return globalThis.crypto.randomUUID()
+}
+
 /** Unregister `id` — called from `useAction`'s unmount cleanup. A no-op if
  *  `id` isn't currently registered (e.g. already replaced by a remount). */
 export function unregisterInstance(id: string): void {

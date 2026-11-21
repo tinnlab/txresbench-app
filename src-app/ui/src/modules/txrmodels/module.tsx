@@ -3,6 +3,9 @@ import { TxrLayoutDef } from '@/modules/txrshell/module'
 import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 import { TxrModelsDialogHost } from './components/TxrModelsDialogHost'
+// Side-effect import: registers the model-step Run (`models.run`) — the
+// D/I Run button and the AI agent take the same guarded path.
+import '@/core/actions/builtin/modelRunActions'
 
 const PretrainedModelsPage = lazyWithPreload(() =>
   import('./pages/PretrainedModelsPage').then(m => ({ default: m.PretrainedModelsPage })),

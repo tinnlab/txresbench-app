@@ -50,6 +50,7 @@ import type {
 import type { ColumnRenameOffer } from '../types'
 import { renamedTable } from '../lib/flow'
 import type { TxrMethodPreset } from '@/modules/txrlist/lib/methodPicker'
+import type { FlowPath } from '@/modules/txrshell/lib/flowSteps'
 
 /** The three file slots of the snapshot (screen C's two, screen N's one). */
 export type FileSlot = 'patients' | 'measurements' | 'predictMeasurements'
@@ -685,35 +686,51 @@ export const TxrIntake = registerLazyStore(TxrIntakeDef)
 /**
  * The pure state → engine-shape builder (the ONE place the intake state is
  * rendered into the engine's request, CONS-UI-INTAKE-8 / PROV-EE-2): the
- * decoded tables from the snapshot's file slots, the confirmed joins and
+ * decoded tables from the RUN's path file slots, the confirmed joins and
  * mapping passed through, `keep_copies: true` (ui-run overrides it with the
  * history-store preference).
  *
- * Measurements rule: `measurements` is REQUIRED by the request type and
- * carries "train and predict in one file, or the train table when a
- * separate predict file is given" — so a predict-mode snapshot (screen N)
- * fills it with the N-screen table, and `predict_measurements` carries the
- * same table for the engine's reuse/pretrained contract (EXAMPLE-EE-7:
- * a reuse run posts `predict_measurements`; the engine plan's own
- * "measurements required" text and its "predict_measurements only"
- * example diverge — recorded for RECONCILE). No measurements file adopted
- * at all is a caller error — the engine requires the table, so the builder
- * says so instead of emitting an undefined wire field.
+ * The path is explicit (`data-pickup-bugs` bug 1): the learn path's run
+ * takes its `patients` and `measurements` from the screen-C slots and
+ * carries NO `predict_measurements` field; the predict path (ready-made or
+ * saved models) takes `measurements` and `predict_measurements` from the
+ * screen-N slot and carries NO `patients`. The slots are kept across paths
+ * (going back keeps the user's files), but a run never mixes them — the
+ * measurements rule is that `measurements` is REQUIRED by the request type
+ * and carries "train and predict in one file, or the train table when a
+ * separate predict file is given", so the predict path fills it with the
+ * N-screen table and `predict_measurements` carries the same table for the
+ * engine's reuse/pretrained contract (EXAMPLE-EE-7: a reuse run posts
+ * `predict_measurements`; the engine plan's own "measurements required"
+ * text and its "predict_measurements only" example diverge — recorded for
+ * RECONCILE). No measurements file for the path at all is a caller error —
+ * the engine requires the table, so the builder says so instead of emitting
+ * an undefined wire field.
  */
-export function buildTxrRunInput(s: IntakeSnapshot): TxrRunInput {
+export function buildTxrRunInput(s: IntakeSnapshot, path: FlowPath): TxrRunInput {
+  if (path === 'predict') {
+    const table = requireMeasurements(s, path)
+    return {
+      measurements: toEngineTable(table),
+      predict_measurements: toEngineTable(table),
+      joins: s.joins,
+      mapping: s.mapping,
+      keep_copies: true,
+    }
+  }
   return {
     patients: toEngineTable(s.patients?.table),
-    measurements: toEngineTable(requireMeasurements(s)),
-    predict_measurements: toEngineTable(s.predictMeasurements?.table),
+    measurements: toEngineTable(requireMeasurements(s, path)),
     joins: s.joins,
     mapping: s.mapping,
     keep_copies: true,
   }
 }
 
-/** The measurements table the run will consume (train, or the predict file). */
-function requireMeasurements(s: IntakeSnapshot): ParsedTable {
-  const table = s.measurements?.table ?? s.predictMeasurements?.table
+/** The measurements table the run of `path` will consume: the path's own
+ *  slot, never the other path's leftover (data-pickup-bugs bug 1). */
+function requireMeasurements(s: IntakeSnapshot, path: FlowPath): ParsedTable {
+  const table = path === 'predict' ? s.predictMeasurements?.table : s.measurements?.table
   if (!table) {
     throw new Error(
       'TxrIntake: no measurements file adopted — a file must be validated before the run input is built',

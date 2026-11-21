@@ -260,7 +260,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     TxrIntake.acceptJoin(joinOffer)
     TxrIntake.acceptVocab(vocabOffer)
 
-    const input = buildTxrRunInput(state() as IntakeSnapshot)
+    const input = buildTxrRunInput(state() as IntakeSnapshot, 'learn')
     expect(input.patients).toBe(state().patients?.table)
     expect(input.measurements).toBe(state().measurements?.table)
     expect(input.predict_measurements).toBeUndefined()
@@ -272,7 +272,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
   it('buildTxrRunInput renders the predict snapshot as the run measurements table', () => {
     TxrIntake.setIntent('pretrained')
     TxrIntake.adoptFile('predictMeasurements', loadedFile('new.csv'))
-    const input = buildTxrRunInput(state() as IntakeSnapshot)
+    const input = buildTxrRunInput(state() as IntakeSnapshot, 'predict')
     expect(input.patients).toBeUndefined()
     expect(input.measurements).toBe(state().predictMeasurements?.table)
     // The engine's reuse/pretrained contract carries the predict file as the
@@ -283,8 +283,47 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     expect(input.keep_copies).toBe(true)
   })
 
+  it('the learn run never carries the predict file (predict file, then learn files)', () => {
+    TxrIntake.setIntent('pretrained')
+    TxrIntake.adoptExampleFile('predictMeasurements', loadedFile('predict-example.csv'))
+    TxrIntake.setIntent('train')
+    TxrIntake.adoptExampleFile('patients', loadedFile('patients-example.csv'))
+    TxrIntake.adoptExampleFile('measurements', loadedFile('measurements-example.csv'))
+
+    const input = buildTxrRunInput(state() as IntakeSnapshot, 'learn')
+    expect(input.patients).toBe(state().patients?.table)
+    expect(input.measurements).toBe(state().measurements?.table)
+    expect('predict_measurements' in input).toBe(false)
+    expect(input.predict_measurements).toBeUndefined()
+  })
+
+  it('the predict run is only the predict file (learn files still in the slots)', () => {
+    TxrIntake.setIntent('train')
+    TxrIntake.adoptFile('patients', loadedFile('patients.csv'))
+    TxrIntake.adoptFile('measurements', loadedFile('measurements.csv'))
+    TxrIntake.setIntent('pretrained')
+    TxrIntake.adoptFile('predictMeasurements', loadedFile('predict.csv'))
+
+    const input = buildTxrRunInput(state() as IntakeSnapshot, 'predict')
+    expect('patients' in input).toBe(false)
+    expect(input.patients).toBeUndefined()
+    expect(input.measurements).toBe(state().predictMeasurements?.table)
+    expect(input.predict_measurements).toBe(state().predictMeasurements?.table)
+  })
+
+  it('the predict path needs ITS predict file: leftover learn files do not fill it', () => {
+    TxrIntake.setIntent('train')
+    TxrIntake.adoptFile('patients', loadedFile('patients.csv'))
+    TxrIntake.adoptFile('measurements', loadedFile('measurements.csv'))
+    TxrIntake.setIntent('pretrained')
+
+    expect(() => buildTxrRunInput(state() as IntakeSnapshot, 'predict')).toThrow(
+      /no measurements file adopted/,
+    )
+  })
+
   it('buildTxrRunInput refuses a snapshot with no measurements file', () => {
-    expect(() => buildTxrRunInput(state() as IntakeSnapshot)).toThrow(
+    expect(() => buildTxrRunInput(state() as IntakeSnapshot, 'learn')).toThrow(
       /no measurements file adopted/,
     )
   })

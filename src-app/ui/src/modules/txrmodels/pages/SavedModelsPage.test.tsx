@@ -52,8 +52,10 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { Button } from '@txresbench/kit'
 import '@/core/actions/builtin/stepActions'
 import '@/core/actions/builtin/appActions'
+import '@/core/actions/builtin/modelRunActions'
 import { runAction } from '@/core/actions/defineAction'
 import { RouterBridge } from '@/core/actions/navigateBridge'
+import { instancesOfType } from '@/core/actions/instanceRegistry'
 import type {
   ModelDetail,
   ModelEligibilityResponse,
@@ -782,6 +784,186 @@ describe('SavedModelsPage — the reuse Run flow (TEST-MOD-32 / CONS-UM-24 + 13,
     expect(screen.getByTestId('txr-list-filter-same-outcome').textContent).toBe(
       'Same outcome as my file 0',
     )
+  })
+
+  it('the reuse config carries the first selected model\u2019s own decision day, never the intake\u2019s', async () => {
+    // The study step says day 56; the selected model was trained at 28.
+    useTxrIntakeStore.setState({ parameters: { decision_day: 56, baseline_max_day: 0 } })
+    api.listModels.mockResolvedValue({
+      models: TXRMODELS_SAVED.map(model =>
+        model.id === fixtureModelId(1) ? { ...model, decision_day: 28 } : model,
+      ),
+      total: TXRMODELS_SAVED.length,
+    } as ModelListResponse)
+    renderPage()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    const request = api.createRun.mock.calls[0][0] as { config: Record<string, unknown> }
+    expect(request.config.decision_day).toBe(28)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('models trained at different decision days: the Run button is unavailable with the reason, no run starts, and the action refuses too', async () => {
+    useTxrIntakeStore.setState({ parameters: { decision_day: 56, baseline_max_day: 0 } })
+    api.listModels.mockResolvedValue({
+      models: TXRMODELS_SAVED.map(model =>
+        model.id === fixtureModelId(1)
+          ? { ...model, decision_day: 28 }
+          : model.id === fixtureModelId(2)
+            ? { ...model, decision_day: 56 }
+            : model,
+      ),
+      total: TXRMODELS_SAVED.length,
+    } as ModelListResponse)
+    renderPage()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    await selectRow(fixtureModelId(2))
+    const reason =
+      'The models you chose were trained at different decision days (day 28 and day 56). Choose models with the same decision day.'
+    expect(screen.getByTestId('txr-list-run').hasAttribute('disabled')).toBe(true)
+    expect(screen.getByTestId('txr-list-blocked-reason').textContent).toBe(reason)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.resolveModels).not.toHaveBeenCalled()
+    expect(api.createRun).not.toHaveBeenCalled()
+    // The assistant path takes the same guard: the registered action refuses.
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const token = live[0].record.getSnapshot()['_state_token'] as string
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('models.run', {
+        view_id: live[0].id,
+        expected: token,
+      }).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toBe(reason)
+  })
+
+  it('two models at different days, then one becomes not runnable: not blocked, and the line and the config use the runnable model\u2019s day', async () => {
+    useTxrIntakeStore.setState({ parameters: { decision_day: 56, baseline_max_day: 0 } })
+    api.listModels.mockResolvedValue({
+      models: TXRMODELS_SAVED.map(model =>
+        model.id === fixtureModelId(1)
+          ? { ...model, decision_day: 28 }
+          : model.id === fixtureModelId(2)
+            ? { ...model, decision_day: 56 }
+            : model,
+      ),
+      total: TXRMODELS_SAVED.length,
+    } as ModelListResponse)
+    renderPage()
+    await settle(0)
+    // The run takes only the RUNNABLE keys: a selected row whose run is
+    // disabled is never counted. Both fit first (different days → blocked).
+    await selectRow(fixtureModelId(1))
+    await selectRow(fixtureModelId(2))
+    const reason =
+      'The models you chose were trained at different decision days (day 28 and day 56). Choose models with the same decision day.'
+    expect(screen.getByTestId('txr-list-blocked-reason').textContent).toBe(reason)
+    // Model 2 becomes not runnable (a verdict that changes after selection):
+    // the selection keeps its stale key, the run does not take it, and the
+    // mixed-days block goes away — the remaining model's day is the run's.
+    api.eligibility.mockResolvedValue({
+      ...TXRMODELS_SAVED_ELIGIBILITY,
+      models: TXRMODELS_SAVED_ELIGIBILITY.models.map(entry =>
+        entry.id === fixtureModelId(2) ? { ...entry, status: 'cannot_run' as const } : entry,
+      ),
+    } as ModelEligibilityResponse)
+    await act(async () => {
+      void useTxrModelsStore.getState().loadEligibility(
+        TXRMODELS_SAVED.map(model => model.id),
+        { force: true },
+      )
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(useTxrModelsStore.getState().selection.size).toBe(2) // the stale key stays
+    expect(screen.queryByTestId('txr-list-blocked-reason')).toBeNull()
+    expect(screen.getByTestId('txr-list-run').hasAttribute('disabled')).toBe(false)
+    expect(screen.getByTestId('txr-models-i-horizon').textContent).toContain(
+      'Look ahead to: day 240',
+    )
+    expect(screen.getByTestId('txr-models-i-horizon').textContent).toContain(
+      'Decision day: day 28',
+    )
+    // The run uses the runnable model's own day, never the intake's 56.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.resolveModels).toHaveBeenCalledWith({ model_ids: [fixtureModelId(1)] })
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    const request = api.createRun.mock.calls[0][0] as { config: Record<string, unknown> }
+    expect(request.config.decision_day).toBe(28)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('the action rejects with the page\u2019s text when the resolve fails, and no run is reported started', async () => {
+    api.resolveModels.mockRejectedValue({ status: 404, message: 'MODEL_NOT_FOUND' })
+    renderPage()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    // The assistant path takes the same failure line the page shows inline.
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const token = live[0].record.getSnapshot()['_state_token'] as string
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('models.run', {
+        view_id: live[0].id,
+        expected: token,
+      }).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toBe('MODEL_NOT_FOUND')
+    expect(api.createRun).not.toHaveBeenCalled()
+    expect(screen.getByTestId('route-location').textContent).toBe('/saved-models')
+    expect(screen.getByTestId('txr-models-i-run-error').textContent).toBe('MODEL_NOT_FOUND')
+  })
+
+  it('the action is refused as stale when the selection changed after the snapshot (same count, other ids)', async () => {
+    renderPage()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    await selectRow(fixtureModelId(2))
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const first = live[0].record.getSnapshot()['_state_token'] as string
+    expect(typeof first).toBe('string')
+    // The same-size, different-ids selection must move the token (the
+    // snapshot carries the selected model ids, not only the count).
+    await act(async () => {
+      useTxrModelsStore.getState().setSelection(new Set([fixtureModelId(4), fixtureModelId(5)]))
+      await Promise.resolve()
+    })
+    await settle(0)
+    const second = live[0].record.getSnapshot()['_state_token'] as string
+    expect(second).not.toBe(first)
+    expect(useTxrModelsStore.getState().selection.size).toBe(2)
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('models.run', {
+        view_id: live[0].id,
+        expected: first,
+      }).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toContain('STALE_STATE')
+    expect(api.resolveModels).not.toHaveBeenCalled()
+    expect(api.createRun).not.toHaveBeenCalled()
   })
 })
 

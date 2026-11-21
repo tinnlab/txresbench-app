@@ -666,13 +666,16 @@ export function ChooseMethodsPage() {
       // unavailable until the route changes (the Running chunk may still load).
       let leaving = false
       try {
-        const input = buildTxrRunInput({
-          patients,
-          measurements,
-          predictMeasurements,
-          joins,
-          mapping,
-        } as unknown as IntakeSnapshot)
+        const input = buildTxrRunInput(
+          {
+            patients,
+            measurements,
+            predictMeasurements,
+            joins,
+            mapping,
+          } as unknown as IntakeSnapshot,
+          'learn',
+        )
         const request = buildRunRequest(
           'train',
           { ...input, keep_copies: keepCopies },
