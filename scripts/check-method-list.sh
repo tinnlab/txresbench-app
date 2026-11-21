@@ -14,7 +14,7 @@
 #   maintainer runs before asking for the methods-repository PR to be merged, and that the
 #   publisher re-runs against the methods repository's origin/main.
 #     1. the header: the committed schema (data/method-list/method-list.schema.json) —
-#        format, format_version 1, sequence >= 1 (0 is the app's unsigned bootstrap copy
+#        format, format_version 2, sequence >= 1 (0 is the app's unsigned bootstrap copy
 #        only), assembled_at, the two documents, NO other field;
 #     2. the nested documents equal the two source files beside it (parsed);
 #     3. the cross rules: (1) every image entry has a catalogue row; (2) every image

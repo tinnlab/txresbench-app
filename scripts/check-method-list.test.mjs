@@ -103,7 +103,7 @@ test('methods mode: an unknown header field fails', () => {
 });
 
 test('methods mode: a wrong format or format_version fails', () => {
-  for (const [field, value] of [['format', 'another-list'], ['format_version', 2]]) {
+  for (const [field, value] of [['format', 'another-list'], ['format_version', 3]]) {
     const dir = listDir();
     const list = readJson(path.join(dir, 'method-list.json'));
     list[field] = value;
