@@ -37,6 +37,29 @@ fn unavailable(detail: impl Into<String>) -> AppError {
     )
 }
 
+/// The stacked run's two layer link checks, then the rootfs-dependent PID-ns
+/// probe — in that order, and pinned.
+///
+/// The probe binds the base's `usr` (and runs `/bin/true` in it), so a base
+/// whose `usr` is a symbolic link to a host dir must be REFUSED as a bad image
+/// ([`super::stack::ROOTFS_PATH_INVALID_CODE`]) — were the probe first, it
+/// would bind that dir as `/usr`, find no `/bin/true`, and the run would end
+/// as `SANDBOX_UNAVAILABLE` instead. The unit test
+/// `stack_checks_refuse_a_linked_base_usr_before_the_pidns_probe` pins the
+/// order without bwrap; the real-bwrap integration test stays at
+/// `tests/sandbox/method_stack_test.rs`.
+#[cfg(target_os = "linux")]
+fn check_stack_then_probe(
+    host_caps: &super::types::HostCapabilities,
+    base_dir: &std::path::Path,
+    layer_dir: &std::path::Path,
+    layer_entries: &[String],
+) -> Result<super::types::HardeningCapabilities, AppError> {
+    super::stack::assert_bind_sources_not_symlinked(base_dir, layer_dir, layer_entries)?;
+    super::stack::assert_entry_parents_exist(base_dir, layer_entries)?;
+    super::probes::probe_rootfs_dependent(host_caps, base_dir).map_err(unavailable)
+}
+
 // ─────────────────────────── stacked method run seam ────────────────────────
 
 /// The progress-frame phase of a live wrapper STDOUT line forwarded through the
@@ -256,15 +279,12 @@ pub async fn run_method_in_stack(
     let layer_entries = super::stack::layer_entries_from_manifest(&layer_dir)?;
     // No path bwrap binds out of the base or the layer, nor the base where a
     // layer entry's bind lands, may have a symbolic link in it: bwrap would
-    // follow it into the host. Before the PID-ns probe below, which binds the
-    // base's `usr` too (method_stack_test's linked-base-usr run pins the order).
-    super::stack::assert_bind_sources_not_symlinked(&base_dir, &layer_dir, &layer_entries)?;
-    super::stack::assert_entry_parents_exist(&base_dir, &layer_entries)?;
+    // follow it into the host. Both link checks run BEFORE the PID-ns probe
+    // (`check_stack_then_probe`), which binds the base's `usr` too — a linked
+    // base `usr` is refused as a bad image, never as SANDBOX_UNAVAILABLE
+    // (method_stack_test's linked-base-usr run pins it for real bwrap).
+    let caps = check_stack_then_probe(&state.host_caps, &base_dir, &layer_dir, &layer_entries)?;
     let command = super::stack::method_entry_command(&layer_dir)?;
-
-    // Rootfs-dependent caps (strict PID-ns probe against the mounted base).
-    let caps = super::probes::probe_rootfs_dependent(&state.host_caps, &base_dir)
-        .map_err(unavailable)?;
 
     // ── workspace (0700) + staging (ITEM-17: outside the workspace) ─────────
     let workspace = state.workspace_root.join(job_id.to_string());
@@ -1760,5 +1780,89 @@ mod tests {
             fit_model_mount(MethodRunMode::FitPredict, &None).is_none(),
             "no model_out_dir ⇒ nothing to bind (validate_model_contract refuses it)"
         );
+    }
+
+    // The stacked run's order contract, pinned WITHOUT bwrap: the layer link
+    // checks ([`super::stack::assert_bind_sources_not_symlinked`] +
+    // [`super::stack::assert_entry_parents_exist`]) must run before the
+    // rootfs-dependent PID-ns probe — the probe binds the base's `usr`, so a
+    // base whose `usr` is a symbolic link to a host dir must be refused as a
+    // bad image (ROOTFS_PATH_INVALID), never end as SANDBOX_UNAVAILABLE. The
+    // real-bwrap integration test is
+    // `tests/sandbox/method_stack_test.rs::stacked_run_checks_links_before_the_pidns_probe`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stack_checks_refuse_a_linked_base_usr_before_the_pidns_probe() {
+        use std::os::unix::fs::symlink;
+        use super::super::types::{CgroupMode, HostCapabilities, SeccompMode};
+
+        let root = crate::modules::method_list::test_scratch::dir("sandbox-service", "stack-order");
+        let outside = root.join("outside");
+        let base = root.join("base");
+        let layer = root.join("layer");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::create_dir_all(layer.join("code")).unwrap();
+        // The base's `usr` is a symbolic link to an EMPTY directory outside it:
+        // exactly the base a probe-first run would bind as `/usr`, find no
+        // `/bin/true` in, and fail as SANDBOX_UNAVAILABLE.
+        symlink(&outside, base.join("usr")).unwrap();
+        // A minimal valid layer entry list: `/code` is under an allowed prefix
+        // and its parent is the mount root, which always exists — so only the
+        // linked base `usr` can be the refusal.
+        let entries = vec!["/code".to_string()];
+        let host = HostCapabilities {
+            bwrap_path: "/no/such/bwrap".into(),
+            cgroup: CgroupMode::None,
+            seccomp: SeccompMode::NotLinked,
+        };
+
+        let err = check_stack_then_probe(&host, &base, &layer, &entries)
+            .expect_err("a linked base /usr must be refused as a bad image");
+        assert_eq!(
+            err.error_code(),
+            super::super::stack::ROOTFS_PATH_INVALID_CODE,
+            "{err}"
+        );
+    }
+
+    // The same seam on a CLEAN base+layer: the link checks pass and the call
+    // reaches the PID-ns probe. With no working bwrap (the probe here targets
+    // a path that does not exist / a rootfs it cannot run `/bin/true` in) the
+    // run is refused as SANDBOX_UNAVAILABLE — the point is it is never refused
+    // as a bad image, ROOTFS_PATH_INVALID, which would mean a check misfired.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stack_checks_on_clean_images_reach_the_pidns_probe() {
+        use super::super::types::{CgroupMode, HostCapabilities, PidNsMode, SeccompMode};
+
+        let root = crate::modules::method_list::test_scratch::dir("sandbox-service", "stack-clean");
+        let base = root.join("base");
+        let layer = root.join("layer");
+        std::fs::create_dir_all(base.join("usr")).unwrap();
+        std::fs::create_dir_all(layer.join("code")).unwrap();
+        let entries = vec!["/code".to_string()];
+        let host = HostCapabilities {
+            bwrap_path: "/no/such/bwrap".into(),
+            cgroup: CgroupMode::None,
+            seccomp: SeccompMode::NotLinked,
+        };
+
+        match check_stack_then_probe(&host, &base, &layer, &entries) {
+            Ok(caps) => {
+                assert_eq!(
+                    caps.pid_namespace,
+                    PidNsMode::Strict,
+                    "a clean stack reached the probe and it answered strictly"
+                );
+            }
+            Err(err) => {
+                assert_ne!(
+                    err.error_code(),
+                    super::super::stack::ROOTFS_PATH_INVALID_CODE,
+                    "a clean base+layer is never refused as ROOTFS_PATH_INVALID: {err}"
+                );
+            }
+        }
     }
 }

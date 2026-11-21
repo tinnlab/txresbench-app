@@ -1661,7 +1661,11 @@ fn stacked_run_refuses_a_layer_entry_linked_out_of_the_image() {
 /// A base whose `usr` is a symbolic link to an empty host dir is refused with
 /// `ROOTFS_PATH_INVALID`; were the probe first, it would bind that dir as
 /// `/usr`, find no `/bin/true`, fail, and the run would end as
-/// `SANDBOX_UNAVAILABLE` instead.
+/// `SANDBOX_UNAVAILABLE` instead. The same order is pinned WITHOUT bwrap (and
+/// without this test's real bwrap + PID-ns gate) by the unit test
+/// `sandbox::service::stack_checks_refuse_a_linked_base_usr_before_the_pidns_probe`
+/// in the service.rs tests module; this integration test stays as the
+/// real-bwrap proof.
 #[test]
 fn stacked_run_checks_links_before_the_pidns_probe() {
     let name = "stacked_run_checks_links_before_the_pidns_probe";
