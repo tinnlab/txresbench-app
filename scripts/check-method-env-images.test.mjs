@@ -132,6 +132,12 @@
 //            are kept, without their bytecode; every other trim-named dir is
 //            still removed, Python packages named test or docs (joblib/test)
 //            included; the delta trim and the layer trim keep the same files.
+//   TEST-24  -processors on every mksquashfs pack: the helper is
+//            len(os.sched_getaffinity(0)); the layer and base pack command
+//            lines carry `-processors <that>` AFTER the flags (mock _run); the
+//            flag constants never hold `-processors`; and a small fixture
+//            packed with -processors 1 vs 4 is byte-identical (real
+//            mksquashfs, LAYER_MKSQUASHFS_FLAGS).
 //
 //   node --test scripts/check-method-env-images.test.mjs
 
@@ -307,10 +313,13 @@ function writeLayerRoot(root, { id, licence, run, language, version, withRun = t
   fs.mkdirSync(path.join(root, 'usr'));
 }
 
-/** mksquashfs a fixture layer root (the ARTIFACT shape, host tool). */
+/** mksquashfs a fixture layer root (the ARTIFACT shape, host tool). The
+ *  -processors value rides the fixture command line the way the generator
+ *  passes it: the CPUs this process may use. */
 function squashLayer(root, out) {
   const r = spawnSync('mksquashfs', [
     root, out, '-comp', 'zstd', '-b', '1M', '-noappend', '-no-progress', '-all-root',
+    '-processors', String(os.availableParallelism()),
   ], { encoding: 'utf8' });
   assert.equal(r.status, 0, `mksquashfs failed: ${r.stderr}\n${r.stdout}`);
 }
@@ -3035,4 +3044,106 @@ test('TEST-23b the trim still removes every other trim-named dir, packages named
     assert.ok(!delta.includes(rel), `the delta trim must remove ${rel}`);
   }
   assert.deepEqual(delta, layer, 'the delta trim and the layer trim keep the same files');
+});
+
+// ── TEST-24: -processors on every mksquashfs pack ─────────────────────────────
+// mksquashfs sizes its thread pool from the machine's CPU count (192 here),
+// not the CPUs this process may use — so the generator passes `-processors N`
+// per pack call (never folded into the flag constants), and the image bytes
+// must not change with the thread count.
+
+const SQUASHFS_PROCESSORS_HARNESS = `
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+calls = []
+def fake_run(cmd, **kw):
+    # pack_base os.replace()s its tmp over the out path: materialize the tmp.
+    if cmd[0] == "mksquashfs" and cmd[2].endswith(".tmp"):
+        os.makedirs(os.path.dirname(cmd[2]), exist_ok=True)
+        with open(cmd[2], "w") as f:
+            f.write("fixture")
+    calls.append(cmd)
+g._run = fake_run
+g._assert_squashfs_ok = lambda p: None
+n = g._squashfs_processors()
+root, staging = sys.argv[2], sys.argv[3]
+g.pack_layer(root, os.path.join(staging, "layer.squashfs"))
+# The base rootfs needs what base_rootfs_problems() checks.
+os.makedirs(os.path.join(root, "opt", "txr-layer"), exist_ok=True)
+os.makedirs(os.path.join(root, "usr", "bin"), exist_ok=True)
+open(os.path.join(root, "usr", "bin", "prlimit"), "w").close()
+open(os.path.join(root, "usr", "bin", "bash"), "w").close()
+g.pack_base(root, os.path.join(staging, "bases", "base-py-amd64"),
+            base_id="base-py", arch="amd64",
+            source_ref="ghcr.io/tinnlab/txresbench-base-py:2.0",
+            source_digest="sha256:" + "ab" * 32,
+            source_ref_source="local", source_digest_source="repo_digests")
+print(json.dumps({"affinity": len(os.sched_getaffinity(0)), "n": n,
+                  "calls": calls,
+                  "layer_flags": list(g.LAYER_MKSQUASHFS_FLAGS),
+                  "base_flags": list(g.BASE_MKSQUASHFS_FLAGS)}))
+`;
+
+test('TEST-24a the pack command lines carry -processors after the flags', () => {
+  const dir = mkdtemp('mei-proc-');
+  const root = path.join(dir, 'root');
+  fs.mkdirSync(path.join(root, 'code'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'code', 'run.sh'), '#!/bin/sh\n');
+  const r = spawnSync('python3', ['-c', SQUASHFS_PROCESSORS_HARNESS, GENERATOR, root, dir],
+    { encoding: 'utf8' });
+  assert.equal(r.status, 0, `the harness itself must run: ${r.stderr}`);
+  const out = JSON.parse(r.stdout.trim().split('\n').pop());
+  assert.equal(out.n, out.affinity,
+    '-processors is len(os.sched_getaffinity(0)) (fallback os.cpu_count() or 1)');
+  assert.ok(out.n >= 1, 'the helper never returns fewer than one processor');
+  assert.equal(out.calls.length, 2, 'one _run per pack (layer + base)');
+  for (const cmd of out.calls) {
+    assert.equal(cmd[0], 'mksquashfs');
+    const i = cmd.indexOf('-processors');
+    assert.ok(i !== -1, `${cmd.join(' ')} must carry -processors`);
+    assert.equal(cmd[i + 1], String(out.n));
+    assert.ok(i > 2, `-processors must come AFTER the source/out and the flags: ${cmd.join(' ')}`);
+  }
+  // The flag constants stay the pinned recipe; -processors is per-call only.
+  for (const flags of [out.layer_flags, out.base_flags]) {
+    assert.ok(!flags.includes('-processors'), 'the flag constants never hold -processors');
+  }
+});
+
+const MKSQUASHFS_FLAGS_HARNESS = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+print(json.dumps(list(g.LAYER_MKSQUASHFS_FLAGS)))
+`;
+
+test('TEST-24b -processors does not change a byte of the packed image', () => {
+  if (!haveTool('mksquashfs')) {
+    assert.fail('TEST-24b needs mksquashfs on PATH (squashfs-tools) to prove the byte identity');
+  }
+  const dir = mkdtemp('mei-procid-');
+  const root = path.join(dir, 'root');
+  writeLayerRoot(root, SPEC_A);
+  // Several multi-block files (1 MB blocks), so 1 and 4 threads really split the work.
+  for (let i = 0; i < 4; i++) {
+    const big = Buffer.alloc(3 * 1024 * 1024 + 17);
+    for (let j = 0; j < big.length; j++) big[j] = (j * 31 + i * 7 + (j >> 12)) & 0xff;
+    fs.writeFileSync(path.join(root, `big-${i}.bin`), big);
+  }
+  const r = spawnSync('python3', ['-c', MKSQUASHFS_FLAGS_HARNESS, GENERATOR], { encoding: 'utf8' });
+  assert.equal(r.status, 0, `the flag harness itself must run: ${r.stderr}`);
+  const flags = JSON.parse(r.stdout.trim().split('\n').pop());
+  const one = path.join(dir, 'one.squashfs');
+  const four = path.join(dir, 'four.squashfs');
+  for (const [out, n] of [[one, '1'], [four, '4']]) {
+    const p = spawnSync('mksquashfs', [root, out, ...flags, '-processors', n], { encoding: 'utf8' });
+    assert.equal(p.status, 0, `mksquashfs -processors ${n} failed: ${p.stderr}\n${p.stdout}`);
+  }
+  assert.ok(fs.readFileSync(one).equals(fs.readFileSync(four)),
+    'the image bytes must not change with -processors (1 vs 4)');
 });

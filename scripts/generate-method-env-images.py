@@ -410,6 +410,19 @@ BASE_MKSQUASHFS_FLAGS = (
 #: __pycache__, DEC-12), so fixed times change no import behaviour.
 LAYER_MKSQUASHFS_FLAGS = BASE_MKSQUASHFS_FLAGS
 
+#: The CPUs this process may use. mksquashfs sizes its thread pool from the
+#: machine's CPU count, not the cpuset/affinity this process is limited to, so
+#: every pack passes -processors <this> (a 192-core box would otherwise give a
+#: job allowed at most 8 CPUs 192 worker threads). The bytes do not change
+#: with the thread count; the flag is passed per call, never folded into the
+#: flag constants (they are the reproducibility-pinned pack recipe).
+def _squashfs_processors() -> int:
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
 #: Mirrors src-app/server/src/modules/sandbox/env_id.rs::is_valid_env_id.
 #: An id failing this is refused at the top of the build, not rescued.
 ENV_ID_RE = re.compile(r"^[a-z0-9._-]+$")
@@ -1853,7 +1866,8 @@ def build_one(eid: str, args) -> dict:
 def pack_layer(layer_root: str, squashfs: str) -> None:
     """Pack a materialized layer root into its squashfs (the OCI artifact's
     single file)."""
-    _run(["mksquashfs", layer_root, squashfs, *LAYER_MKSQUASHFS_FLAGS])
+    _run(["mksquashfs", layer_root, squashfs, *LAYER_MKSQUASHFS_FLAGS,
+          "-processors", str(_squashfs_processors())])
     _assert_squashfs_ok(squashfs)
 
 
@@ -1963,7 +1977,8 @@ def pack_base(rootfs: str, base_dir: str, *, base_id: str, arch: str,
     tmp = out + ".tmp"
     if os.path.exists(tmp):
         os.unlink(tmp)
-    _run(["mksquashfs", rootfs, tmp, *BASE_MKSQUASHFS_FLAGS])
+    _run(["mksquashfs", rootfs, tmp, *BASE_MKSQUASHFS_FLAGS,
+          "-processors", str(_squashfs_processors())])
     os.replace(tmp, out)
     _assert_squashfs_ok(out)
     sha = _sha256_of(out)

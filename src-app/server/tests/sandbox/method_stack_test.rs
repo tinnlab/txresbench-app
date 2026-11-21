@@ -308,7 +308,7 @@ fn build_layer_rootfs(root: &Path, run_sh: &str, entries: &[&str]) {
 /// whose root carries the layer files; host tool, no docker).
 fn squash(dir: &Path, out: &Path) {
     sh(&format!(
-        "mksquashfs {} {} -noappend -no-progress -comp zstd >/dev/null",
+        "mksquashfs {} {} -processors $(nproc) -noappend -no-progress -comp zstd >/dev/null",
         dir.display(),
         out.display()
     ));
