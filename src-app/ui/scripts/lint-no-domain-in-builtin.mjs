@@ -2353,15 +2353,10 @@ const CENSUS_SKIP_DIRS = new Set(['node_modules', 'target', 'dist', 'build', 'co
 const UNSCANNED_TREES = {
   // ── repo root ──
   'agent-kit':
-    'a git SUBMODULE (tinnlab/agent-kit) — shared framework docs + skills, owned by another repo. ' +
+    'a vendored tree tracked in-tree (tinnlab/agent-kit, not a submodule) — shared framework docs + skills, owned by another repo. ' +
     'A guard in THIS repo cannot ratchet a tree this repo does not author; a leak there is a ' +
     'finding for its own repo. Not measured.',
-  sdk: 'a git SUBMODULE (tinnlab/sdk). Same argument as agent-kit: not authored here, so not ratcheted here.',
-  dev: "the txresbench-app EPIC's own freeze/reconcile report (dev/docs/app-build-epic-report.md, 1 file). " +
-    'PROSE-ONLY project-report prose, the same class as `docs` (notes ABOUT the app, nothing that ' +
-    'compiles, ships or is read at runtime). Measured 0 findings in any dialect this guard has — ' +
-    'it is about the SQLite port and the test harness, not the domain. Added by the epic-reconcile ' +
-    'commit; out for the same reason as `docs`, recorded so the zero is on the record.',
+  sdk: 'a vendored tree tracked in-tree (tinnlab/sdk, not a submodule). Same argument as agent-kit: not authored here, so not ratcheted here.',
   docs: 'PROSE-ONLY research + design notes; measured 7377 findings (6271 code-tier / 1106 prose / ' +
     '349 literal), 92 files, led by the platform data-processing research (699/593/540). These are ' +
     'notes ABOUT the domain — the single place in the repo where naming the domain is the POINT — ' +

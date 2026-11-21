@@ -14,7 +14,9 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-STATE_DIR="${TXR_DESKTOP_STATE:-/data/pbya/txresbench-app-work/dev-desktop}"
+# Must match run.sh's default: the work root is env-overridable.
+WORK_DIR="${TXR_WORK_DIR:-$HOME/.cache/txresbench-dev}"
+STATE_DIR="${TXR_DESKTOP_STATE:-$WORK_DIR/dev-desktop}"
 DISPLAY_NUM="${TXR_DESKTOP_DISPLAY:-99}"
 NOVNC_PORT="${TXR_DESKTOP_NOVNC_PORT:-6080}"
 OUT="$STATE_DIR/shots/verify-$(date +%Y%m%d-%H%M%S).png"

@@ -28,7 +28,7 @@ or `git worktree add` lacks it** — see Bring-up traps.
 | `src-app/server/` | Rust binary crate — `config/`, `migrations/`, `tests/`; module tree under `src/modules/` (the txr run/history/model/pretrained/method-catalogue/file-validator modules + the framework spine: account, jobs, sandbox, rootfs, mcp, features, sync, permissions). `sandbox/` has three method runners: bwrap on Linux (`service.rs`, `stack.rs`), a per-run microVM on macOS (`mac_vm_run.rs`) and the app's WSL 2 distro on Windows (`wsl_run.rs`), the two VM runners sharing `vm_exchange.rs` |
 | `src-app/ui/` | Vite/React/TS frontend; the app is the `txr*` module family + shell/help/settings (its own `npm run check` chain) |
 | `src-app/desktop/` | Tauri desktop shell (`tauri/`) + the desktop dev harness |
-| `sdk/` | submodule — the txresbench SDK: `crates/` (framework, core, auth, file, health, identity, notification, build-support, control-mcp, test-harness, sandbox-seccomp, plus the VM runner's three: sandbox-vm-protocol, sandbox-guest-agent, sandbox-vm-launcher), `packages/` (kit, shell, framework, config, gallery, notification-ui, test-e2e), `desktop/harness` |
+| `sdk/` | tracked in-tree (no submodule) — the txresbench SDK: `crates/` (framework, core, auth, file, health, identity, notification, build-support, control-mcp, test-harness, sandbox-seccomp, plus the VM runner's three: sandbox-vm-protocol, sandbox-guest-agent, sandbox-vm-launcher), `packages/` (kit, shell, framework, config, gallery, notification-ui, test-e2e), `desktop/harness` |
 | `data/` | first-party embedded data: `method-catalogue/`, `file-validator/`, `pretrained-catalogue/` |
 | `scripts/` | generators + the guard suite (see Guards); `scripts/lib/` is shared verify logic |
 | `docs/` | design + research, read on demand (the single-cell platform's docs were removed with it) |
@@ -37,7 +37,7 @@ or `git worktree add` lacks it** — see Bring-up traps.
 
 ## Test entry points
 
-**`just check` is the aggregate gate** (`justfile:57-66`). Run it, never a subset. It runs 5 legs
+**`just check` is the aggregate gate** (the `check` recipe). Run it, never a subset. It runs 5 legs
 via `scripts/check-aggregate.sh --min-legs 5`, which **collects results rather than
 short-circuiting** — one red leg does not abort the others, so read every exit code:
 
@@ -49,8 +49,7 @@ It is a **deep tree, not 5 flat commands**: `check-invariants` fans out to 9 sub
 `check-guards` to 6 more (guard-integrity controls + method-env-images + method-list + no-format-crates);
 `ui npm run check` is itself a 14-step chain (`src-app/ui/package.json:11`).
 
-- Backend integration: `just test 4` (positional `THREADS`, default 4; `justfile:22`) · unit: `just test-unit`
-  (`justfile:20`)
+- Backend integration: `just test 4` (positional `THREADS`, default 4) · unit: `just test-unit`
 
 **Baseline before blaming your branch.** Re-run the same leg on a clean checkout of your base and
 compare failing sets **by name** (`comm`), not by count.
@@ -60,10 +59,11 @@ compare failing sets **by name** (`comm`), not by count.
 - **The analysis sandbox has no network.** `--unshare-net` at
   `src-app/server/src/modules/sandbox/sandbox.rs:96`, asserted at `:637`
   (*"network must be blocked"*). Nothing is fetched at run time — ever. Fetch at build time
-  instead; the method environments themselves are downloaded by digest from the method list
-  before a run (the app's only network uses are those downloads, the signed method list check —
-  boot, run start, the Settings button, never on a timer — and the update check, all pinned by
-  `scripts/check-network-allowlist.sh`; GHCR needs `ghcr.io` and `pkg-containers.githubusercontent.com`).
+  instead; the app's only runtime network uses are the method-environment downloads (by digest
+  from the method list, before a run), the signed method list check (boot, run start, the
+  Settings button, never on a timer), the pretrained-catalogue boot/on-demand refresh + model
+  asset downloads, and the update check — all pinned by
+  `scripts/check-network-allowlist.sh`; GHCR needs `ghcr.io` and `pkg-containers.githubusercontent.com`.
 - **The app is bare-metal single-user by design.** No login screen, no queue, no provenance or
   workspace screens: the route surface is the app's own `/api/health`, `/api/session/local`,
   `/api/app/mode`, `/api/methods*`, `/api/markers`, `/api/file-validation/*` and `/api/txr/*`
@@ -91,16 +91,14 @@ under `src-app/ui/scripts/` (`check-e2e-routing.mjs`, `check-rename-mechanical.m
 `lint-no-domain-in-builtin.mjs`, `guard-floors.test.mjs`, `lint-native-controls.mjs`,
 `lint-secret-input-caps.mjs`, `collect-actions.mjs`, `action-refs-lint.mjs`,
 `action-coverage.mjs`, `lint-text-source-bytes.mjs`). The domain lint is invoked by
-`just check-domain` (`justfile:205-218`).
+`just check-domain`.
 
 ## Working files — never `/tmp` (owner rule)
 
 **Do not put anything in `/tmp`.** If this box crashes, everything there is gone. Worktrees, logs,
-scratch scripts, fixtures, baselines and evidence all go under **`/data/pbya/txresbench/`**, e.g.
-`/data/pbya/txresbench/tmp/<task>/` (outside the repo, so it is not git noise). For test and gate
-runs, export `TMPDIR` to a directory there as well, so tool-created temp dirs follow.
-`/` and `/tmp` share one overlay; `/data/pbya` is a separate ZFS pool with far more free space.
-Freeing space under `/data/pbya` does nothing for `/`.
+scratch scripts, fixtures, baselines and evidence go in a work directory outside the repo
+that the developer chooses (see their own workspace rules), so it is not git noise. For test
+and gate runs, export `TMPDIR` to a directory there as well, so tool-created temp dirs follow.
 
 ## Bring-up traps
 
@@ -109,9 +107,9 @@ A fresh clone or worktree fails in ways that read like code defects:
 - **`src-app/server/config/dev.yaml` is gitignored** (`.gitignore:16-17`) and absent from `git ls-files`.
   Anything reading it fails with a message resembling a generation defect. When scripting the copy, **assert the `jwt.secret` substitution matched** so a silent no-op cannot
   produce a placeholder secret.
-- `node_modules` and submodule init are not automatic in a new worktree (the SDK is a submodule;
-  `sdk/packages/*` + `src-app/ui` are the root npm workspaces; the lockfile is text-edited, never
-  re-resolved — DEC-5).
+- `node_modules` and submodule init are not automatic in a new worktree (the SDK is tracked
+  in-tree, not a submodule; `sdk/packages/*` + `src-app/ui` are the root npm workspaces; the
+  lockfile is text-edited, never re-resolved — DEC-5).
 - The test-harness writes its per-worktree app-data under `.txresbench-cache/` (gitignored).
 
 ## Skills index — load on trigger, not by default

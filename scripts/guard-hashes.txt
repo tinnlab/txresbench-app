@@ -8,7 +8,7 @@
 # <sha256>  <path>
 6cabd764847af5f39601c65d2514807c4172b3d2f64020850d78eb33c2a85413  scripts/check-aggregate.sh
 338c409ced2458a2c9480e132707d67dfe4f6daf1ce0e3e807da764ff3a99f6d  scripts/check-aggregate.test.mjs
-a294ad55dfda966259c6e4c8bf4dff95581dd3736c6738441682e8dbee02feb7  scripts/check-dead-refs.sh
+c8341df7e2b2b5f068239d11d99a843c09c73e3d9200909161639893b99db94e  scripts/check-dead-refs.sh
 6646bedfba154370ccdc873345d4b83593652d0441559da3bdb7425f704d31db  scripts/check-guard-integrity.sh
 a3a75703d2b670fdc5443beed8efcf40012870e54d86cc56dd828219d925a475  scripts/check-method-env-images.sh
 590ade757d8beee32afe08eaab676c2c6135e9fc7bca07f8612c8cdca7c60211  scripts/check-method-env-images.test.mjs
@@ -18,7 +18,7 @@ a3a75703d2b670fdc5443beed8efcf40012870e54d86cc56dd828219d925a475  scripts/check-
 42868e21e09c60854cd337dd917ebaa7b7081184e124aff2a935f7324be95ec8  scripts/check-network-allowlist.sh
 665d68e1d0f6a7a28098426c11e937993c8606b9589d124fbd73cc8690e23447  scripts/check-network-allowlist.test.mjs
 43348801cb26577e2ff6fb6a55987e00da21de7194dad41d600599d03f8e2913  scripts/check-no-format-crates.sh
-e8552beeff42941bf56cfb5dfafe5b22cd27a284e4af19b721187e30050f962b  scripts/check-no-study-domain-literals.sh
+575f9d4d8c0255c709aeb2af4e698501865ba4f195282b6eb57766ca7a64a4e1  scripts/check-no-study-domain-literals.sh
 57ae41c18759fe28ee80d095fbfddfa5a1c765a2ba081d916df9c6b8354eb880  scripts/check-pub-orphans.mjs
 770ea0efe5afe12b2961bb52d1ca50a49af9d1ac6f53b104f21fd9ee30093598  scripts/check-pub-orphans.test.mjs
 ba3da927e508ca1b22788ad12d7d5000d61e71e04e469b41a962d1cfcd7df59a  scripts/check-test-scope-lists.mjs

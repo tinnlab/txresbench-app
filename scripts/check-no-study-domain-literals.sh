@@ -9,8 +9,9 @@
 #
 # SCOPE: `src-app/**` product source (Rust + TS + SQL + JSON catalogs). EXCLUDED
 # (the preserved allowlist — see .claude/... DEC-3):
-#   - the git submodules `sdk/` + `agent-kit/` (shared framework; NOT under src-app,
-#     so not scanned — the SDK owns its OWN generic `study_share_invite` example);
+#   - the vendored trees `sdk/` + `agent-kit/` (tracked in-tree, NOT submodules;
+#     shared framework, not under `src-app/` — the SDK owns its OWN generic
+#     `study_share_invite` example);
 #   - the MECHANICALLY-GENERATED api-client (`api-client/types.ts`, `openapi/openapi.json`),
 #     which regenerate deterministically from reviewed Rust source and carry the SDK's
 #     preserved doc-comment example verbatim (an `study_share_invite` example on the

@@ -16,12 +16,12 @@ it from a browser.
 ```sh
 # one-time
 # 1. build the UI bundle (embedded into the binary at compile time)
-CAP_CPUS=2 TMPDIR_CAP=/data/pbya/txresbench-app-work/tmp-qa-hardening \
-  /data/share/pbya/sigtrans/ops/cap.sh npm run build --workspace=@txresbench/ui
+CAP_CPUS=2 TMPDIR_CAP=$TXR_WORK_DIR/tmp-qa-hardening \
+  $CAP_SH npm run build --workspace=@txresbench/ui
 # 2. build the desktop binary (PRODUCTION shape — embeds the dist)
-TMPDIR_CAP=/data/pbya/txresbench-app-work/tmp-qa-hardening \
-CAP_CPUS=2 CARGO_TARGET_DIR=/data/pbya/txresbench-app-work/target/qa-hardening \
-  /data/share/pbya/sigtrans/ops/cap.sh \
+TMPDIR_CAP=$TXR_WORK_DIR/tmp-qa-hardening \
+CAP_CPUS=2 CARGO_TARGET_DIR=$TXR_WORK_DIR/target/qa-hardening \
+  $CAP_SH \
   cargo build -p txresbench-desktop --features tauri/custom-protocol
 
 # run / look / capture / stop
@@ -40,11 +40,12 @@ scripts/dev-desktop/stop.sh
 | x11vnc | `-localhost` only (`:5900`), no password, `-forever -shared` |
 | websockify | `--web /usr/share/novnc` on `0.0.0.0:6080` → `localhost:5900` |
 
-State (pids, logs, the throwaway `data/`+`home/`, shots): `/data/pbya/txresbench-app-work/dev-desktop`
-(`TXR_DESKTOP_STATE` to override; the harness refuses to wipe a state dir that
+State (pids, logs, the throwaway `data/`+`home/`, shots): `$TXR_WORK_DIR/dev-desktop`
+(`TXR_DESKTOP_STATE` to override; `TXR_WORK_DIR` defaults to `$HOME/.cache/txresbench-dev`;
+the harness refuses to wipe a state dir that
 does not carry its marker file). Every process is launched through
-`ops/cap.sh` with `CAP_CPUS=2` (the default; never raise it) and `TMPDIR` under
-app-work.
+`CAP_SH` (the CPU-cap wrapper from the environment; empty = uncapped) with
+`CAP_CPUS=2` (the default; never raise it) and `TMPDIR` under the work dir.
 
 ## The binary shape — why `--features tauri/custom-protocol`
 
@@ -60,11 +61,11 @@ drift entry (impl-wins; PLAN amended).
 
 ## Knobs (all env, all optional)
 
-`TXR_DESKTOP_STATE` · `TXR_DESKTOP_DISPLAY` (99) · `TXR_DESKTOP_VNC_PORT`
+`TXR_DESKTOP_STATE` · `TXR_WORK_DIR` · `TXR_DESKTOP_DISPLAY` (99) · `TXR_DESKTOP_VNC_PORT`
 (5900) · `TXR_DESKTOP_NOVNC_PORT` (6080) · `TXR_DESKTOP_NOVNC_BIND` (0.0.0.0 —
 the plan's value; x11vnc itself stays localhost-only) ·
 `TXR_DESKTOP_BIN` · `TXR_REGISTRY_HOST` · `TXR_ENV_MANIFEST` ·
-`TXR_DESKTOP_APP_TIMEOUT` (180 s) · `CAP_CPUS` (2).
+`TXR_DESKTOP_APP_TIMEOUT` (180 s) · `CAP_SH` (empty = uncapped) · `CAP_CPUS` (2).
 
 ## What TEST-QA-5 proves
 

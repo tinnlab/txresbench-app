@@ -44,9 +44,9 @@ RUN
     python3 scripts/demo/e2e-demo.py --app-url http://127.0.0.1:3100
     python3 scripts/demo/e2e-demo.py --binary target/debug/txresbench
 
-The report is written to /data/pbya/txresbench-app-work/qa-data/
-e2e-demo-report.md (default — DEC-1: outside the repo; never /tmp) and
-mirrored on stdout.
+The report is written to $TXR_WORK_DIR/qa-data/e2e-demo-report.md (default:
+~/.cache/txresbench-dev/qa-data/e2e-demo-report.md — DEC-1: outside the
+repo, never /tmp) and mirrored on stdout.
 """
 
 import argparse
@@ -81,9 +81,13 @@ OPENAPI_JSON = os.path.join(_REPO, "src-app/ui/openapi/openapi.json")
 EXAMPLE_ASSETS = os.path.join(_REPO, "data/file-validator/examples")
 
 #: The default work root (the repo's working-file rule: never /tmp).
-DEFAULT_WORK = "/data/pbya/txresbench-app-work/demo-e2e"
-#: The default report path (DEC-1: outside the repo).
-DEFAULT_REPORT = "/data/pbya/txresbench-app-work/qa-data/e2e-demo-report.md"
+#: TXR_WORK_DIR overrides it so the scratch dir is the developer's own.
+_WORK_ROOT = os.environ.get(
+    "TXR_WORK_DIR", os.path.expanduser("~/.cache/txresbench-dev")
+)
+DEFAULT_WORK = os.path.join(_WORK_ROOT, "demo-e2e")
+#: The default report path (DEC-1: outside the repo). TXR_WORK_DIR overrides it.
+DEFAULT_REPORT = os.path.join(_WORK_ROOT, "qa-data", "e2e-demo-report.md")
 #: The default app URL (attach mode).
 DEFAULT_APP_URL = "http://127.0.0.1:3100"
 #: The desktop download page the demo config carries (the mode probe's echo).
@@ -105,13 +109,9 @@ EXAMPLE_PREDICT_PATIENTS = 15
 STEP_TIMEOUT_SECS = 20 * 60
 POLL_SECS = 0.5
 
-#: The sigtrans ops/cap.sh wrapper (CAP_SH overrides; empty runs uncapped —
-#: a deployment host without the sigtrans ops).
-CAP_SH = os.environ.get("CAP_SH") or (
-    "/data/share/pbya/sigtrans/ops/cap.sh"
-    if os.path.isfile("/data/share/pbya/sigtrans/ops/cap.sh")
-    else ""
-)
+#: The CPU-cap wrapper (CAP_SH overrides; empty runs uncapped — a
+#: deployment host without an ops wrapper).
+CAP_SH = os.environ.get("CAP_SH", "")
 #: CAP_CPUS is honored but never above 4 (the node's rule).
 CAP_CPUS = min(int(os.environ.get("CAP_CPUS", "4") or "4"), 4)
 
