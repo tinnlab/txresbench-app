@@ -537,11 +537,17 @@ async fn method_catalogue_eligibility_e3_coverage_120_of_151() {
 
 /// Screen B (preview): group checkboxes → `MARKER_GROUP_MISSING` reasons; the
 /// all-groups-true schedule (always-baseline, 4 draws) fits EVERY env-published
-/// method — the shipped manifest publishes 91 (94 until schema 2 dropped the
-/// three entries whose facts did not hold at their commit: two named the wrong
-/// version, one is in no commit of the methods repo), so the runtime-adjusted
-/// counts are total_fit 91 / total_cannot 268 / total_no_env 268 (of 359; pure
-/// fit-only would be 357 of 359, the two 6-draw methods additionally no-env).
+/// RUNNABLE method — the shipped manifest publishes 91 entries, of which 80
+/// belong to runnable methods (the other 11 are retired rows kept so saved
+/// models and history of them keep their facts: direct-on, fglm-pace-logit,
+/// rf-immune-params-recurrence, rsf-cytokine-difference, rsf-cytokine-foldchange,
+/// rsf-cytokine-snapshot, statistica-ann-pcr, statistica-knn-pcr,
+/// statistica-nbc-pcr, statistica-svm-pcr, xgboost-response-signature). No
+/// runnable method needs more than 5 draws, so the always+4-draw schedule (5)
+/// with all groups true leaves all 80 env-published methods fitting; the
+/// runtime-adjusted counts are total_fit 80 / total_cannot 279 / total_no_env
+/// 279 (of 359 runnable — the 11 retired-only env entries never fit because a
+/// retired row gets no verdict).
 #[tokio::test]
 async fn method_catalogue_eligibility_preview_screen_b() {
     let server = TestServer::spawn().await;
@@ -569,14 +575,14 @@ async fn method_catalogue_eligibility_preview_screen_b() {
     assert_eq!(resp.status().as_u16(), 200);
     let body: Value = resp.json().await.expect("body");
 
-    assert_eq!(body["total_fit"], 91, "all groups true, 4 draws — the env-published fit");
+    assert_eq!(body["total_fit"], 80, "all groups true, 4 draws — the env-published RUNNABLE fit (80 of the manifest's 91 entries belong to runnable methods); every runnable method needs <= 5 draws so the always+4 schedule fits all 80");
     assert_eq!(body["total_some"], 0, "before-treatment always");
     assert_eq!(
         body["total_cannot"],
-        359 - 91,
-        "every method without a published env is CannotRun (the two 6-draw included)"
+        359 - 80,
+        "every runnable method without a published env is CannotRun"
     );
-    assert_eq!(body["total_no_env"], 359 - 91, "the count agrees with the manifest (359 - 91 published)");
+    assert_eq!(body["total_no_env"], 359 - 80, "the count agrees with the manifest (359 runnable - 80 published)");
 
     let verdict = body["methods"]
         .as_array()

@@ -271,8 +271,21 @@ mod tests {
         // carries non-empty env image/digest/contract — enforced at load, so a
         // re-assert here pins the DATA the load accepted.
         assert!(!c.methods.is_empty(), "catalogue methods must not be empty");
-        for m in &c.methods {
-            assert_eq!(m.runnable, true, "every shipped method is runnable (DEC-2)");
+        // The built-in catalogue is the benchmark's usable-method list: 429
+        // rows, of which 359 are runnable and 70 are kept with
+        // `runnable: false` (retired — they stay so saved models and history
+        // of them keep their facts; the counts are pinned AND derived from
+        // the data, so a drift in either direction fails).
+        let runnable = c.methods.iter().filter(|m| m.runnable).count();
+        let retired = c.methods.len() - runnable;
+        assert_eq!(c.methods.len(), 429, "the shipped catalogue has 429 rows");
+        assert_eq!(runnable, 359, "runnable rows (DEC-2's number)");
+        assert_eq!(retired, 70, "retired rows kept with their facts");
+        // PROV-MC-1 acceptance facts the boot check enforces: a RUNNABLE entry
+        // carries non-empty env image/digest/contract — enforced at load, so a
+        // re-assert here pins the DATA the load accepted (a retired row keeps
+        // its env facts but is not offered).
+        for m in c.methods.iter().filter(|m| m.runnable) {
             assert!(!m.env.image.is_empty());
             assert!(!m.env.digest.is_empty());
             assert!(!m.env.contract.is_empty());
@@ -296,6 +309,26 @@ mod tests {
         assert_eq!(env.version, "2.0.0");
         assert!(env.digest.starts_with("sha256:"), "the gate digest form");
         assert_eq!(env.contract, "2.0");
+
+        // A RETIRED row still loads with its facts (it stays reachable by id
+        // so saved models and history of it keep their facts) and reports
+        // itself as not runnable.
+        let retired = method("nn-3layer-ctdna-pr")
+            .expect("a retired named method of the real catalogue still resolves");
+        assert!(!retired.runnable, "the retired row is marked not runnable");
+        assert_eq!(retired.version, "1.0.0");
+        assert_eq!(retired.group, MethodGroup::ResponseProbability);
+        assert_eq!(retired.min_draws, 6);
+        assert!(retired.tasks.is_empty(), "the retired method is task-less");
+        let retired_env =
+            env_for("nn-3layer-ctdna-pr").expect("a retired row keeps its env facts");
+        assert_eq!(
+            retired_env.image, "ghcr.io/tinnlab/txresbench-nn-3layer-ctdna-pr:1.0.0",
+            "the retired row's recorded image"
+        );
+        assert_eq!(retired_env.version, "1.0.0");
+        assert!(retired_env.digest.starts_with("sha256:"), "the gate digest form");
+        assert_eq!(retired_env.contract, "2.0");
 
         // The vocabulary resolves the panel's HGNC markers and reports groups.
         let eya4 = vocabulary_marker("HGNC", "EYA4").expect("EYA4 is in the vocabulary");

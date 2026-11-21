@@ -1055,8 +1055,8 @@ fn outcome_reasons(m: &Method, outcomes: &FileOutcomes, reasons: &mut Vec<Reason
     // 2026-10-20 rule: task/endpoint are not part of a run — every method
     // runs on every outcome the patients table supports; the earlier
     // "a task-less method covers no file outcome" verdict bases a mismatch
-    // on a fact never curated for the real registry — 343 of 359 catalogue
-    // methods carry `tasks: []` — see execution-engine DRIFT-1 ITEM-4 #5).
+    // on a fact never curated for the real registry — 341 of 359 runnable
+    // catalogue methods carry `tasks: []` — see execution-engine DRIFT-1 ITEM-4 #5).
     if m.tasks.is_empty() {
         return;
     }
@@ -2407,8 +2407,8 @@ mod tests {
 
     #[test]
     fn taskless_method_is_compatible_with_any_file_outcome() {
-        // The shipped catalogue carries `tasks: []` for 343 of 359 methods
-        // (execution-engine DRIFT-1 ITEM-4 #5); the owner's rule (2026-10-20:
+        // The shipped catalogue carries `tasks: []` for 341 of 359 runnable
+        // methods (execution-engine DRIFT-1 ITEM-4 #5); the owner's rule (2026-10-20:
         // task/endpoint are not part of a run — every method runs on every
         // outcome the patients table supports) makes the empty list mean
         // "any outcome", never a TASK_INCOMPATIBLE.
@@ -2539,7 +2539,12 @@ mod tests {
         };
         let answer = eligibility(&list, &req);
         assert_eq!(answer.method_list_sequence, Some(41));
-        assert_eq!(answer.methods.len(), list.catalogue.methods.len());
+        // The seam answers the RUNNABLE rows only — a retired method gets no
+        // verdict (it is not offered); the comparison is against the
+        // catalogue's runnable rows, not its total row count.
+        let runnable = list.catalogue.methods.iter().filter(|m| m.runnable).count();
+        assert_eq!(answer.methods.len(), runnable);
+        assert_eq!(answer.methods.len(), 359, "the shipped catalogue's runnable rows");
         // The pure engine names no list (it is given a catalogue, not a list).
         assert_eq!(eligibility_for(&list.catalogue, &req).method_list_sequence, None);
     }
