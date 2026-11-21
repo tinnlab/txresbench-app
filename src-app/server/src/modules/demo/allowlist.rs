@@ -82,6 +82,7 @@ pub const ROUTE_POLICY: &[RouteRow] = &[
     // The method list status: in demo mode it says updates are off (the demo
     // replays the built-in list). Before the `{method_id}` row: first match wins.
     RouteRow::allowed("GET", "/methods/updates"),
+    RouteRow::allowed("GET", "/methods/filter-options"),
     RouteRow::allowed("GET", "/methods/{method_id}"),
     RouteRow::allowed("POST", "/methods/eligibility"),
     RouteRow::allowed("POST", "/methods/estimate"),
