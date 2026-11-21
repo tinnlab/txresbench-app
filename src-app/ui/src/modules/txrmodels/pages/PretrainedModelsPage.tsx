@@ -259,6 +259,14 @@ function reuseConfig(first: PretrainedSummary, atATime: number): RunConfig {
   } as unknown as RunConfig
 }
 
+/** The live selection read FRESH at invoke time (the shared hook's
+ *  `getSelection` — the action's selection is never a render-time snapshot;
+ *  the stale-state token is the real check). Uses no component state, so it
+ *  lives at module scope: ONE function identity, never a per-render arrow. */
+function getLiveSelection(): ReadonlySet<string> {
+  return useTxrModelsStore.getState().selection
+}
+
 /**
  * The one install path for a selected card (PROV-PC-7): an already
  * installed card yields its store uuid; a bundled/cached/downloaded asset
@@ -629,16 +637,24 @@ export function PretrainedModelsPage() {
   // step. Only the dialog this page shows counts (the model card, in the
   // list state): the store's dialog id is shared with the saved-models
   // page.
-  const run = useModelListRun({
-    rows,
-    selection,
-    getSelection: () => useTxrModelsStore.getState().selection,
-    factsOf: (key: string): ModelRunFacts | undefined => {
+  /** The runnable keys' facts: the card's own decision day + horizon. ONE
+   *  stable function (an inline arrow would make the shared hook's
+   *  `useMemo`s and `startRun` recompute on every render — the page's own
+   *  renders (chips, sort, downloads) are not the run's inputs). */
+  const factsOf = useCallback(
+    (key: string): ModelRunFacts | undefined => {
       const card = cardById.get(key.slice(ROW_KEY_PREFIX.length))
       return card === undefined
         ? undefined
         : { decision_day: card.decision_day, horizon: card.horizon }
     },
+    [cardById],
+  )
+  const run = useModelListRun({
+    rows,
+    selection,
+    getSelection: getLiveSelection,
+    factsOf,
     createRun,
   })
   useStepBack({

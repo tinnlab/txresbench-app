@@ -239,6 +239,14 @@ interface SectionActionState {
   set: { id: string; name: string } | null
 }
 
+/** The live selection read FRESH at invoke time (the shared hook's
+ *  `getSelection` — the action's selection is never a render-time snapshot;
+ *  the stale-state token is the real check). Uses no component state, so it
+ *  lives at module scope: ONE function identity, never a per-render arrow. */
+function getLiveSelection(): ReadonlySet<string> {
+  return useTxrModelsStore.getState().selection
+}
+
 const NO_SECTION_ACTION: SectionActionState = { kind: 'rename', set: null }
 
 export function SavedModelsPage() {
@@ -544,16 +552,24 @@ export function SavedModelsPage() {
   // step. Only the dialogs this page shows count as open (the row Details,
   // the set Rename/Delete): the store's dialog id is shared with the
   // published-models page.
-  const run = useModelListRun({
-    rows,
-    selection,
-    getSelection: () => useTxrModelsStore.getState().selection,
-    factsOf: (key: string): ModelRunFacts | undefined => {
+  /** The runnable keys' facts: the model's own decision day + horizon. ONE
+   *  stable function (an inline arrow would make the shared hook's
+   *  `useMemo`s and `startRun` recompute on every render — the page's own
+   *  renders (search, chips, dialogs) are not the run's inputs). */
+  const factsOf = useCallback(
+    (key: string): ModelRunFacts | undefined => {
       const model = modelById.get(key)
       return model === undefined
         ? undefined
         : { decision_day: model.decision_day, horizon: model.horizon }
     },
+    [modelById],
+  )
+  const run = useModelListRun({
+    rows,
+    selection,
+    getSelection: getLiveSelection,
+    factsOf,
     createRun,
   })
   useStepBack({

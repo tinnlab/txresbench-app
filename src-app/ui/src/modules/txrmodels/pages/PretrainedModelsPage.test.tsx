@@ -47,6 +47,7 @@ import '@/core/actions/builtin/stepActions'
 import '@/core/actions/builtin/appActions'
 import '@/core/actions/builtin/modelRunActions'
 import { runAction } from '@/core/actions/defineAction'
+import { createActionContext } from '@/core/actions/ctx'
 import { RouterBridge } from '@/core/actions/navigateBridge'
 import { instancesOfType } from '@/core/actions/instanceRegistry'
 import type {
@@ -1081,6 +1082,74 @@ describe('PretrainedModelsPage — the D Run flow (TEST-MOD-32 / CONS-UM-24 + 13
     expect((refused as Error).message).toContain('STALE_STATE')
     expect(api.resolveModels).not.toHaveBeenCalled()
     expect(api.createRun).not.toHaveBeenCalled()
+  })
+
+  it('the models.run action with a valid state token resolves with the created run id and navigates like the button', async () => {
+    setRunCatalogue()
+    renderPage()
+    await settle(0)
+    await selectRow('ps:rc-1')
+    await selectRow('ps:rc-2')
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const token = live[0].record.getSnapshot()['_state_token'] as string
+    let created: unknown
+    await act(async () => {
+      created = await runAction('models.run', {
+        view_id: live[0].id,
+        expected: token,
+      })
+    })
+    await settle(0)
+    // Success is a STARTED run: the action resolves with the created run's
+    // id (never a bare acknowledgement), and the run was created once.
+    expect(created).toBe('run-1')
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    // The same route the Run button reaches: the created run's Running screen.
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('a second invoke while the first create is still pending returns the same promise and makes no second createRun call', async () => {
+    // The create hangs until the test lets it through: while it is pending,
+    // the inflight guard gives the second invoke the FIRST run's promise —
+    // never a second create (the button's double click is the same rule).
+    let settleCreate: ((run: TxrRunSummary) => void) | undefined
+    api.createRun.mockImplementationOnce(
+      () => new Promise<TxrRunSummary>(resolve => {
+        settleCreate = resolve
+      }),
+    )
+    setRunCatalogue()
+    renderPage()
+    await settle(0)
+    await selectRow('ps:rc-1')
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const token = live[0].record.getSnapshot()['_state_token'] as string
+    let first: unknown
+    let second: unknown
+    await act(async () => {
+      first = runAction('models.run', { view_id: live[0].id, expected: token })
+      second = runAction('models.run', { view_id: live[0].id, expected: token })
+      await Promise.resolve()
+    })
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    // The handler the registered action returns is the same guarded Run:
+    // while the create is pending BOTH invokes share ONE promise object.
+    const handler = live[0].record.getHandlers()['models.run']
+    const shared1 = handler({ expected: token }, createActionContext())
+    const shared2 = handler({ expected: token }, createActionContext())
+    expect(shared2).toBe(shared1)
+    settleCreate?.({ id: 'run-1' } as unknown as TxrRunSummary)
+    let id1: unknown
+    let id2: unknown
+    await act(async () => {
+      id1 = await first
+      id2 = await second
+    })
+    expect(id1).toBe('run-1')
+    expect(id2).toBe('run-1')
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
   })
 })
 
