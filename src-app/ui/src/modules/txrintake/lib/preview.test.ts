@@ -36,11 +36,14 @@ import {
 import {
   buildStudyPreviewRequest,
   descriptiveSentence,
+  excludedGroupCode,
   excludedMethods,
   excludedReasonLine,
   fitCounts,
+  groupExcludedMethods,
   hasStudyAnswers,
   PREVIEW_ANSWER_INVITE,
+  type ExcludedMethod,
   type FitCounts,
   type TxrPreviewFormatters,
 } from './preview'
@@ -390,8 +393,13 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     expect(excludedMethods(r, FORMATTERS)[0]).toEqual({
       id: 'm-b',
       reasonText: 'needs markers from: Tumour DNA in blood (ctDNA)',
+      reasonCode: 'MARKER_GROUP_MISSING',
     })
-    expect(excludedMethods(r, FORMATTERS)[1]).toEqual({ id: 'm-c', reasonText: 'needs 3 or more draws' })
+    expect(excludedMethods(r, FORMATTERS)[1]).toEqual({
+      id: 'm-c',
+      reasonText: 'needs 3 or more draws',
+      reasonCode: 'MIN_DRAWS_UNMET',
+    })
   })
 
   it('leaves the env-ONLY verdicts to the panel env line; a mixed verdict lists its ANSWER cause (R3-intake-1)', () => {
@@ -412,6 +420,9 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     expect(excludedMethods(r, FORMATTERS)[0]).toEqual({
       id: 'env-ans',
       reasonText: 'needs markers from: Methylation',
+      // The grouping code is the FIRST NON-ENVIRONMENT reason — the env fact
+      // has its own line, so a mixed verdict groups as its answer cause.
+      reasonCode: 'MARKER_GROUP_MISSING',
     })
     // The direct line of an env-only method stays the shared E-vocabulary
     // sentence (the safety net: the panel never lists these rows, the reason
@@ -521,5 +532,50 @@ describe('label helpers (TEST-INT-13 rows for this item)', () => {
     expect(excludedMethods(r, FORMATTERS)[0].reasonText).toBe(
       'Made for immune checkpoint inhibitor, not your treatments',
     )
+  })
+})
+
+describe('groupExcludedMethods (brief 5b — the grouped left-out list)', () => {
+  /** One excluded row (the code is the row's grouping id). */
+  function row(id: string, code: ReasonCode): ExcludedMethod {
+    return { id, reasonText: id, reasonCode: code }
+  }
+
+  it('buckets the answer-caused codes first (disease, treatment, outcome), every other code together', () => {
+    const rows = [
+      row('m-marker', 'REQUIRED_MARKER_MISSING'),
+      row('m-disease', 'DISEASE_NOT_MATCHED'),
+      row('m-outcome', 'OUTCOME_NOT_MATCHED'),
+      row('m-draws', 'MIN_DRAWS_UNMET'),
+      row('m-treatment', 'TREATMENT_NOT_MATCHED'),
+    ]
+    expect(groupExcludedMethods(rows).map(g => g.code)).toEqual([
+      'DISEASE_NOT_MATCHED',
+      'TREATMENT_NOT_MATCHED',
+      'OUTCOME_NOT_MATCHED',
+      'other',
+    ])
+    // The rows keep the list's own order inside each bucket.
+    expect(groupExcludedMethods(rows).map(g => g.methods.map(m => m.id))).toEqual([
+      ['m-disease'],
+      ['m-treatment'],
+      ['m-outcome'],
+      ['m-marker', 'm-draws'],
+    ])
+  })
+
+  it('omits empty sections and maps every foreign code to the do-not-fit bucket', () => {
+    const rows = [
+      row('m-a', 'MARKER_GROUP_MISSING'),
+      row('m-b', 'SURVIVAL_OUTCOME_MISSING'),
+    ]
+    expect(groupExcludedMethods(rows)).toEqual([
+      { code: 'other', methods: rows },
+    ])
+    expect(excludedGroupCode('DISEASE_NOT_MATCHED')).toBe('DISEASE_NOT_MATCHED')
+    expect(excludedGroupCode('TREATMENT_NOT_MATCHED')).toBe('TREATMENT_NOT_MATCHED')
+    expect(excludedGroupCode('OUTCOME_NOT_MATCHED')).toBe('OUTCOME_NOT_MATCHED')
+    expect(excludedGroupCode('MIN_DRAWS_UNMET')).toBe('other')
+    expect(excludedGroupCode('ENV_IMAGE_MISSING')).toBe('other')
   })
 })

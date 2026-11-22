@@ -151,6 +151,38 @@ export const FILTER_OPTIONS_UNAVAILABLE_LINE =
 export const EXCLUDED_LIST_LIMIT = 6
 
 /**
+ * The treatment question's hint (step2-filters, brief 5b): the ONE line under
+ * the multi-tick list — the board's own plain words, never a design promise
+ * about combo counts.
+ */
+export const TREATMENT_MULTI_HINT =
+  'A combination is several ticks. Tick none to keep every treatment.'
+
+/**
+ * One grouped left-out section's heading (step2-filters, brief 5b): the
+ * excluded methods are grouped by their first reason's code — the three
+ * answer-caused codes get their own section, every other code one section
+ * with "do not fit" — the count is live, and the singular forms are the
+ * section's own ("1 made for another disease", "1 predicts something else",
+ * "1 does not fit your files or answers"). `code` is the raw reason code
+ * (or the grouping key's `'other'`); the mapping is the board's own words.
+ */
+export function excludedSectionHeading(code: string, count: number): string {
+  switch (code) {
+    case 'DISEASE_NOT_MATCHED':
+      return count === 1 ? '1 made for another disease' : `${count} made for another disease`
+    case 'TREATMENT_NOT_MATCHED':
+      return `${count} made for other treatments`
+    case 'OUTCOME_NOT_MATCHED':
+      return count === 1 ? '1 predicts something else' : `${count} predict something else`
+    default:
+      return count === 1
+        ? '1 does not fit your files or answers'
+        : `${count} do not fit your files or answers`
+  }
+}
+
+/**
  * The board's thousands grouping — "1,102 rows" (PredictFiles.dc.html).
  * The grouping is fixed to the board's `1,102` bytes, never the host's
  * locale: a box in a comma-decimal locale must render the same string.

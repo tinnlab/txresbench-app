@@ -166,7 +166,9 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     expect(result.current.loading).toBe(true)
     await settle()
     expect(result.current.fit).toEqual({ total: 2, fit: 1, some: 0, leftOut: 1, noEnvFit: 0 })
-    expect(result.current.excluded).toEqual([{ id: 'm-b', reasonText: 'needs 4 or more draws' }])
+    expect(result.current.excluded).toEqual([
+      { id: 'm-b', reasonText: 'needs 4 or more draws', reasonCode: 'MIN_DRAWS_UNMET' },
+    ])
     expect(result.current.methods.get('m-b')?.status).toBe('cannot_run')
     expect(result.current.error).toBeNull()
   })

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
@@ -24,6 +24,9 @@ import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
 import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
 import { TxrDayField } from '../components/TxrDayField'
+import { TxrDiseasePicker } from '../components/TxrDiseasePicker'
+import { TxrTreatmentTicks } from '../components/TxrTreatmentTicks'
+import { TxrExcludedSections } from '../components/TxrExcludedSections'
 import { useRecheck } from '../data/useRecheck'
 import { drawCoverageLine, drawDayError, drawDayWarning, suggestDrawDays } from '../lib/dayChoices'
 import { runAction } from '@/core/actions/defineAction'
@@ -48,10 +51,12 @@ import type { OutcomeId } from '../types'
  * Continue goes on to the methods.
  *
  * INV-1: every answer change re-runs the fit computation — the page writes
- * each answer straight to the `TxrIntake` store (`patchStudy`), and the
- * panel hook keys its request on the answers' CONTENT with a 200 ms debounce
- * (a burst costs one eligibility call; the stale-response guard keeps the
- * panel honest).
+ * the disease, treatment and outcome answers through the registered
+ * `intake.setStudyAnswers` action (the same validating path the AI drives,
+ * brief 5b), the marker-group and schedule answers through the store, and
+ * the panel hook keys its request on the answers' CONTENT with a 200 ms
+ * debounce (a burst costs one eligibility call; the stale-response guard
+ * keeps the panel honest).
  *
  * Board-copy rule (DEC-13): every label is board-verbatim; the panel's
  * numbers are COMPUTED from the provider response (fit count, left-out
@@ -239,48 +244,10 @@ const PANEL_NO_ENV: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--t
  *  setup — the note names it, and the eligible set does not move). */
 const DEMO_NOTE: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-muted)' }
 
-// qa-fixes ITEM-6 S4: the "Show all N" button carried the kit link's own
-// horizontal padding, so it sat ~11 px right of the list above it (the L1
-// indent class). Link buttons render flush; the list is their guide.
-const LINK: CSSProperties = {
-  padding: 0,
-  fontSize: 13.5,
-  color: 'var(--txr-brand)',
-  fontWeight: 600,
-}
-
 /** The re-check note beside Continue. */
 const RECHECK_NOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 const EXCLUDED_HEADING: CSSProperties = { fontWeight: 700, marginBottom: 4 }
-
-const EXCLUDED_LIST: CSSProperties = {
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
-}
-
-const EXCLUDED_LI: CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  padding: '5px 0',
-  borderBottom: '1px solid var(--txr-surface-raised)',
-}
-
-const EXCLUDED_ID: CSSProperties = {
-  fontFamily: "'Source Code Pro', monospace",
-  fontSize: 12.5,
-  minWidth: 210,
-  // qa-fixes ITEM-6 S2: `wordBreak: 'break-all'` broke ids MID-WORD at the
-  // hyphens' worst place ("ca125-confirmed-50pct-res / ponse").
-  // `overflowWrap: 'anywhere'` (with the break rule back to normal) prefers
-  // the hyphen break points and only breaks anywhere when a single word is
-  // longer than the column — the ids stay whole.
-  wordBreak: 'normal',
-  overflowWrap: 'anywhere',
-}
-
-const EXCLUDED_REASON: CSSProperties = { color: 'var(--txr-muted)', fontSize: 13.5 }
 
 export function StudyPage() {
   const navigate = useNavigate()
@@ -312,39 +279,12 @@ export function StudyPage() {
     step: 'study',
     fallback: mode === 'predict' ? FLOW_ROUTES.predictFiles : previousLearnRoute('study'),
   })
-  const [showAllExcluded, setShowAllExcluded] = useState(false)
-
   /** One checkbox toggle: the answer map grows/shrinks explicitly (DEC-5). */
   const setGroup = useCallback(
     (groupId: string, checked: boolean) => {
       patchStudy({ markerGroups: { ...(study.markerGroups ?? {}), [groupId]: checked } })
     },
     [patchStudy, study.markerGroups],
-  )
-
-  /**
-   * The disease options are the loaded filter-options vocabulary's node ids
-   * (the ids ARE the readable names — the category / disease / sub-group).
-   * The grouped picker is the next round; until then this flat list is the
-   * same vocabulary, and the option set updates when it loads.
-   */
-  const diseaseOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = []
-    for (const category of categories) {
-      options.push({ value: category.id, label: category.id })
-      for (const disease of category.diseases) {
-        options.push({ value: disease.id, label: disease.id })
-        for (const child of disease.children) options.push({ value: child, label: child })
-      }
-    }
-    return options
-  }, [categories])
-
-  /** The treatment options are the vocabulary's base classes: the id (what
-   *  the requests send) with the label (what the user reads). */
-  const treatmentOptions = useMemo(
-    () => treatmentClasses.map(treatment => ({ value: treatment.id, label: treatment.label })),
-    [treatmentClasses],
   )
 
   /**
@@ -421,8 +361,6 @@ export function StudyPage() {
         : 'Continue to the files'
 
   const excluded = panel.excluded
-  const shownExcluded = showAllExcluded ? excluded : excluded.slice(0, EXCLUDED_LIST_LIMIT)
-  const hasMoreExcluded = excluded.length > EXCLUDED_LIST_LIMIT
   // R2-1: with NOTHING answered the panel says what to do, not a count — the
   // old page reported "N of M methods fit" from a request the user never
   // composed (all groups false + the default schedule); the count answers
@@ -456,26 +394,18 @@ export function StudyPage() {
                   <div style={FIELD_ROW}>
                     <div style={FIELD}>
                       <span style={FIELD_LABEL}>Disease</span>
-                      <Select
-                        id="txr-intake-study-disease"
-                        data-testid="txr-intake-study-disease"
-                        aria-label="Disease"
-                        value={study.disease ?? undefined}
-                        onChange={v => applyAnswer({ disease_group: v as string })}
-                        placeholder="Choose a disease…"
-                        options={diseaseOptions}
+                      <TxrDiseasePicker
+                        value={study.disease}
+                        categories={categories}
+                        onChange={disease => applyAnswer({ disease_group: disease })}
                       />
                     </div>
                     <div style={FIELD}>
                       <span style={FIELD_LABEL}>Treatment</span>
-                      <Select
-                        id="txr-intake-study-treatment"
-                        data-testid="txr-intake-study-treatment"
-                        aria-label="Treatment"
-                        value={study.treatments?.[0] ?? undefined}
-                        onChange={v => applyAnswer({ treatment_classes: [v as string] })}
-                        placeholder="Choose a treatment…"
-                        options={treatmentOptions}
+                      <TxrTreatmentTicks
+                        value={study.treatments}
+                        treatments={treatmentClasses}
+                        onChange={treatments => applyAnswer({ treatment_classes: treatments })}
                       />
                     </div>
                   </div>
@@ -654,31 +584,14 @@ export function StudyPage() {
                   {!answered ? (
                     <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
                   ) : panel.fit !== null ? (
-                    shownExcluded.length > 0 ? (
-                      <ul style={EXCLUDED_LIST}>
-                        {shownExcluded.map(method => (
-                          <li key={method.id} style={EXCLUDED_LI} className="txr-intake-excluded-row">
-                            <span style={EXCLUDED_ID}>{method.id}</span>
-                            <span style={EXCLUDED_REASON}>{method.reasonText}</span>
-                          </li>
-                        ))}
-                      </ul>
+                    excluded.length > 0 ? (
+                      <TxrExcludedSections excluded={excluded} limit={EXCLUDED_LIST_LIMIT} />
                     ) : (
                       <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>None</div>
                     )
                   ) : (
                     <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
                   )}
-                  {hasMoreExcluded ? (
-                    <Button
-                      data-testid="txr-intake-excluded-show-all"
-                      variant="link"
-                      style={LINK}
-                      onClick={() => setShowAllExcluded(show => !show)}
-                    >
-                      {showAllExcluded ? 'Show fewer' : `Show all ${excluded.length}`}
-                    </Button>
-                  ) : null}
                 </div>
               </div>
             </ScrollRegion>

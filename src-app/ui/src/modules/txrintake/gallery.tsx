@@ -98,12 +98,13 @@ function NavigationResultLine() {
   )
 }
 
-/** The B story's seeded answers: colorectal cancer, risk by a day, no groups yet. */
+/** The B story's seeded answers: colorectal cancer, a two-tick treatment
+ *  combination, risk by a day, no marker groups (brief 5b's multi-tick). */
 function seedStudyAnswers(fresh = true): void {
   if (fresh) TxrIntake.reset()
   TxrIntake.patchStudy({
     disease: 'colorectal cancer',
-    treatments: ['immune checkpoint inhibitor'],
+    treatments: ['immune checkpoint inhibitor', 'chemotherapy'],
     outcome: 'progression-by-day',
     beforeTreatment: 'always',
     drawsDuringTreatment: 2,
@@ -406,7 +407,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-intake-b',
       title: 'Your study (screen B) — the live fit panel',
-      note: 'The six question groups (seeded: colorectal cancer, immune checkpoint inhibitor, risk by a day, no marker groups) with the REAL eligibility hook over the mock cassette: "26 of 39 methods fit" (22 can run + 4 for some patients — the head-to-the-tail inclusive count) + the left-out list with one reason per method; checking the ctDNA group re-runs the panel (28 fit, 11 left out).',
+      note: 'The six question groups (seeded: colorectal cancer, two treatments ticked — immune checkpoint inhibitor + chemotherapy, risk by a day, no marker groups) with the REAL eligibility hook over the mock cassette: "26 of 39 methods fit" (22 can run + 4 for some patients — the head-to-the-tail inclusive count) + the left-out list grouped into collapsible sections with one reason per method; checking the ctDNA group re-runs the panel (28 fit, 11 left out).',
       path: '/study',
       initialPath: '/study',
       component: lazy(() => Promise.resolve({ default: BStoryView })),

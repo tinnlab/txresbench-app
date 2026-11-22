@@ -52,6 +52,7 @@ import type {
   MarkerGroup,
   MethodEligibility,
   PreviewEligibilityRequest,
+  ReasonCode,
 } from '@/api-client/types'
 import type { TxrRunStatus } from '@/modules/txrlist/types'
 import type {
@@ -179,10 +180,80 @@ function hasAnswerCause(method: MethodEligibility): boolean {
   return method.reasons.some(reason => reason.code !== 'ENV_IMAGE_MISSING')
 }
 
+/**
+ * The code one excluded row is grouped by (step2-filters, brief 5b): the
+ * row's FIRST non-environment reason — the same code the row's reason line
+ * renders (the environment fact has its own line, R3-intake-1; the runtime
+ * stage pushes it FIRST, so a mixed method's grouping reads its answer
+ * cause, never the env fact). `null` only for a method whose EVERY reason
+ * is the environment — that method is never listed in the first place.
+ */
+export function excludedReasonCode(method: MethodEligibility): ReasonCode | null {
+  return method.reasons.find(reason => reason.code !== 'ENV_IMAGE_MISSING')?.code ?? null
+}
+
 /** One excluded-method row (the id + the one reason line the list shows). */
 export interface ExcludedMethod {
   id: string
   reasonText: string
+  /** The code the grouped list buckets the row under (see `excludedReasonCode`). */
+  reasonCode: ReasonCode
+}
+
+/**
+ * The grouped left-out list's bucket codes (step2-filters, brief 5b): the
+ * answer-caused three each get their own collapsible section — in this
+ * order — and every other reason code shares one section.
+ */
+export type ExcludedGroupCode =
+  | 'DISEASE_NOT_MATCHED'
+  | 'TREATMENT_NOT_MATCHED'
+  | 'OUTCOME_NOT_MATCHED'
+  | 'other'
+
+/** One grouped left-out section: the bucket code + its rows in list order. */
+export interface ExcludedGroup {
+  code: ExcludedGroupCode
+  methods: ExcludedMethod[]
+}
+
+/** The fixed section order (disease, treatment, outcome, everything else). */
+const EXCLUDED_GROUP_ORDER: readonly ExcludedGroupCode[] = [
+  'DISEASE_NOT_MATCHED',
+  'TREATMENT_NOT_MATCHED',
+  'OUTCOME_NOT_MATCHED',
+  'other',
+]
+
+/** The bucket of one reason code: the three answer codes keep their names,
+ *  everything else (a missing marker, too few draws, a task mismatch …) is
+ *  the section's "do not fit" bucket. */
+export function excludedGroupCode(code: ReasonCode): ExcludedGroupCode {
+  return code === 'DISEASE_NOT_MATCHED' ||
+    code === 'TREATMENT_NOT_MATCHED' ||
+    code === 'OUTCOME_NOT_MATCHED'
+    ? code
+    : 'other'
+}
+
+/**
+ * The excluded list as the grouped sections the panel renders: the
+ * answer-caused three first (disease, treatment, outcome), then the
+ * one "do not fit" bucket with every other code, each section's rows in
+ * the list's own order, empty sections omitted.
+ */
+export function groupExcludedMethods(methods: ReadonlyArray<ExcludedMethod>): ExcludedGroup[] {
+  const byCode = new Map<ExcludedGroupCode, ExcludedMethod[]>()
+  for (const method of methods) {
+    const code = excludedGroupCode(method.reasonCode)
+    const bucket = byCode.get(code)
+    if (bucket === undefined) byCode.set(code, [method])
+    else bucket.push(method)
+  }
+  return EXCLUDED_GROUP_ORDER.filter(code => byCode.has(code)).map(code => ({
+    code,
+    methods: byCode.get(code) ?? [],
+  }))
 }
 
 /**
@@ -328,8 +399,8 @@ export function excludedReasonLine(
   method: MethodEligibility,
   formatters: TxrPreviewFormatters,
 ): string {
-  const code = method.reasons.find(reason => reason.code !== 'ENV_IMAGE_MISSING')?.code
-  if (code === undefined) {
+  const code = excludedReasonCode(method)
+  if (code === null) {
     // A method whose ONLY cause is the environment never reaches the list
     // (the env line is its fact); the direct line still tells its truth —
     // the shared E-vocabulary sentence, never a blank.
@@ -377,5 +448,19 @@ export function excludedMethods(
 ): ExcludedMethod[] {
   return response.methods
     .filter(method => method.status === 'cannot_run' && hasAnswerCause(method))
-    .map(method => ({ id: method.id, reasonText: excludedReasonLine(method, formatters) }))
+    .map(method => {
+      // The grouping code is the FIRST reason the row's line shows — the first
+      // non-environment reason (a mixed env+answer method reads its answer
+      // cause; the env fact has its own line, R3-intake-1). The `hasAnswerCause`
+      // filter above guarantees such a reason exists, so the old
+      // `?? 'ENV_IMAGE_MISSING'` fallback was unreachable — and worse, naming
+      // the env fact as the grouping code would make the section heading
+      // contradict the row it holds (brief 5b2 ITEM-2/5).
+      const reasonCode = excludedReasonCode(method)!
+      return {
+        id: method.id,
+        reasonText: excludedReasonLine(method, formatters),
+        reasonCode,
+      }
+    })
 }
