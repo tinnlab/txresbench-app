@@ -15,7 +15,10 @@
 //!   same guest agent and protocol; the app only ever runs its own distro.
 //!
 //! `vm_exchange` holds what the two VM runners share (the exchange with the
-//! agent, the guest paths, the typed codes in [`config`]). The boot probe of
+//! agent, the guest paths, the typed codes in [`config`]). It is compiled on
+//! Linux as well (with neither runner), so its OS-neutral core — the frame
+//! loop, the guest-fed path checks, the host output writer — and its unit
+//! tests run in the Linux gate. The boot probe of
 //! each runner decides [`config::SandboxAvailability`]; when it fails, the
 //! plain reason is kept for "Use example" (`config::runner_unavailable`).
 //!
@@ -108,7 +111,11 @@ pub mod env_image;
 // layer images attach as read-only disks; bwrap runs inside the guest).
 #[cfg(target_os = "macos")]
 pub mod mac_vm_run;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+// The shared VM/WSL exchange (`mac_vm_run` + `wsl_run` at run time) compiles on
+// every supported target — `any(unix, windows)` — so its OS-neutral core (the
+// frame loop, the guest-fed path checks, the output writer) and its unit tests
+// also build and run in the Linux gate.
+#[cfg(any(unix, windows))]
 pub mod vm_exchange;
 #[cfg(target_os = "windows")]
 mod win_registry;

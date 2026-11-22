@@ -201,26 +201,24 @@ minisign-verify = "=0.2.5"
 # `sqlite3_libversion*` floor probe (dev-dep below); the entry is shared, no new
 # line enters `Cargo.lock`.
 libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
-# The macOS method VM's host↔guest wire protocol (`sandbox::mac_vm_run`):
-# frames to and from the SDK guest agent. macOS-only; the Linux seam runs
-# bwrap on the host and never talks to a VM.
-[target.'cfg(target_os = "macos")'.dependencies]
+# The method VM's/WSL runner's host↔guest wire protocol (`sandbox::mac_vm_run` /
+# `sandbox::wsl_run`) and the output-name folding: both are used by
+# `sandbox::vm_exchange`, which the two runners share. The module compiles on
+# every supported target (Linux included, where its OS-neutral core + unit
+# tests run in the gate), so these are plain dependencies, not target-gated.
 sandbox-vm-protocol = { path = "../../sdk/crates/sandbox-vm-protocol" }
 # Folding output file names the way APFS compares them (Unicode-normalisation-
 # and case-insensitive) when the method VM's outputs are written back.
 unicode-normalization = "0.1"
 
-# The Windows method runner (`sandbox::wsl_run`) talks to the same guest agent
-# as the macOS VM (`sandbox::vm_exchange`): the same wire protocol and output
-# name folding. windows-sys (already in the lockfile) reads the machine's real
-# CPU, to refuse an x64 build emulated on ARM64 Windows, the registry, for the
-# installer's WSL check (`wsl_run::installer_status`), and, for the app's own
-# "Set up WSL" (`wsl_setup`), ShellExecuteExW, its question (TaskDialogIndirect,
-# looked up in Common Controls 6) and the setup's process across a restart of
-# the app.
+# The Windows method runner (`sandbox::wsl_run`) needs windows-sys to read the
+# machine's real CPU, to refuse an x64 build emulated on ARM64 Windows, the
+# registry, for the installer's WSL check (`wsl_run::installer_status`), and,
+# for the app's own "Set up WSL" (`wsl_setup`), ShellExecuteExW, its question
+# (TaskDialogIndirect, looked up in Common Controls 6) and the setup's process
+# across a restart of the app. windows-sys (already in the lockfile) reads all
+# of these.
 [target.'cfg(target_os = "windows")'.dependencies]
-sandbox-vm-protocol = { path = "../../sdk/crates/sandbox-vm-protocol" }
-unicode-normalization = "0.1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 # The WSL setup's Windows tests activate the desktop app's manifest (an
