@@ -245,7 +245,17 @@ test('TEST-7 each leg’s stdout and stderr reach the aggregate output, failing 
 // generator-golden drift (txresbench-framework) and a FUSE-device gap
 // (txresbench-test-harness data_dir_reclaim) — reds to fix, never to exclude (the floor
 // moves up WITH the legs; it does not shrink to fit them).
-const MIN_LEGS_FLOOR = 13;
+// 13 -> 16 (gate-tests phase 3): three JS/TS legs added — `sdk-ts-test` (the npm `test`
+// script of the five SDK packages that declare one: framework, kit, gallery, shell,
+// config; notification-ui + test-e2e have no test/typecheck script and get no leg),
+// `gallery-guards` (check-gallery-prod-exclusion.mjs --build + check-harness-parity.mjs
+// from the app's ui/ cwd) and `site-test` (node --test site/tests/*.test.mjs). A pure
+// ADD — committed suites no leg ran — again in the same diff as `--min-legs` and
+// AGGREGATE_FLOORS. The site leg is EXPECTED RED today: deploy.test.mjs TEST-18
+// (the node's diff-surface rule) fails because the gate-tests phase diffs themselves
+// touch docs/justfile/scripts, and build.test.mjs TEST-16 (self-contained + green)
+// inherits that red — named reds, never excluded (the floor rises WITH the set).
+const MIN_LEGS_FLOOR = 16;
 
 /**
  * The body of a `just` recipe, delimited the way JUST delimits it: every following line
@@ -745,6 +755,31 @@ const EXPECTED_GATES = [
   // adjustment — it links and its 103 tests pass.
   'cargo test --workspace --no-default-features --features sqlite-backend,routes,module --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1',
   'cargo test -p txresbench-desktop',
+  // gate-tests phase 3: the JS/TS legs. `sdk-ts-test` runs the npm `test` script of the
+  // five SDK packages that declare one, in ONE npm invocation from the repo root (npm
+  // runs every named workspace even when one fails, so a red package cannot hide the
+  // rest); the workspace names are spelled out because `npm test --workspaces
+  // --if-present` would also sweep the src-app/ui workspace and any package that grows
+  // a `test` script, and this leg is scoped to the SDK packages the phase names.
+  // notification-ui and test-e2e have no test/typecheck script and are deliberately not
+  // included. `gallery-guards` runs the two pinned gallery guards from the app's ui/
+  // cwd — the prod-exclusion guard builds the bundle ITSELF (`--build`: clean + `npm run
+  // build` from src-app/ui/gallery.config.json's buildCmd, then scan) because the
+  // aggregate's legs are independent and ui-npm-build cannot be relied on to have run
+  // first — plus the parity guard's own engine test (`node --test
+  // check-harness-parity.test.mjs`, the neutral cases that prove the guard fires when a
+  // copy loses a core; the gallery package's `test` script runs the same file again via
+  // `npm run test:node`, a harmless second invocation that keeps this leg self-contained).
+  // `site-test` is `node --test site/tests/*.test.mjs` from the repo root (the
+  // zero-dependency site suite); it is EXPECTED RED today on deploy.test.mjs TEST-18
+  // (the diff-surface rule vs the gate-tests phase diffs) + build.test.mjs TEST-16
+  // (which re-runs the suite and demands green) — frozen here so a future change cannot
+  // silently drop that red instead of keeping it a named leg.
+  'npm test --workspace=@txresbench/framework --workspace=@txresbench/kit --workspace=@txresbench/gallery --workspace=@txresbench/shell --workspace=@txresbench/config',
+  `node ${path.join(REPO, 'sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs')} --build`,
+  `node ${path.join(REPO, 'sdk/packages/gallery/scripts/check-harness-parity.mjs')}`,
+  `node --test ${path.join(REPO, 'sdk/packages/gallery/scripts/check-harness-parity.test.mjs')}`,
+  'node --test site/tests/*.test.mjs',
   // The UI `npm run check` chain (gate-tests phase 1): one recorded command per link —
   // the chain was split out of the single opaque `npm run check` leg precisely so a red
   // link (currently `check:e2e-routing`) cannot hide the links after it. TEST-25 keeps
@@ -879,8 +914,16 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // MIN_LEGS_FLOOR; the sdk leg is expected RED today on the pre-existing
 // generator-golden drift + FUSE-device gap — the floor rises WITH the set, it never
 // shrinks to fit a red.
+// gate-tests phase 3 — 'check': 13 -> 16. Three legs added: `sdk-ts-test` (npm `test`
+// of the five SDK packages that declare one), `gallery-guards`
+// (check-gallery-prod-exclusion --build + check-harness-parity from the app's ui/ cwd)
+// and `site-test` (the zero-dep site suite). A pure ADD (all three were committed test
+// populations no leg ran), raised in the SAME diff as `--min-legs` and MIN_LEGS_FLOOR;
+// the site leg is expected RED today on deploy.test.mjs TEST-18 (diff-surface rule vs
+// the gate-tests phase diffs) + build.test.mjs TEST-16 (suite-must-be-green) — a NAMED
+// red leg, never excluded.
 const AGGREGATE_FLOORS = {
-  check: 13,
+  check: 16,
   'check-invariants': 9,
   'check-guards': 6,
 };
@@ -1036,7 +1079,7 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      8d6a84f42fdaf7ce168b5584f89b6737d38491901d8335e7f1e7248e79ecfd19  THIS-CHANGE
+ * check                      09335a9a6720a31a0150cd79b78592fb9e9fa7296dab96b759c702329da41f47  THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
  * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
@@ -1241,6 +1284,68 @@ const REACHABLE_FROM_CHECK = [
  * child's own verdict and is now accepted; no assertion weakened, only the noise
  * removed — measured 14/14 clean runs after, 1-in-6 before.)
  *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN AGAIN (gate-tests phase 3, THIS-CHANGE) ──────────
+ * `check` 8d6a84f4 -> 09335a9a: THREE JS/TS legs are ADDED after `desktop-crate-test`:
+ * `sdk-ts-test`, `gallery-guards` and `site-test` — committed test populations that NO
+ * leg had ever run (the UI chain covers src-app/ui only; the sdk-crates-test leg covers
+ * the Rust crates; the npm workspaces' node:test/vitest suites, the two gallery guards
+ * and the site suite were unrun). `--min-legs` rises 13 -> 16 with them, and
+ * AGGREGATE_FLOORS / MIN_LEGS_FLOOR move to 16 in this same diff. Nothing removed, no
+ * leg repointed, no floor lowered.
+ * `sdk-ts-test` is the brief's own shape (`npm test` per SDK package in one leg): the
+ * five packages that declare a `test` script — @txresbench/framework, kit, gallery,
+ * shell, config — spelled out as `--workspace=` names from the repo root, because
+ * `npm test --workspaces --if-present` would also sweep src-app/ui and any future
+ * `test` script. npm runs EVERY named workspace even when one fails (it collects the
+ * failures and exits non-zero; measured), so a red package cannot hide the ones after
+ * it — the same no-hiding property the aggregate itself has. notification-ui and
+ * test-e2e declare no test/typecheck script (test-e2e's only script is `validate`;
+ * notification-ui has none) and get no leg — stated in the justfile comment.
+ * `gallery-guards` runs the two pinned gallery guards from the app's ui/ cwd. The
+ * prod-exclusion guard invokes its own `--build` (clean dist + `npm run build` via
+ * gallery.config.json's buildCmd, then scan) — the leg depends on NOTHING outside
+ * itself, because the aggregate's legs are independent and ui-npm-build cannot be
+ * relied on to have run first. To make that scan meaningful, this change also pins
+ * `distDir: 'dist'` and `buildCmd: 'npm run build'` in src-app/ui/gallery.config.json:
+ * this app's vite outDir is `src-app/ui/dist` (vite.config.ts `outDir: '../dist'`),
+ * which differs from the generic guard default `../../dist/ui` (the historical
+ * txresbench layout), and `npm run build:nocheck` does not exist here — without those
+ * two keys the guard would scan a directory this tree never emits (a false red) or
+ * fail at the default build command. The guard bytes themselves are untouched and
+ * still pinned. `check-harness-parity.mjs` exits 0 "nothing to check" here: the app
+ * declares no `harnessCopies` (the unified harness lives in the package itself; a
+ * standalone-consumer state the guard's design allows) — the guard still RUNS, its
+ * verdict is simply vacuous for this consumer, which is the reason the app's own
+ * README says parity is true by construction. The parity guard's own engine test
+ * (`check-harness-parity.test.mjs`, which proves the guard FIRES when a copy loses a
+ * core — the part that actually carries weight) runs as the third link of this same
+ * leg, and again inside the gallery package's `test` via `sdk-ts-test`; the consumer
+ * acceptance case named by that test's header (src-app/ui/scripts/check-harness-parity
+ * .consumer.test.mjs) does not exist in this repo and was not created. The gallery PLAYWRIGHT e2e
+ * (`test:e2e:gallery`) is NOT wired: it needs a browser and the gate image ships no
+ * Playwright browsers (verified: no ~/.cache/ms-playwright, no installed playwright
+ * package) — recorded in the justfile comment, not a hidden test (the ui e2e legs were
+ * never in this gate either).
+ * `site-test` is the site suite's own runner (`node --test site/tests/*.test.mjs` from
+ * the repo root; the suite has no package.json — it is plain node:test on builtins and
+ * the README names that as its gate). It is EXPECTED RED on main and the red is the
+ * POINT of adding it: site/tests/deploy.test.mjs "TEST-18 the node's diff surface …"
+ * requires the current round's diff (working tree vs HEAD, or the last commit when the
+ * tree is clean) to touch only that node's file list (site/, the build script, the
+ * parked workflow, its ledger, .gitignore) — and the gate-tests phase diffs themselves
+ * touch docs/justfile/scripts, so the rule reddens on this phase's own subject;
+ * site/tests/build.test.mjs "TEST-16 the suite is self-contained and green" re-runs the
+ * suite and inherits that red. Neither is fixed by editing the suite (it enforces an
+ * item-node boundary that the gate-tests phases live outside of; a fix belongs to the
+ * lead's review, and the brief says: if the suite fails, keep the leg red, do not
+ * skip). No test is removed, skipped or baselined — the reds are NAMED in the leg.
+ * (Same diff, wiring: src-app/ui/gallery.config.json gains distDir + buildCmd — see
+ * the gallery-guards bullet above; count remains 36 in guard-hashes.txt because no
+ * pinned guard's bytes changed, only scripts/check-aggregate.test.mjs re-pinned.)
+ * STRENGTHENING: three previously-unrun committed suites now run, the two gallery
+ * guards finally have a caller, and the new leg commands are frozen by exact string in
+ * EXPECTED_GATES (TEST-17/18/19) so they cannot silently drop back to a weaker form.
+ *
  * ── THE ANCHOR IS a9bc4c1c, NOT 2caaa6e9 ────────────────────────────────────────────────
  *
  * Stated exactly, because the first draft of this block said "unmoved since the pins were
@@ -1251,13 +1356,13 @@ const REACHABLE_FROM_CHECK = [
  * object moved there for a reason that has nothing to do with any recipe. `check-r-regime`'s
  * BODY genuinely moved at a9bc4c1c too — a bare `-eq 0` suite check became
  * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly four recipes have moved: `check-guards`
- * once, `check-invariants` twice, `check-processor-versions` once and `check` three
- * times (gate-tests phase 1, its phase-1 `ui-tsc` leg fix, and the phase-2 crate-test
- * legs — the three blocks above) — the
+ * once, `check-invariants` twice, `check-processor-versions` once and `check` four
+ * times (gate-tests phase 1, its phase-1 `ui-tsc` leg fix, the phase-2 crate-test
+ * legs, and the phase-3 JS/TS legs — the four blocks above) — the
  * rows above.
  */
 const RECIPE_PINS = {
-  "check": "8d6a84f42fdaf7ce168b5584f89b6737d38491901d8335e7f1e7248e79ecfd19",
+  "check": "09335a9a6720a31a0150cd79b78592fb9e9fa7296dab96b759c702329da41f47",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",

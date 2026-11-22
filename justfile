@@ -103,14 +103,60 @@ test-unit:
 # `--min-legs` (11 -> 13) rises with the two legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
 # the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
 # into agreement with itself.
+#
+# The JS/TS gate legs (gate-tests phase 3): three more committed test populations were
+# run by NO leg. `sdk-ts-test` runs the npm `test` script of the five SDK packages that
+# declare one — @txresbench/{framework,kit,gallery,shell,config}: each is
+# `typecheck (tsc --noEmit) && vitest run && npm run test:node` (shell/config: the
+# node:test half only), ~46 test files between them. `npm test --workspace=<name>` is
+# run from the repo root against the root workspace list (`sdk/packages/*` +
+# `src-app/ui`), and npm runs EVERY named workspace even when one fails (it collects
+# the failures and exits non-zero) — so a red package cannot hide the ones after it
+# either. notification-ui and test-e2e declare NO test or typecheck script (test-e2e's
+# only script is `validate`, a tsc --noEmit; notification-ui has none), so there is
+# nothing to run and no leg was added for them.
+# `gallery-guards` runs the two pinned gallery guards from the app's `ui/` cwd (both
+# resolve `gallery.config.json` against it): `check-gallery-prod-exclusion.mjs --build`
+# (cleans + rebuilds the prod bundle with `npm run build` — INSIDE the leg, because
+# the aggregate's legs are independent and `ui-npm-build` cannot be relied on to have
+# run first — then proves the dev-gallery sentinel was tree-shaken out of every
+# emitted asset) and `check-harness-parity.mjs` together with its own engine test
+# (`node --test scripts/check-harness-parity.test.mjs` — the neutral cases of the
+# guard; the gallery package's `test` script also runs it via `npm run test:node`, a
+# second invocation is harmless and keeps this leg self-contained). The app's
+# `src-app/ui/gallery.config.json` pins `distDir` (`ui/dist` — this app's vite outDir,
+# which differs from the generic default) and `buildCmd` (`npm run build`; the default
+# `build:nocheck` does not exist here) so the guard scans the bundle this tree actually
+# emits. The gallery PLAYWRIGHT e2e (`test:e2e:gallery`) is deliberately NOT wired: it
+# needs a browser, and the gate image ships no Playwright browsers (no
+# ~/.cache/ms-playwright directory and no playwright package on disk — verified in the
+# gate environment).
+# `site-test` runs the zero-dependency site suite (`node --test 'site/tests/*.test.mjs'`
+# from the repo root): the landing page, the pretrained-catalogue feed and the update
+# feed. EXPECTED RED on main, and the red is kept a NAMED red leg, never skipped:
+# site/tests/deploy.test.mjs "TEST-18 the node's diff surface …" asserts the last
+# commit's (or the working-tree's) diff touches only that node's file list, while the
+# gate-tests phase diffs themselves touch docs/justfile/scripts — the failure is this
+# phase's own subject — and site/tests/build.test.mjs "TEST-16 the suite is
+# self-contained and green" inherits that red (it re-runs the suite and asserts it is
+# green). site/public/updates/latest.json does not exist yet (its producer node writes
+# it; a finding, deliberately not created here) — the suite treats an absent feed as
+# valid, so that is not the red's cause.
+#
+# `--min-legs` (13 -> 16) rises with the three legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
+# the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
+# into agreement with itself.
 check:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 13 --controls-leg check-aggregate-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 16 --controls-leg check-aggregate-controls <<'LEGS'
     check-aggregate-controls node --test "{{justfile_directory()}}/scripts/check-aggregate.test.mjs"
     cargo-check-workspace cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo check --workspace --tests
     sdk-crates-test cd {{justfile_directory()}}/sdk && cargo test --workspace --no-default-features --features "sqlite-backend,routes,module" --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1
     desktop-crate-test cd {{justfile_directory()}} && cargo test -p txresbench-desktop
+    sdk-ts-test cd {{justfile_directory()}} && npm test --workspace=@txresbench/framework --workspace=@txresbench/kit --workspace=@txresbench/gallery --workspace=@txresbench/shell --workspace=@txresbench/config
+    gallery-guards cd {{ui_dir}} && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs --build && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.mjs && node --test {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.test.mjs
+    site-test cd {{justfile_directory()}} && node --test 'site/tests/*.test.mjs'
     ui-tsc cd {{ui_dir}} && npx --no-install tsc --noEmit
     ui-typecheck-tests cd {{ui_dir}} && npm run typecheck:tests
     ui-guards-actions cd {{ui_dir}} && node scripts/collect-actions.mjs --check && node scripts/action-refs-lint.mjs && node scripts/action-coverage.mjs
