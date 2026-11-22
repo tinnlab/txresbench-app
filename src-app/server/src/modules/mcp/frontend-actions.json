@@ -254,6 +254,72 @@
       }
     },
     {
+      "id": "intake.setStudyAnswers",
+      "title": "Set the study answers",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "Set the answers of the questions step of a new analysis: the disease, the treatments and what to predict. They are the method filters — an answered disease or treatment tick excludes methods not made for it. An id the method list does not know is refused. Omit a field to leave it as it is; send null (or an empty list) to clear it.",
+      "aliases": [
+        "set the disease",
+        "set the treatment",
+        "set what to predict",
+        "answer the questions"
+      ],
+      "keywords": [
+        "filters",
+        "disease",
+        "treatment",
+        "outcome"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {
+          "disease_group": {
+            "description": "A disease id of the method list (a category, a disease or a sub-group), or null to clear it.",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "treatment_classes": {
+            "description": "The ticked treatment-class ids of the method list (an empty list clears the tick).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outcome": {
+            "description": "The outcome pill: binary-response, response-probability, progression-by-day or dynamic-risk; null clears it.",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "binary-response",
+                  "response-probability",
+                  "progression-by-day",
+                  "dynamic-risk"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "id": "mcp.updateSettings",
       "title": "Update MCP settings",
       "kind": "global",

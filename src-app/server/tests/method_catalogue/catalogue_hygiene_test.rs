@@ -293,7 +293,7 @@ fn schema_refuses_per_patient_and_per_dataset_fields() {
         "groups": [],
         "filter_options": {{"disease_categories": [
             {{"id": "Solid tumours", "diseases": [
-                {{"id": "lung cancer", "children": ["non-small cell lung cancer"]}}
+                {{"id": "lung cancer", "children": ["lung adenocarcinoma"]}}
             ]}}
         ], "treatment_classes": [
             {{"id": "immune checkpoint inhibitor", "label": "Immune checkpoint inhibitor"}}
