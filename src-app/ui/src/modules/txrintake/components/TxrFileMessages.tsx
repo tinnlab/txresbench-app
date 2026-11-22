@@ -5,17 +5,14 @@
  * (green board line / red "N problems in N rows" / the neutral "rows read"
  * state) and the per-row problem list (`TxrProblemList`).
  *
- * These parts used to sit inside the file card's right half, under the
- * preview table. On the files step the two cards share the page, so the
- * messages wrapped into long, narrow columns. The C and N screens now show
- * the cards with their drop zone / preview only, and ONE full-width row
- * below them (`TxrFileMessagesRow`) holds a block per file, patients first,
- * each titled with the file kind and the file name. The block's content,
- * tone, buttons and test ids are the card's former ones, byte for byte; the
- * offers report the same OFFER OBJECT to the same host callbacks.
- *
- * A mount that keeps the messages inside the card (the E-screen "Change
- * files" dialog) renders `TxrFileMessages` there, without the title.
+ * The card host (`TxrFileCard`) places these parts in a full-width row
+ * INSIDE the card — the card's own last child, after its two halves, with
+ * the file's title ("Patients file: <name>"), for the C and N screens'
+ * `messages: 'row'` cards; the E-screen "Change files" dialog keeps the
+ * inline mount, under the preview, without the title. The parts themselves
+ * (content, tone, buttons and test ids) are the card's former ones, byte
+ * for byte; the offers report the same OFFER OBJECT to the same host
+ * callbacks.
  *
  * Like the card, the surface is CONTROLLED: the props carry the file and the
  * host's store actions; the one store read is the shared `validation` slot
@@ -24,7 +21,7 @@
  *
  * Problems that concern both files (a measurements row naming a patient the
  * patients file lacks) are assigned to ONE side by `cardProblems`
- * (`lib/flow.ts`), so the row shows each of them once.
+ * (`lib/flow.ts`), so each of them shows once, in that card.
  *
  * Copy rule (DEC-13): every label is the board's verbatim bytes and every
  * number is computed from the file + validate response. Colors per DEC-14:
@@ -32,7 +29,7 @@
  * `var(--txr-warning)` warning / notes.
  */
 
-import { useId, type CSSProperties } from 'react'
+import type { CSSProperties } from 'react'
 import { Button, Spinner } from '@txresbench/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
@@ -143,30 +140,7 @@ const OFFERS: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8
 /** The block's own column (offers first, then the status box). */
 const MESSAGES: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 }
 
-/** The row under the cards: one block per file, stacked, full width. */
-const ROW: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }
-
-/** One file's block in the row (the card's border and surface). */
-const BLOCK: CSSProperties = {
-  border: '1px solid var(--txr-border)',
-  borderRadius: 12,
-  background: 'var(--txr-surface)',
-  padding: '16px 20px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-  minWidth: 0,
-}
-
-const BLOCK_TITLE: CSSProperties = {
-  margin: 0,
-  fontFamily: "'Source Serif 4', Georgia, serif",
-  fontWeight: 600,
-  fontSize: 17,
-  overflowWrap: 'anywhere',
-}
-
-/** The block title's kind words (the file kind, before the file name). */
+/** The title's kind words (the file kind, before the file name). */
 const KIND_LABEL: Record<FileTableKind, string> = {
   patients: 'Patients file',
   measurements: 'Measurements file',
@@ -363,62 +337,6 @@ export function TxrFileMessages(props: TxrFileMessagesProps) {
           </>
         )}
       </div>
-    </div>
-  )
-}
-
-/** One file slot of the row: its kind, its file and its remove path. */
-export interface TxrFileMessagesSlot {
-  kind: FileTableKind
-  file: LoadedFile | null
-  onRemove: () => void
-}
-
-/** The row: the screen's files in order and the host's offer answers. */
-export interface TxrFileMessagesRowProps extends TxrFileOfferHandlers {
-  mode: TxrFileMessagesMode
-  /** The files in display order (screen C: patients, then measurements). */
-  slots: TxrFileMessagesSlot[]
-}
-
-/**
- * The full-width row under the file cards: a titled block per ADOPTED file,
- * in the order given. A slot with no file has nothing to report and gets no
- * block; with no file at all the row renders nothing.
- */
-export function TxrFileMessagesRow(props: TxrFileMessagesRowProps) {
-  const { mode, slots, ...handlers } = props
-  // The block's accessible name is its own title (aria-labelledby → the h3).
-  const titleId = useId()
-  const filled = slots.filter(
-    (slot): slot is TxrFileMessagesSlot & { file: LoadedFile } => slot.file !== null,
-  )
-  if (filled.length === 0) return null
-  return (
-    <div style={ROW} data-testid="txr-intake-file-messages">
-      {filled.map(slot => (
-        <section
-          key={slot.kind}
-          style={BLOCK}
-          data-testid={`txr-intake-file-messages-${slot.kind}`}
-          aria-labelledby={`${titleId}-${slot.kind}`}
-        >
-          <h3
-            id={`${titleId}-${slot.kind}`}
-            style={BLOCK_TITLE}
-            data-testid={`txr-intake-file-messages-title-${slot.kind}`}
-          >
-            {fileMessagesTitle(slot.kind, slot.file)}
-          </h3>
-          <TxrFileMessages
-            kind={slot.kind}
-            mode={mode}
-            file={slot.file}
-            onRemove={slot.onRemove}
-            {...handlers}
-          />
-        </section>
-      ))}
     </div>
   )
 }

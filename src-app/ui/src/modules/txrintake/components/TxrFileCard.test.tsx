@@ -744,7 +744,7 @@ describe('ITEM-6 F2/F5/F11 - the mapping offer, the honest problem box, the alig
   })
 })
 
-describe('step3-file-cards — the messages leave the card, the file can always be changed', () => {
+describe('step3-file-cards — the messages row inside the card, the file can always be changed', () => {
   /** A measurements file (the patients fixture under the other kind's name). */
   function loadedMeasurements(overrides: Partial<LoadedFile> = {}): LoadedFile {
     return loadedPatients({
@@ -822,9 +822,11 @@ describe('step3-file-cards — the messages leave the card, the file can always 
         fireEvent.click(link)
         expect(callbacks.onRemove).toHaveBeenCalledTimes(1)
         cleanup()
-        // The row mount keeps the same link on the card.
+        // The row mount keeps the same link on the card, and renders the
+        // messages row inside the card too (its placement is its own test).
         renderCard({ kind, file: state.file(kind), messages: 'row' })
         expect(screen.getByTestId(`txr-intake-file-choose-again-${kind}`)).toBeTruthy()
+        expect(screen.getByTestId(`txr-intake-file-messages-${kind}`)).toBeTruthy()
       })
     }
   }
@@ -835,7 +837,7 @@ describe('step3-file-cards — the messages leave the card, the file can always 
     expect(screen.queryByTestId('txr-intake-file-choose-again-patients')).toBeNull()
   })
 
-  it('with messages "row" the card keeps the preview and shows no status, list or offer', () => {
+  it('with messages "row" a chosen file gets its messages INSIDE the card, as the last child, after both halves', () => {
     const offer = { from: 'pid', to: 'patient_id' }
     const file = loadedPatients({
       problems: [row14Problem, row88Problem],
@@ -846,14 +848,75 @@ describe('step3-file-cards — the messages leave the card, the file can always 
     seedValidation(patientsValidation({ problems: [row14Problem, row88Problem] }))
     renderCard({ file, messages: 'row' })
     const card = screen.getByTestId('txr-intake-file-card-patients')
+    const row = screen.getByTestId('txr-intake-file-messages-patients')
+    // The row is INSIDE the card and is the card's LAST child.
+    expect(card.contains(row)).toBe(true)
+    expect(card.lastElementChild).toBe(row)
+    // It comes after BOTH halves: the role table (the left half) and the
+    // "Choose a different file" link (the right half).
+    const roleTable = within(card).getByText('your own code, the same in both files').closest(
+      'table',
+    ) as HTMLElement
+    const chooseAgain = within(card).getByTestId('txr-intake-file-choose-again-patients')
+    expect(roleTable.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(chooseAgain.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // The preview stays in the halves.
     expect(within(card).getByText('Example (first rows)')).toBeTruthy()
     expect(within(card).getByText('P0001')).toBeTruthy()
     expect(within(card).getByTestId('txr-intake-download-template-patients')).toBeTruthy()
+    // The status box and the offers live in the row. The problem list is
+    // HIDDEN while an offer is pending (R2-4 — `TxrFileMessages.tsx`
+    // `showProblemDetails = !hasOffers`); the no-offers case below checks it
+    // inside the row instead.
+    expect(within(row).getByTestId('txr-intake-file-status-patients')).toBeTruthy()
+    expect(within(row).queryByTestId('txr-intake-file-problems-patients')).toBeNull()
+    expect(within(row).getByTestId('txr-intake-join-offer-ldh')).toBeTruthy()
+    expect(within(row).getByTestId('txr-intake-column-offer-pid')).toBeTruthy()
+    // The row's parts render ONCE inside the card — a double render (a copy
+    // under the halves too) is caught by the exact match count.
+    expect(card.querySelectorAll('[data-testid="txr-intake-file-status-patients"]')).toHaveLength(1)
+    expect(card.querySelectorAll('[data-testid="txr-intake-join-offer-ldh"]')).toHaveLength(1)
+    expect(card.querySelectorAll('[data-testid="txr-intake-column-offer-pid"]')).toHaveLength(1)
+    // The title names the file kind and the file name — the card shows the
+    // file name nowhere else.
+    const title = within(row).getByTestId('txr-intake-file-messages-title-patients')
+    expect(title.textContent).toBe('Patients file: patients.csv')
+    // The row's accessible name is its own title (aria-labelledby → the h3).
+    expect(row.getAttribute('aria-labelledby')).toBe(title.id)
+  })
+
+  it('with messages "row" and NO offer pending the status box and the problem list are inside the row', () => {
+    const file = loadedPatients({
+      problems: [row14Problem, row88Problem],
+      inspection: inspectionFixture({ problems: [row14Problem] }),
+    })
+    seedValidation(patientsValidation({ problems: [row14Problem, row88Problem] }))
+    renderCard({ file, messages: 'row' })
+    const card = screen.getByTestId('txr-intake-file-card-patients')
+    const row = screen.getByTestId('txr-intake-file-messages-patients')
+    // The row is INSIDE the card and is the card's LAST child.
+    expect(card.contains(row)).toBe(true)
+    expect(card.lastElementChild).toBe(row)
+    // No offer is pending, so R2-4 does not hide the details: the status box
+    // and the problem (and notes) lists are inside the row too.
+    const status = within(row).getByTestId('txr-intake-file-status-patients')
+    expect(within(row).getByTestId('txr-intake-file-problems-patients')).toBeTruthy()
+    expect(within(row).getByTestId('txr-intake-file-notes-patients')).toBeTruthy()
+    expect(within(status).getByText('1 problem in 151 rows')).toBeTruthy()
+    expect(
+      within(row).getByText('Row 14: week 4 is not a number in the day column'),
+    ).toBeTruthy()
+    // Each part renders ONCE inside the card (a double render is caught).
+    expect(card.querySelectorAll('[data-testid="txr-intake-file-status-patients"]')).toHaveLength(1)
+    expect(card.querySelectorAll('[data-testid="txr-intake-file-problems-patients"]')).toHaveLength(1)
+    expect(card.querySelectorAll('[data-testid="txr-intake-file-notes-patients"]')).toHaveLength(1)
+  })
+
+  it('with messages "row" and no file there is no messages row at all', () => {
+    renderCard({ messages: 'row' })
+    expect(screen.queryByTestId('txr-intake-file-messages-patients')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-messages-title-patients')).toBeNull()
     expect(screen.queryByTestId('txr-intake-file-status-patients')).toBeNull()
-    expect(screen.queryByTestId('txr-intake-file-problems-patients')).toBeNull()
-    expect(screen.queryByTestId('txr-intake-file-notes-patients')).toBeNull()
-    expect(screen.queryByTestId('txr-intake-join-offer-ldh')).toBeNull()
-    expect(screen.queryByTestId('txr-intake-column-offer-pid')).toBeNull()
-    expect(screen.queryByText('Fix and choose the file again')).toBeNull()
+    expect(screen.getByTestId('txr-intake-file-drop-patients')).toBeTruthy()
   })
 })

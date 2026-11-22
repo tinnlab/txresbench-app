@@ -583,7 +583,7 @@ describe('ITEM-6 F2/F3/F4/F12 — the mapping step, the no-data-rows gate, the p
   })
 })
 
-describe('step3-file-cards — the messages row under the cards, files can always be changed', () => {
+describe("step3-file-cards — each card holds its own file's messages, files can always be changed", () => {
   /** Clean inspections + a validation with one exact-matched marker and the
    *  given problems: no join / vocab / column offer, so the problem list
    *  shows (R2-4 hides it while an offer is pending). */
@@ -606,74 +606,105 @@ describe('step3-file-cards — the messages row under the cards, files can alway
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
   }
 
-  it('the messages render in ONE row below the cards, not inside them; patients first, titled', async () => {
+  it("each card holds its own file's messages INSIDE it — no messages element outside the two cards", async () => {
     renderFiles()
-    // No file: no row at all.
-    expect(screen.queryByTestId('txr-intake-file-messages')).toBeNull()
+    // No file: no messages anywhere — and no element carries the OLD shared
+    // row's id (`txr-intake-file-messages`), which nothing renders any more,
+    // so a leftover under the cards cannot hide behind a stale query.
+    expect(document.querySelectorAll('[data-testid="txr-intake-file-messages"]')).toHaveLength(0)
+    expect(document.querySelectorAll('[data-testid^="txr-intake-file-messages-"]')).toHaveLength(0)
     await pickBoth()
     await waitFor(() => expect(screen.getByText('✓ 2 patients read')).toBeTruthy())
 
-    const row = screen.getByTestId('txr-intake-file-messages')
     const patientsCard = screen.getByTestId('txr-intake-file-card-patients')
     const measurementsCard = screen.getByTestId('txr-intake-file-card-measurements')
-    // The row follows BOTH cards and is not inside either.
+    // The count check of 2: exactly ONE messages row per chosen file, and
+    // nowhere else (no old shared row, no duplicate).
     expect(
-      measurementsCard.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-    expect(patientsCard.contains(row) || measurementsCard.contains(row)).toBe(false)
-    // The status boxes, the problem list and the offers live in the row only.
-    for (const card of [patientsCard, measurementsCard]) {
-      expect(card.querySelector('[data-testid^="txr-intake-file-status-"]')).toBeNull()
-      expect(card.querySelector('[data-testid^="txr-intake-join-offer-"]')).toBeNull()
-      expect(card.querySelector('[data-testid^="txr-intake-vocab-offer-"]')).toBeNull()
-      expect(card.querySelector('[data-testid^="txr-intake-column-offer-"]')).toBeNull()
+      document.querySelectorAll(
+        '[data-testid="txr-intake-file-messages-patients"], [data-testid="txr-intake-file-messages-measurements"]',
+      ),
+    ).toHaveLength(2)
+    // Every `txr-intake-file-messages-*` element (the row + its title for
+    // each chosen file) has a card ancestor of the same kind; there is no
+    // separate row under the cards anymore. Exact: the document's count is
+    // the sum of the two cards' counts, and each card holds only ids of its
+    // own kind (the old `cardOf` fell back to patients for the measurements
+    // titles, so a stray measurements element passed).
+    const messagesEls = [...document.querySelectorAll('[data-testid^="txr-intake-file-messages-"]')]
+    expect(messagesEls).toHaveLength(4)
+    const kindOf = (el: Element): 'patients' | 'measurements' => {
+      const id = el.getAttribute('data-testid') as string
+      return id === 'txr-intake-file-messages-measurements' ||
+        id === 'txr-intake-file-messages-title-measurements'
+        ? 'measurements'
+        : 'patients'
     }
-    const blocks = row.querySelectorAll(':scope > section')
-    expect([...blocks].map(block => block.getAttribute('data-testid'))).toEqual([
-      'txr-intake-file-messages-patients',
-      'txr-intake-file-messages-measurements',
-    ])
-    expect(screen.getByTestId('txr-intake-file-messages-title-patients').textContent).toBe(
-      'Patients file: my_patients.csv',
-    )
-    expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
-      'Measurements file: my_draws.csv',
-    )
+    const inPatients = messagesEls.filter(el => patientsCard.contains(el))
+    const inMeasurements = messagesEls.filter(el => measurementsCard.contains(el))
+    expect(inPatients).toHaveLength(2)
+    expect(inMeasurements).toHaveLength(2)
+    expect(inPatients.length + inMeasurements.length).toBe(messagesEls.length)
+    for (const el of messagesEls) {
+      const card = kindOf(el) === 'patients' ? patientsCard : measurementsCard
+      expect(card.contains(el)).toBe(true)
+    }
+    // Patients first (the cards' order), each card's row titled with the
+    // file kind and its own file name.
     expect(
-      within(blocks[0] as HTMLElement).getByTestId('txr-intake-file-status-patients'),
+      patientsCard.compareDocumentPosition(measurementsCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    // The patients messages row comes before the measurements messages row
+    // too (the rows follow their cards' order).
+    expect(
+      screen.getByTestId('txr-intake-file-messages-patients').compareDocumentPosition(
+        screen.getByTestId('txr-intake-file-messages-measurements'),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     expect(
-      within(blocks[1] as HTMLElement).getByTestId('txr-intake-file-status-measurements'),
+      within(patientsCard).getByTestId('txr-intake-file-messages-title-patients').textContent,
+    ).toBe('Patients file: my_patients.csv')
+    expect(
+      within(measurementsCard).getByTestId('txr-intake-file-messages-title-measurements').textContent,
+    ).toBe('Measurements file: my_draws.csv')
+    // Each card's row holds its own file's status box; the preview stays on
+    // the card's halves.
+    expect(
+      within(patientsCard).getByTestId('txr-intake-file-status-patients'),
     ).toBeTruthy()
-    // The preview stays on the card.
+    expect(
+      within(measurementsCard).getByTestId('txr-intake-file-status-measurements'),
+    ).toBeTruthy()
     expect(within(patientsCard).getByText('Example (first rows)')).toBeTruthy()
   })
 
-  it('the offers sit in the row and still accept / reject through the store', async () => {
+  it('the offers sit in their own card and still accept / reject through the store', async () => {
     renderFiles()
     pickFile('txr-intake-file-drop-patients', 'patients.csv', PATIENTS_CSV)
     await waitFor(() => expect(api.inspect).toHaveBeenCalledTimes(1))
     pickFile('txr-intake-file-drop-measurements', 'measurements.csv', MEASUREMENTS_CSV)
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
-    const block = screen.getByTestId('txr-intake-file-messages-measurements')
-    await waitFor(() => expect(within(block).getByTestId('txr-intake-join-offer-ldh')).toBeTruthy())
-    expect(within(block).getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
-    // The offers exist now — and NOT inside either card.
     const measurementsCard = screen.getByTestId('txr-intake-file-card-measurements')
+    await waitFor(() =>
+      expect(within(measurementsCard).getByTestId('txr-intake-join-offer-ldh')).toBeTruthy(),
+    )
+    expect(within(measurementsCard).getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    // The offers live in the measurements card's messages row — NOT in the
+    // patients card.
     const patientsCard = screen.getByTestId('txr-intake-file-card-patients')
-    for (const card of [measurementsCard, patientsCard]) {
-      expect(within(card).queryByTestId('txr-intake-join-offer-ldh')).toBeNull()
-      expect(within(card).queryByTestId('txr-intake-vocab-offer-cea')).toBeNull()
-    }
-    expect(screen.getByTestId('txr-intake-file-messages').contains(
-      screen.getByTestId('txr-intake-join-offer-ldh'),
-    )).toBe(true)
+    expect(within(patientsCard).queryByTestId('txr-intake-join-offer-ldh')).toBeNull()
+    expect(within(patientsCard).queryByTestId('txr-intake-vocab-offer-cea')).toBeNull()
+    expect(
+      within(measurementsCard)
+        .getByTestId('txr-intake-file-messages-measurements')
+        .contains(within(measurementsCard).getByTestId('txr-intake-join-offer-ldh')),
+    ).toBe(true)
     api.validate.mockResolvedValue(validationFixture({ problems: [row14Problem, row88Problem] }))
-    fireEvent.click(within(block).getByTestId('txr-intake-join-accept-ldh'))
+    fireEvent.click(within(measurementsCard).getByTestId('txr-intake-join-accept-ldh'))
     await waitFor(() => {
       expect(store().joins).toEqual([{ variants: ['ldh', 'LDH'], key: 'ldh' }])
     })
-    fireEvent.click(within(block).getByTestId('txr-intake-vocab-decline-cea'))
+    fireEvent.click(within(measurementsCard).getByTestId('txr-intake-vocab-decline-cea'))
     await waitFor(() => {
       expect(screen.queryByTestId('txr-intake-vocab-offer-cea')).toBeNull()
     })
@@ -697,6 +728,13 @@ describe('step3-file-cards — the messages row under the cards, files can alway
       .filter(line => line.querySelector('details') === null)
       .filter(line => (line.textContent ?? '').includes('P0187 is not in the patients table'))
     expect(lines).toHaveLength(1)
+    // The one line shows in the measurements card's messages row (the shared
+    // problem was assigned to that side).
+    expect(
+      screen.getByTestId('txr-intake-file-card-measurements').contains(
+        screen.getByTestId('txr-intake-file-messages-measurements'),
+      ),
+    ).toBe(true)
     expect(
       screen.getByTestId('txr-intake-file-messages-measurements').contains(lines[0]),
     ).toBe(true)

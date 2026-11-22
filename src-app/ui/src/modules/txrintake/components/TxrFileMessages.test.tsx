@@ -1,20 +1,29 @@
 // @vitest-environment jsdom
 /**
- * step3-file-cards A — the messages row (`components/TxrFileMessages.tsx`):
- * one full-width row under the file cards, a block per CHOSEN file in the
- * order given (patients, then measurements), each titled with the file kind
- * and the file name; a slot without a file gets no block and an empty row
- * renders nothing; the offers report the OFFER OBJECT to the host's
- * callbacks and the red box's fix link is the slot's own remove path.
+ * step3-file-cards A — `TxrFileMessages` (`components/TxrFileMessages.tsx`):
+ * what the check says about ONE adopted file — the join / vocabulary /
+ * column-rename offer rows, the status box (green board line / red "N
+ * problems in N rows" / the neutral "rows read" state) and the per-row
+ * problem list; the offers report the OFFER OBJECT to the host's callbacks
+ * and the red box's fix link is the file's own remove path, with no title
+ * and no frame of its own.
  *
- * Like the card test, the row reads the real TxrIntake store's shared
- * `validation` slot (reset per test).
+ * The card host (`TxrFileCard`) places these parts — the title + this
+ * component — inside the card (screens C and N) or inline under the preview
+ * (the E-screen dialog); `TxrFileCard.test.tsx` covers the places (the
+ * full-width row inside the card and its title bytes, the parts rendered
+ * ONCE per card, no row without a file). This file covers the parts
+ * themselves: nothing renders before a file is adopted, the offer rows
+ * report the OFFER OBJECT to the host's callbacks, the red box's fix link
+ * is the file's own remove path, and predict mode carries the board N
+ * continuation. Like the card test, the messages read the real TxrIntake
+ * store's shared `validation` slot (reset per test).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { FileInspection, ValidationResponse } from '@/api-client/types'
-import { TxrFileMessagesRow, type TxrFileMessagesSlot } from './TxrFileMessages'
+import { TxrFileMessages } from './TxrFileMessages'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import type { JoinOffer, LoadedFile } from '../types'
 
@@ -80,11 +89,11 @@ function seedValidation(response: ValidationResponse) {
   })
 }
 
-function renderRow(
-  slots: Array<Omit<TxrFileMessagesSlot, 'onRemove'>>,
+function renderMessages(
+  kind: 'patients' | 'measurements',
+  file: LoadedFile | null,
   mode: 'study' | 'predict' = 'study',
 ) {
-  const removes = slots.map(() => vi.fn())
   const handlers = {
     onAcceptJoin: vi.fn(),
     onRejectJoin: vi.fn(),
@@ -93,18 +102,15 @@ function renderRow(
     onAcceptColumn: vi.fn(),
     onRejectColumn: vi.fn(),
   }
+  const onRemove = vi.fn()
   render(
     <MemoryRouter initialEntries={['/files']}>
       <div data-testid="host">
-        <TxrFileMessagesRow
-          mode={mode}
-          slots={slots.map((slot, index) => ({ ...slot, onRemove: removes[index] }))}
-          {...handlers}
-        />
+        <TxrFileMessages kind={kind} mode={mode} file={file} onRemove={onRemove} {...handlers} />
       </div>
     </MemoryRouter>,
   )
-  return { removes, handlers }
+  return { handlers, onRemove }
 }
 
 beforeEach(() => {
@@ -117,94 +123,40 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('TxrFileMessagesRow (step3-file-cards A)', () => {
-  it('renders nothing while no file is chosen', () => {
-    renderRow([
-      { kind: 'patients', file: null },
-      { kind: 'measurements', file: null },
-    ])
-    expect(screen.queryByTestId('txr-intake-file-messages')).toBeNull()
+describe('TxrFileMessages (step3-file-cards A — one file\'s messages)', () => {
+  it('renders nothing before a file is adopted', () => {
+    renderMessages('patients', null)
     expect(screen.getByTestId('host').childElementCount).toBe(0)
   })
 
-  it('a block per chosen file, patients first, titled with the kind and the file name', () => {
-    seedValidation(validation())
-    renderRow([
-      { kind: 'patients', file: loaded('patients', 'cohort_patients.csv') },
-      { kind: 'measurements', file: loaded('measurements', 'blood_draws.xlsx') },
-    ])
-    const row = screen.getByTestId('txr-intake-file-messages')
-    const blocks = row.querySelectorAll(':scope > section')
-    expect(blocks).toHaveLength(2)
-    expect(blocks[0].getAttribute('data-testid')).toBe('txr-intake-file-messages-patients')
-    expect(blocks[1].getAttribute('data-testid')).toBe('txr-intake-file-messages-measurements')
-    expect(screen.getByTestId('txr-intake-file-messages-title-patients').textContent).toBe(
-      'Patients file: cohort_patients.csv',
-    )
-    expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
-      'Measurements file: blood_draws.xlsx',
-    )
-    // Each block holds its own file's status box (same test ids as before).
-    expect(
-      within(blocks[0] as HTMLElement).getByTestId('txr-intake-file-status-patients'),
-    ).toBeTruthy()
-    expect(
-      within(blocks[1] as HTMLElement).getByTestId('txr-intake-file-status-measurements'),
-    ).toBeTruthy()
-    expect(within(blocks[1] as HTMLElement).getByText('✓ 12 patients read')).toBeTruthy()
-  })
-
-  it('a slot without a file gets no block (no empty block)', () => {
-    renderRow([
-      { kind: 'patients', file: loaded('patients', 'patients.csv') },
-      { kind: 'measurements', file: null },
-    ])
-    expect(screen.getByTestId('txr-intake-file-messages-patients')).toBeTruthy()
-    expect(screen.queryByTestId('txr-intake-file-messages-measurements')).toBeNull()
-    expect(screen.queryByTestId('txr-intake-file-status-measurements')).toBeNull()
-    expect(screen.getByText('We check the files once both are here.')).toBeTruthy()
-  })
-
-  it('the offers in the row report the OFFER OBJECT to the host callbacks', () => {
-    const { handlers } = renderRow([
-      {
-        kind: 'measurements',
-        file: loaded('measurements', 'm.csv', {
-          joinOffers: [joinOffer],
-          columnOffers: [{ from: 'pid', to: 'patient_id' }],
-        }),
-      },
-    ])
-    const block = screen.getByTestId('txr-intake-file-messages-measurements')
-    fireEvent.click(within(block).getByTestId('txr-intake-join-accept-ldh'))
+  it('the offers report the OFFER OBJECT to the host callbacks', () => {
+    const { handlers } = renderMessages('measurements', loaded('measurements', 'm.csv', {
+      joinOffers: [joinOffer],
+      columnOffers: [{ from: 'pid', to: 'patient_id' }],
+    }))
+    fireEvent.click(screen.getByTestId('txr-intake-join-accept-ldh'))
     expect(handlers.onAcceptJoin).toHaveBeenCalledWith(joinOffer)
-    fireEvent.click(within(block).getByTestId('txr-intake-join-decline-ldh'))
+    fireEvent.click(screen.getByTestId('txr-intake-join-decline-ldh'))
     expect(handlers.onRejectJoin).toHaveBeenCalledWith(joinOffer)
-    fireEvent.click(within(block).getByTestId('txr-intake-column-accept-pid'))
+    fireEvent.click(screen.getByTestId('txr-intake-column-accept-pid'))
     expect(handlers.onAcceptColumn).toHaveBeenCalledWith({ from: 'pid', to: 'patient_id' })
-    fireEvent.click(within(block).getByTestId('txr-intake-column-decline-pid'))
+    fireEvent.click(screen.getByTestId('txr-intake-column-decline-pid'))
     expect(handlers.onRejectColumn).toHaveBeenCalledWith({ from: 'pid', to: 'patient_id' })
   })
 
-  it("the red box's fix link calls the slot's own remove path", () => {
+  it("the red box's fix link calls the file's own remove path", () => {
     seedValidation(validation({ problems: [dayProblem] }))
-    const { removes } = renderRow([
-      { kind: 'patients', file: loaded('patients', 'p.csv') },
-      { kind: 'measurements', file: loaded('measurements', 'm.csv', { problems: [dayProblem] }) },
-    ])
-    const block = screen.getByTestId('txr-intake-file-messages-measurements')
-    expect(within(block).getByText('1 problem in 12 rows')).toBeTruthy()
-    fireEvent.click(within(block).getByTestId('txr-intake-file-fix-measurements'))
-    expect(removes[1]).toHaveBeenCalledTimes(1)
-    expect(removes[0]).not.toHaveBeenCalled()
+    const { onRemove } = renderMessages('measurements', loaded('measurements', 'm.csv', {
+      problems: [dayProblem],
+    }))
+    expect(screen.getByText('1 problem in 12 rows')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('txr-intake-file-fix-measurements'))
+    expect(onRemove).toHaveBeenCalledTimes(1)
   })
 
-  it('predict mode: the one measurements block carries the board N continuation', () => {
+  it('predict mode: the measurements box carries the board N continuation', () => {
     seedValidation(validation())
-    renderRow([{ kind: 'measurements', file: loaded('measurements', 'predict.csv') }], 'predict')
-    expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
-      'Measurements file: predict.csv',
-    )
+    renderMessages('measurements', loaded('measurements', 'predict.csv'), 'predict')
     expect(
       within(screen.getByTestId('txr-intake-file-status-measurements')).getByText(
         /Next you choose the models that can run on it\.$/,
