@@ -318,10 +318,14 @@ function writeLayerRoot(root, { id, licence, run, language, version, withRun = t
 
 /** mksquashfs a fixture layer root (the ARTIFACT shape, host tool). The
  *  -processors value rides the fixture command line the way the generator
- *  passes it: the CPUs this process may use. */
-function squashLayer(root, out) {
+ *  passes it: the CPUs this process may use. The pack is byte-reproducible by
+ *  default: -all-time/-mkfs-time pin the only bytes that would otherwise
+ *  depend on the wall clock, so an identical root packs to an identical file
+ *  whatever second it runs in (`time` is the epoch second to stamp). */
+function squashLayer(root, out, { time = 0 } = {}) {
   const r = spawnSync('mksquashfs', [
     root, out, '-comp', 'zstd', '-b', '1M', '-noappend', '-no-progress', '-all-root',
+    '-all-time', String(time), '-mkfs-time', String(time),
     '-processors', String(os.availableParallelism()),
   ], { encoding: 'utf8' });
   assert.equal(r.status, 0, `mksquashfs failed: ${r.stderr}\n${r.stdout}`);
@@ -335,10 +339,10 @@ function wrapperSha(root, run) {
   return createHash('sha256').update(Buffer.concat([mj, rf])).digest('hex');
 }
 
-function stagedLayerRecord(dir, rec, root, run, { withRun = true } = {}) {
+function stagedLayerRecord(dir, rec, root, run, { withRun = true, packTime = 0 } = {}) {
   fs.mkdirSync(dir, { recursive: true });
   const squashfs = path.join(dir, 'layer.squashfs');
-  squashLayer(root, squashfs);
+  squashLayer(root, squashfs, { time: packTime });
   const bytes = fs.readFileSync(squashfs);
   // The wrapper hash is design §2.2's convention over the layer's own payload;
   // a wrapper-less layer (TEST-8's broken artifact) honestly hashes only the
@@ -362,12 +366,12 @@ function stagedLayerRecord(dir, rec, root, run, { withRun = true } = {}) {
 /** Stage one method's layer the way a build at `commit` would: a layer root
  *  whose /code is the committed method.json + wrapper, packed for real, and
  *  its record with that commit's provenance. */
-function stageMethodLayer(base, staging, methodsDir, commit, spec, rec, { withRun = true } = {}) {
+function stageMethodLayer(base, staging, methodsDir, commit, spec, rec, { withRun = true, packTime = 0 } = {}) {
   const arch = rec.arch || 'amd64';
   const root = path.join(base, `${spec.id}-${arch}-${commit.slice(0, 7)}-root-${Math.random().toString(36).slice(2, 8)}`);
   writeLayerRoot(root, { ...spec, withRun });
   return stagedLayerRecord(path.join(staging, 'layers', `${spec.id}-${arch}`),
-    { ...rec, ...provenance(methodsDir, commit, spec.id) }, root, spec.run, { withRun });
+    { ...rec, ...provenance(methodsDir, commit, spec.id) }, root, spec.run, { withRun, packTime });
 }
 
 /** The first 12 hex of a staged layer file's sha256, read from the bytes. */
@@ -2665,7 +2669,9 @@ test('TEST-17f the first entries of a new arch need their base batch; --drop lea
   // --only at assembly takes only those ids' records.
   const both = path.join(fx.base, 'staged-both');
   stageMethodLayer(fx.base, both, fx.methodsDir, commit2, SPEC_D, RECORD_D);
-  stageMethodLayer(fx.base, both, fx.methodsDir, fx.commit, SPEC_B, RECORD_B);
+  // fixture-b packed again: same content, different pack time (packTime: 1),
+  // so different bytes.
+  stageMethodLayer(fx.base, both, fx.methodsDir, fx.commit, SPEC_B, RECORD_B, { packTime: 1 });
   stageFixtureBase(fx.base, both, 'base-py', 'arm64');
   const out3 = path.join(fx.base, 'only.json');
   r = gen(['--fixture', both, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath, '--manifest', out3]);
@@ -2676,6 +2682,16 @@ test('TEST-17f the first entries of a new arch need their base batch; --drop lea
   // fixture-b's record was packed again (new layer bytes): replaced.
   assert.match(r.stdout, /replaced : fixture-b-amd64/);
   assert.doesNotMatch(r.stdout, /fixture-d-arm64/);
+  // The same method staged again at the default pack time is byte-identical
+  // to the list's (the pack is reproducible by default): unchanged.
+  const same = path.join(fx.base, 'staged-same');
+  stageMethodLayer(fx.base, same, fx.methodsDir, fx.commit, SPEC_B, RECORD_B);
+  const out4 = path.join(fx.base, 'same.json');
+  r = gen(['--fixture', same, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath,
+    '--manifest', out4, '--only', 'fixture-b']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /unchanged: fixture-b-amd64/);
+  assert.doesNotMatch(r.stdout, /replaced/);
 });
 
 // ── TEST-18: parity entry by entry ────────────────────────────────────────────
