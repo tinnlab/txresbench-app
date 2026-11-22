@@ -809,9 +809,10 @@ const EXPECTED_GATES = [
   // file that lands is discovered by the leg, and TEST-26 asserts over the filesystem
   // that every scripts/**/*.test.mjs and *.test.py is covered or named in an exclusion.
   // `scripts-py-tests` runs the six stdlib-unittest `*.test.py` under scripts/demo +
-  // scripts/dev-registry, each `python3 -I`, TMPDIR at a per-run dir under $HOME (the
-  // four that honor TMPDIR write there; the demo/e2e_real tests hardcode /data/pbya
-  // work dirs — path-only reds on this box, named, never skipped). Both legs are one
+  // scripts/dev-registry, each `python3 -I`, TMPDIR exported at a per-run dir under
+  // $HOME (the four that honor TMPDIR write there; the demo/e2e_real tests hardcode
+  // /data/pbya work dirs — path-only reds on this box, named, never skipped). Both
+  // legs are one
   // subprocess per file and exit non-zero after the LAST file regardless of the
   // failures before it, exactly the no-hiding property the aggregate itself has.
   'node --test scripts/assemble-method-list.test.mjs',
@@ -1140,7 +1141,7 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      a872f993c562dd039df073336ba1a8d363dc2ebf3ff63731a873c9571026506e  THIS-CHANGE
+ * check                      f3401cffe28d2b50e738a2768c8d54d1e8b38065441d1fc43c8f75e82b3e5fc1  THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
  * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
@@ -1435,7 +1436,9 @@ const REACHABLE_FROM_CHECK = [
  * red. `scripts-py-tests` runs the six stdlib-unittest files (scripts/demo + the
  * dev-registry quartet) with `python3 -I` (each loads its module under test by explicit
  * sys.path.insert/importlib.util, so isolated mode's sys.path is not a problem) and
- * TMPDIR at a per-run dir under $HOME — never /tmp, never the repo. The `python3` stub
+ * BOTH legs run with TMPDIR exported at a per-run dir under $HOME — never /tmp, never
+ * the repo (a plain assignment is invisible to the node/python3 children; the phase-4
+ * follow-up below repairs it). The `python3` stub
  * joined the behavioural stubs (TEST-17/18/19) in this same diff for the same reason
  * npm/cargo are stubbed, so the real (red, path-bound) python leg is never executed
  * four dozen times inside the controls. REDS, NAMED, NOT FIXED (a red is listed, never
@@ -1456,6 +1459,17 @@ const REACHABLE_FROM_CHECK = [
  * in EXPECTED_GATES (TEST-17/18/19), the coverage claim has its own test (TEST-26), and
  * `python3 -I` + TMPDIR isolate the python leg from the ambient environment.
  *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN AGAIN AGAIN AGAIN (gate-tests phase 4 fix, THIS-CHANGE) ──
+ * `check` a872f993 -> f3401cff: the two legs' `TMPDIR=…` assignments were PLAIN shell
+ * variables — set in the leg's own shell, invisible to the `node`/`python3` children the
+ * leg spawns, so whatever honours TMPDIR wrote scratch to /tmp, contradicting both legs'
+ * own "never /tmp" comment (the review's finding). Both legs now `export TMPDIR` — same
+ * per-run dir under $HOME, same name, same cleanup — so every child inherits it, and the
+ * new TEST-27 pins `export TMPDIR=` in BOTH legs by exact string (value shape included),
+ * so the export cannot silently fall back to a plain assignment or to /tmp. Nothing
+ * removed, no leg repointed, no floor lowered. FIX: the recipe now does what its
+ * comment claimed, not a weakening.
+ *
  * ── THE ANCHOR IS a9bc4c1c, NOT 2caaa6e9 ────────────────────────────────────────────────
  *
  * Stated exactly, because the first draft of this block said "unmoved since the pins were
@@ -1466,14 +1480,14 @@ const REACHABLE_FROM_CHECK = [
  * object moved there for a reason that has nothing to do with any recipe. `check-r-regime`'s
  * BODY genuinely moved at a9bc4c1c too — a bare `-eq 0` suite check became
  * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly four recipes have moved: `check-guards`
- * once, `check-invariants` twice, `check-processor-versions` once and `check` five
+ * once, `check-invariants` twice, `check-processor-versions` once and `check` six
  * times (gate-tests phase 1, its phase-1 `ui-tsc` leg fix, the phase-2 crate-test
- * legs, the phase-3 JS/TS legs, and the phase-4 scripts/ suites — the five blocks
- * above) — the
+ * legs, the phase-3 JS/TS legs, the phase-4 scripts/ suites, and the phase-4 fix
+ * that exports TMPDIR in both new legs — the six blocks above) — the
  * rows above.
  */
 const RECIPE_PINS = {
-  "check": "a872f993c562dd039df073336ba1a8d363dc2ebf3ff63731a873c9571026506e",
+  "check": "f3401cffe28d2b50e738a2768c8d54d1e8b38065441d1fc43c8f75e82b3e5fc1",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",
@@ -1925,4 +1939,56 @@ test('TEST-26 every scripts/**/*.test.mjs and *.test.py is covered by the script
         `exclusion that names nothing is drift, not a skip`,
     );
   }
+});
+
+// ── TEST-27 ─────────────────────────────────────────────────────────────────────────
+/**
+ * The scripts/ legs' TMPDIR must be EXPORTED, not merely assigned (gate-tests phase 4 fix).
+ *
+ * `TMPDIR=…` as a plain assignment sets the variable in the leg's own shell but is
+ * invisible to the `node`/`python3` child processes the leg spawns — so whatever honours
+ * TMPDIR fell through to /tmp, contradicting both legs' own "never /tmp" comment (the
+ * review's finding). Both legs must spell `export TMPDIR="${HOME}/.txresbench-gate-tests/
+ * <leg>$$"`, so the value is inherited and still lives under $HOME, and the export must
+ * come BEFORE any child invocation — an `export` after the first child is as dead as no
+ * export. TEST-26 owns the discovery/coverage claim; this test owns the export claim, so
+ * a future edit cannot silently drop the export while every other check stays green.
+ */
+test('TEST-27 both scripts legs export TMPDIR (under $HOME, before any child runs)', () => {
+  const { legs } = legLinesOf(checkBlock());
+  const nodeLeg = legs.find((l) => l.startsWith('scripts-node-tests '));
+  const pyLeg = legs.find((l) => l.startsWith('scripts-py-tests '));
+  assert.ok(
+    nodeLeg && pyLeg,
+    '`just check` no longer declares the scripts-node-tests/scripts-py-tests legs — the ' +
+      'TMPDIR-export claim cannot be verified over a missing leg',
+  );
+  const nodeCmd = nodeLeg.slice('scripts-node-tests '.length);
+  const pyCmd = pyLeg.slice('scripts-py-tests '.length);
+  // EXACT spellings, both legs. A plain assignment (the defect), an export to /tmp, or a
+  // per-run dir outside $HOME all redden here.
+  assert.match(
+    nodeCmd,
+    /export TMPDIR="\$\{HOME\}\/\.txresbench-gate-tests\/node-\$\$"/,
+    `scripts-node-tests must export TMPDIR at a per-run dir under $HOME — a plain ` +
+      `assignment is invisible to the node children (they would write to /tmp): ${nodeCmd}`,
+  );
+  assert.match(
+    pyCmd,
+    /export TMPDIR="\$\{HOME\}\/\.txresbench-gate-tests\/py-\$\$"/,
+    `scripts-py-tests must export TMPDIR at a per-run dir under $HOME — a plain ` +
+      `assignment is invisible to the python3 children (they would write to /tmp): ${pyCmd}`,
+  );
+  // …and before any child spawns (the exact-string asserts above already guarantee the
+  // export exists, so a -1 here cannot produce a false green).
+  assert.ok(
+    nodeCmd.indexOf('export TMPDIR=') < nodeCmd.indexOf('node --test'),
+    `scripts-node-tests must export TMPDIR before it spawns any \`node\` — an export after ` +
+      `the first child is as dead as no export: ${nodeCmd}`,
+  );
+  assert.ok(
+    pyCmd.indexOf('export TMPDIR=') < pyCmd.indexOf('python3 -I'),
+    `scripts-py-tests must export TMPDIR before it spawns any \`python3\` — an export after ` +
+      `the first child is as dead as no export: ${pyCmd}`,
+  );
 });

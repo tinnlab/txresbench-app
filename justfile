@@ -176,8 +176,9 @@ test-unit:
 # new orphan suite (or an exclusion entry with no running leg) turns the gate red.
 # `scripts-py-tests` runs with `python3 -I` (every one of the six loads the module under
 # test by explicit `sys.path.insert`/`importlib.util`, so the isolated-mode sys.path
-# does not matter — verified) and with TMPDIR pointed at a per-run dir under $HOME
-# (never /tmp, never the repo): the four scripts that honor TMPDIR write their scratch
+# does not matter — verified) and BOTH legs run with TMPDIR EXPORTED at a per-run dir
+# under $HOME (never /tmp, never the repo — `export`, not a plain assignment, so every
+# node/python3 child inherits it): the four scripts that honor TMPDIR write their scratch
 # there and clean up; the demo/e2e_real tests hardcode /data/pbya/... paths instead and
 # are ABSENT on this box — the failures are path-only and stay NAMED reds (listed in the
 # phase-4 change note), never skipped or edited. Both legs keep the same shape the old
@@ -198,8 +199,8 @@ check:
     sdk-ts-test cd {{justfile_directory()}} && npm test --workspace=@txresbench/framework --workspace=@txresbench/kit --workspace=@txresbench/gallery --workspace=@txresbench/shell --workspace=@txresbench/config
     gallery-guards cd {{ui_dir}} && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs --build && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.mjs && node --test {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.test.mjs
     site-test cd {{justfile_directory()}} && node --test 'site/tests/*.test.mjs'
-    scripts-node-tests cd {{justfile_directory()}} && TMPDIR="${HOME}/.txresbench-gate-tests/node-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); node --test "$f" || rc=1; done < <(find scripts -name '*.test.mjs' -not -name 'check-aggregate.test.mjs' -not -name 'check-method-env-images.test.mjs' -not -name 'check-method-list.test.mjs' -not -name 'check-network-allowlist.test.mjs' -not -name 'check-pub-orphans.test.mjs' -not -name 'build-wsl-rootfs.docker.test.mjs' | sort); echo 'SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker'; echo "scripts-node-tests: ran $n suite file(s)"; [ "$n" -ge 7 ] || rc=1; exit $rc
-    scripts-py-tests cd {{justfile_directory()}} && TMPDIR="${HOME}/.txresbench-gate-tests/py-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); python3 -I "$f" || rc=1; done < <(find scripts -name '*.test.py' | sort); echo "scripts-py-tests: ran $n suite file(s)"; [ "$n" -ge 3 ] || rc=1; exit $rc
+    scripts-node-tests cd {{justfile_directory()}} && export TMPDIR="${HOME}/.txresbench-gate-tests/node-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); node --test "$f" || rc=1; done < <(find scripts -name '*.test.mjs' -not -name 'check-aggregate.test.mjs' -not -name 'check-method-env-images.test.mjs' -not -name 'check-method-list.test.mjs' -not -name 'check-network-allowlist.test.mjs' -not -name 'check-pub-orphans.test.mjs' -not -name 'build-wsl-rootfs.docker.test.mjs' | sort); echo 'SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker'; echo "scripts-node-tests: ran $n suite file(s)"; [ "$n" -ge 7 ] || rc=1; exit $rc
+    scripts-py-tests cd {{justfile_directory()}} && export TMPDIR="${HOME}/.txresbench-gate-tests/py-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); python3 -I "$f" || rc=1; done < <(find scripts -name '*.test.py' | sort); echo "scripts-py-tests: ran $n suite file(s)"; [ "$n" -ge 3 ] || rc=1; exit $rc
     ui-tsc cd {{ui_dir}} && npx --no-install tsc --noEmit
     ui-typecheck-tests cd {{ui_dir}} && npm run typecheck:tests
     ui-guards-actions cd {{ui_dir}} && node scripts/collect-actions.mjs --check && node scripts/action-refs-lint.mjs && node scripts/action-coverage.mjs

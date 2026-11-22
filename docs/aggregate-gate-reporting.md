@@ -78,7 +78,7 @@ It rose again 16 -> 18 when gate-tests phase 4 added `scripts-node-tests` (every
 the docker-only WSL-rootfs build suite are excluded by an explicit list, and the docker
 suite's exclusion prints `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` so it
 is never silent) and `scripts-py-tests` (the six stdlib-unittest `*.test.py` under
-`scripts/demo` + `scripts/dev-registry`, run `python3 -I` with TMPDIR at a per-run dir
+`scripts/demo` + `scripts/dev-registry`, run `python3 -I` with TMPDIR exported at a per-run dir
 under `$HOME` — never /tmp, never the repo). Both are expected RED on a bare box for
 path-bound reasons the suites themselves hardcode (the demo scripts' `WORK_DIR` is
 `/data/pbya/...`; the dev-registry real-method and benchmark trees are outside this
