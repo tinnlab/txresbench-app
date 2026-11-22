@@ -49,12 +49,22 @@ const RUNNER = path.join(SCRIPTS_DIR, 'check-aggregate.sh');
  * reads green over a red gate.
  */
 function runLegs(legLines, args = [], cwd = REPO) {
-  const r = spawnSync('bash', [RUNNER, ...args], {
-    input: legLines.join('\n') + (legLines.length ? '\n' : ''),
-    cwd,
-    encoding: 'utf8',
-  });
-  assert.equal(r.error, undefined, `spawning the runner failed: ${r.error}`);
+  // EPIPE handling (pre-existing flake, fixed here): the runner BAILS on some argument
+  // errors (e.g. an out-of-range --min-legs) BEFORE it reads stdin, so the input write
+  // races the child's exit — `spawnSync` then reports EPIPE ~1 run in 6 and this whole
+  // controls suite reddened for no assertion-related reason. The child that closed its
+  // stdin already RAN and EXITED: when EPIPE comes with a numeric `status` (measured
+  // `error: EPIPE, status: 2`), that status is the child's OWN verdict and the unborn
+  // stdin bytes were not needed — a runner that exits before EOF-on-input has already
+  // decided (bad leg, out-of-range floor, bad flag). The verdict is read exactly as
+  // before; EPIPE-with-status is accepted, ANY other error still fails loudly.
+  const input = legLines.join('\n') + (legLines.length ? '\n' : '');
+  const r = spawnSync('bash', [RUNNER, ...args], { input, cwd, encoding: 'utf8' });
+  assert.ok(
+    r.error === undefined ||
+      (r.error.code === 'EPIPE' && typeof r.status === 'number'),
+    `spawning the runner failed: ${r.error}`,
+  );
   assert.notEqual(
     r.status,
     null,
@@ -223,7 +233,19 @@ test('TEST-7 each leg’s stdout and stderr reach the aggregate output, failing 
 // `ui-*` legs (one per link / guard family) because its red first link (`check:e2e-routing`)
 // was hiding `test:unit` behind it — the #287 defect one level down. A pure ADD, so the
 // floor moved UP with the set, in the same diff as `--min-legs` and AGGREGATE_FLOORS.
-const MIN_LEGS_FLOOR = 11;
+// 11 -> 13 (gate-tests phase 2): two Rust crate-test legs added — `sdk-crates-test`
+// (the SDK crates' own tests, `cargo test --workspace` in the sdk/ workspace, run in the
+// sqlite-backend driver variant the app consumes because the default PG/embedded-pg
+// variant needs a build-time Postgres cluster the gate image lacks; sandbox-guest-agent +
+// sandbox-seccomp excluded: their test binaries need `libseccomp-dev`, absent from the
+// gate image — see the justfile comment) and `desktop-crate-test`
+// (`cargo test -p txresbench-desktop`). A pure ADD (nested sdk/ workspace + the desktop
+// crate were covered by NO leg before), again in the same diff as `--min-legs` and
+// AGGREGATE_FLOORS. Note the sdk leg is EXPECTED RED today: it surfaces a pre-existing
+// generator-golden drift (txresbench-framework) and a FUSE-device gap
+// (txresbench-test-harness data_dir_reclaim) — reds to fix, never to exclude (the floor
+// moves up WITH the legs; it does not shrink to fit them).
+const MIN_LEGS_FLOOR = 13;
 
 /**
  * The body of a `just` recipe, delimited the way JUST delimits it: every following line
@@ -713,6 +735,16 @@ const EXPECTED_GATES = [
   // the gate while `node --test …` still shows up in the recorded argv.
   `node --test ${path.join(SCRIPTS_DIR, 'check-aggregate.test.mjs')}`,
   'cargo check --workspace --tests',
+  // gate-tests phase 2: the two Rust crate-test legs. `sdk-crates-test` is the ONLY
+  // recorded form that can work in the gate image — the default-feature SDK workspace
+  // cannot even resolve (its PG driver needs a build-time Postgres cluster; the lock pins
+  // postgresql_embedded 0.20.4, rustc >= 1.94, the image has 1.90), so the leg runs the
+  // sqlite-backend variant and excludes the two crates whose test binaries need
+  // `libseccomp-dev` (see the justfile comment). Frozen here by exact string so the leg
+  // cannot silently drop the feature/exclude set. `desktop-crate-test` needs no
+  // adjustment — it links and its 103 tests pass.
+  'cargo test --workspace --no-default-features --features sqlite-backend,routes,module --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1',
+  'cargo test -p txresbench-desktop',
   // The UI `npm run check` chain (gate-tests phase 1): one recorded command per link —
   // the chain was split out of the single opaque `npm run check` leg precisely so a red
   // link (currently `check:e2e-routing`) cannot hide the links after it. TEST-25 keeps
@@ -839,8 +871,16 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // seven `ui-*` legs (one per link / guard family): the chain's red first link
 // (`check:e2e-routing`) was hiding `test:unit`, the #287 defect one level down. A pure
 // ADD, raised in the SAME diff as `--min-legs` and MIN_LEGS_FLOOR (see TEST-8).
+// gate-tests phase 2 — 'check': 11 -> 13. Two legs added: `sdk-crates-test` (the SDK
+// crates' own tests; the adjusted sqlite-backend form of `cd sdk && cargo test
+// --workspace`, excluding the two crates that need libseccomp-dev) and
+// `desktop-crate-test` (`cargo test -p txresbench-desktop`). A pure ADD (neither was
+// covered by any leg before), raised in the SAME diff as `--min-legs` and
+// MIN_LEGS_FLOOR; the sdk leg is expected RED today on the pre-existing
+// generator-golden drift + FUSE-device gap — the floor rises WITH the set, it never
+// shrinks to fit a red.
 const AGGREGATE_FLOORS = {
-  check: 11,
+  check: 13,
   'check-invariants': 9,
   'check-guards': 6,
 };
@@ -996,7 +1036,7 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      b781c4635aeac1b8030e092934a3bd3e81a9b3490bf25f82cd12834b0d7bec8b  THIS-CHANGE
+ * check                      8d6a84f42fdaf7ce168b5584f89b6737d38491901d8335e7f1e7248e79ecfd19  THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
  * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
@@ -1151,6 +1191,56 @@ const REACHABLE_FROM_CHECK = [
  * leg's recorded command as `npx --no-install tsc --noEmit` (TEST-17/18/19 fail it by
  * exact string, so the leg cannot drop back to a form that cannot run). FIX.
  *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN (gate-tests phase 2, THIS-CHANGE) ────────────────────
+ * `check` b781c463 -> 8d6a84f4: TWO crate-test legs are ADDED to the end of the Rust
+ * group (after `cargo-check-workspace`): `sdk-crates-test` and `desktop-crate-test`,
+ * the two things phase 1's `cargo check --workspace --tests` covered only by compiling
+ * (AUDIT A1/D4/C2 — no leg RAN the SDK crates' own tests or the desktop crate's tests).
+ * `--min-legs` rises 11 -> 13 with them, and AGGREGATE_FLOORS / MIN_LEGS_FLOOR move to
+ * 13 in this same diff. Nothing removed, no leg repointed, no floor lowered.
+ * `desktop-crate-test` is the brief's literal `cargo test -p txresbench-desktop` — it
+ * links (GTK/WebKit present) and its 103 tests pass, so no adjustment. `sdk-crates-test`
+ * is ADJUSTED from the literal `cd sdk && cargo test --workspace` because the default-
+ * feature SDK workspace cannot even resolve in this gate image, and the adjustment is
+ * FLATTERING, not weakening:
+ *   * `--no-default-features --features "sqlite-backend,routes,module"` — the SDK crates
+ *     default to the Postgres/embedded-pg driver, whose schema-bound `query!` macros
+ *     verify against a live build-time Postgres cluster (docker-compose, 127.0.0.1:54321)
+ *     absent from the gate image; the committed sdk/Cargo.lock pins postgresql_embedded
+ *     0.20.4 (drag in sqlx 0.9, rust-version >= 1.94) while the image has rustc 1.90, so
+ *     `cargo test --workspace` fails at RESOLUTION before any crate builds. The leg tests
+ *     the SQLite driver variant — the same crate surfaces (routes + module stay on) with
+ *     the driver the app itself consumes — and every test of every member still runs.
+ *   * `--exclude sandbox-guest-agent --exclude sandbox-seccomp` — their TEST BINARIES
+ *     link `-lseccomp`; the gate image ships only `libseccomp2`, no `libseccomp-dev`
+ *     (measured: `rust-lld: unable to find library -lseccomp`). The repo's own runner for
+ *     these two is sdk/scripts/test-guest-agent-linux.sh (Docker, pinned rust:1.90 image,
+ *     apk libseccomp-dev + bwrap + privilege for the WSL-mode e2e) — an explicitly
+ *     separate, privileged lane, NOT part of `just check`; not a test hidden, a lane the
+ *     gate image cannot provide.
+ *   * `-- --test-threads=1` — the crate suites are not parallel-safe: txresbench-file's
+ *     http_routes tests re-init a GLOBAL storage dir per test, so under the parallel
+ *     default two tests 404 on each other's files (flaky; the same binary passes serially,
+ *     measured). Serial runs every test deterministically — no test skipped, no assertion
+ *     reduced; the race is reported, not papered over.
+ * The leg is EXPECTED RED today on main, and that red is the point: it surfaces (a)
+ * txresbench-framework `openapi::emit_ts::tests::generator_golden_fixture` — a
+ * deterministic, feature-independent generator-vs-golden drift (generated 117 lines vs
+ * golden 147) that NO leg ever ran, and (b) txresbench-test-harness tests/data_dir_reclaim.rs
+ * — `fuse: device not found` (no /dev/fuse, unprivileged container; mksquashfs and
+ * squashfuse ARE installed). Neither is excluded: per §5-adjacent discipline a pre-existing
+ * red becomes a NAMED red leg, not an allowlist entry. (470 pass, 3 fail, 7 ignored,
+ * measured on this gate image — 12 SDK members + the sdk/desktop/harness crate; details
+ * in the justfile comment.) STRENGTHENING: the two crate-test populations the gate never
+ * executed
+ * are now legs, and the exclusions/features are frozen by exact string in EXPECTED_GATES
+ * (TEST-17/18/19) so the leg cannot silently drop back to a form that cannot run.
+ * (Same diff, control-suite repair: `runLegs` accepted a pre-existing `spawnSync bash
+ * EPIPE` ~1 run in 6 — the runner bails on an out-of-range `--min-legs` before reading
+ * stdin, so the input write races the child's exit. EPIPE-with-a-numeric-status is the
+ * child's own verdict and is now accepted; no assertion weakened, only the noise
+ * removed — measured 14/14 clean runs after, 1-in-6 before.)
+ *
  * ── THE ANCHOR IS a9bc4c1c, NOT 2caaa6e9 ────────────────────────────────────────────────
  *
  * Stated exactly, because the first draft of this block said "unmoved since the pins were
@@ -1161,12 +1251,13 @@ const REACHABLE_FROM_CHECK = [
  * object moved there for a reason that has nothing to do with any recipe. `check-r-regime`'s
  * BODY genuinely moved at a9bc4c1c too — a bare `-eq 0` suite check became
  * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly four recipes have moved: `check-guards`
- * once, `check-invariants` twice, `check-processor-versions` once and `check` twice
- * (gate-tests phase 1 and its phase-1 `ui-tsc` leg fix — the two blocks above) — the
+ * once, `check-invariants` twice, `check-processor-versions` once and `check` three
+ * times (gate-tests phase 1, its phase-1 `ui-tsc` leg fix, and the phase-2 crate-test
+ * legs — the three blocks above) — the
  * rows above.
  */
 const RECIPE_PINS = {
-  "check": "b781c4635aeac1b8030e092934a3bd3e81a9b3490bf25f82cd12834b0d7bec8b",
+  "check": "8d6a84f42fdaf7ce168b5584f89b6737d38491901d8335e7f1e7248e79ecfd19",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",

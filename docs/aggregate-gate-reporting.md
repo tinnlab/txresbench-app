@@ -52,10 +52,17 @@ pre-existing and now visible, not introduced. Each red belongs to its own issue 
 own owner. The strip node removed the legs whose subjects left the tree (the
 processor-package, env-recipe and coercion legs) and moved the `--min-legs` floor with
 the removal; the aggregate keeps one floor per critical line of defence
-(`check` 11, `check-invariants` 9, `check-guards` 6) and `check-aggregate.test.mjs`
+(`check` 13, `check-invariants` 9, `check-guards` 6) and `check-aggregate.test.mjs`
 asserts all of them. (`check`'s floor rose 5 -> 11 when the UI `npm run check` chain —
 one opaque leg whose red first link hid `test:unit` — was split into one `ui-*` leg per
-link, the same class of failure this document is about, one level down.)
+link, the same class of failure this document is about, one level down. It rose again
+11 -> 13 when gate-tests phase 2 added the two Rust crate-test legs —
+`sdk-crates-test` (the SDK crates' own tests, `cargo test --workspace` in the nested sdk/
+workspace, in the sqlite-backend driver variant the gate image can build, with
+sandbox-guest-agent and sandbox-seccomp excluded because their test binaries need the
+`libseccomp-dev` the image lacks) and `desktop-crate-test`
+(`cargo test -p txresbench-desktop`, which links and passes) — both populations the gate
+had previously only compiled, never run.)
 
 ## §5 Non-negotiables
 

@@ -69,12 +69,48 @@ test-unit:
 # link is a named red leg and the legs after it still run. `npm run check` is unchanged
 # in package.json as the developer's one-shot command; TEST-25 pins the chain and the
 # legs in parity.
+#
+# The Rust crate test legs (gate-tests phase 2): until now `just check` COVERED the Rust
+# tree only by compiling it (`cargo check --workspace --tests`); NO leg ran the SDK
+# crates' own tests (a nested workspace at sdk/ with its own sdk/Cargo.toml, excluded
+# from the root workspace) or the desktop crate's tests (src-app/desktop/tauri).
+#
+#   - `sdk-crates-test` runs `cargo test --workspace` inside sdk/. The crates DEFAULT to
+#     the Postgres/embedded-pg driver, whose schema-bound `query!` macros must verify
+#     against a live build-time Postgres cluster (docker-compose, 127.0.0.1:54321) that the
+#     gate image does not ship — and the committed sdk/Cargo.lock pins postgresql_embedded
+#     0.20.4 (sqlx 0.9, rustc >= 1.94; the image has 1.90), so the default-feature
+#     workspace cannot even resolve here. The leg therefore tests the SQLITE driver
+#     variant (`--no-default-features --features sqlite-backend,routes,module`): the same
+#     crate surfaces (routes + module on) with the driver the app itself consumes. The
+#     `--exclude`s are sandbox-guest-agent and sandbox-seccomp ONLY — their test binaries
+#     link `-lseccomp`, and the gate image ships just `libseccomp2`, no `libseccomp-dev`;
+#     the repo's own runner for those two is sdk/scripts/test-guest-agent-linux.sh (a
+#     Docker image with libseccomp-dev + bwrap + privilege for the WSL-mode e2e).
+#     `-- --test-threads=1`: the parallel default trips a pre-existing global
+#     storage re-init race in txresbench-file's http_routes suite (flaky 404s; the same
+#     binary passes serially), so the leg runs every test deterministically. KNOWN REDS
+#     this leg surfaces — findings to fix, NEVER exclude: txresbench-framework's
+#     `openapi::emit_ts::tests::generator_golden_fixture` (deterministic, feature-
+#     independent generator-vs-golden drift) and txresbench-test-harness's
+#     tests/data_dir_reclaim.rs (mounts squashfs via FUSE: "fuse: device not found" —
+#     no /dev/fuse in this gate image; mksquashfs + squashfuse are installed).
+#   - `desktop-crate-test` runs the desktop crate's own tests (`cargo test -p
+#     txresbench-desktop`): 103 tests including tests/update_check_seam.rs (the only
+#     runtime network call's seam) and tests/build_sidecar.rs. Tauri links against the
+#     GTK/WebKit system libs the gate image has. No adjustments needed.
+#
+# `--min-legs` (11 -> 13) rises with the two legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
+# the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
+# into agreement with itself.
 check:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 11 --controls-leg check-aggregate-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 13 --controls-leg check-aggregate-controls <<'LEGS'
     check-aggregate-controls node --test "{{justfile_directory()}}/scripts/check-aggregate.test.mjs"
     cargo-check-workspace cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo check --workspace --tests
+    sdk-crates-test cd {{justfile_directory()}}/sdk && cargo test --workspace --no-default-features --features "sqlite-backend,routes,module" --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1
+    desktop-crate-test cd {{justfile_directory()}} && cargo test -p txresbench-desktop
     ui-tsc cd {{ui_dir}} && npx --no-install tsc --noEmit
     ui-typecheck-tests cd {{ui_dir}} && npm run typecheck:tests
     ui-guards-actions cd {{ui_dir}} && node scripts/collect-actions.mjs --check && node scripts/action-refs-lint.mjs && node scripts/action-coverage.mjs
