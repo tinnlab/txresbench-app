@@ -237,13 +237,14 @@ arch and the publisher refuses an `--arch` that disagrees with the entry.
 
 ### Signing
 
-Layers are cosign-signed (provenance floor; the manifest sha256 is the
-verification floor, DEC-5 / D04). Off CI, `cosign sign` uses **your** keyless
-identity, not a CI OIDC identity — the app's verification policy (owner's
-DEC-5 pick) decides what the runtime accepts, so sign with an identity that
-policy trusts, or sign with an explicit key (`cosign sign --key`). `--skip-sign`
-is for a runtime with verification disabled only, **never** for a layer a
-published result depends on.
+Layers are cosign-signed — provenance only; the manifest sha256 is the
+verification floor (DEC-5 / D04). The app does not check the cosign signature
+of a method-env layer: the runtime verifies the pinned `layer_sha256` of the
+bytes it fetches and only then mounts, so a signature adds provenance, not
+admission. Off CI, `cosign sign` uses **your** keyless identity, not a CI OIDC
+identity; sign with an explicit key (`cosign sign --key`) if you want the
+identity recorded. `--skip-sign` skips that provenance record; nothing is
+refused for it.
 
 ---
 
@@ -476,7 +477,7 @@ scripts/publish-method-env-images.sh --base base-py
 scripts/publish-method-env-images.sh --env <id> --arch <arch> --staging-dir <build dir> \
   --methods-dir <methods checkout> --previous previous.json
 
-# skip signing — only against a runtime with verification disabled
+# skip signing — a signature is provenance only; the app does not check it
 scripts/publish-method-env-images.sh --env <id> --skip-sign
 ```
 

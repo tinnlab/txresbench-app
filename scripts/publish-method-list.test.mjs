@@ -10,6 +10,7 @@
 //
 //   node --test scripts/publish-method-list.test.mjs
 
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +32,12 @@ const UNTRUSTED_KEY_ID = '0707070707070707';
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'publish-method-list-'));
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const writeJson = (p, v, indent = 2) => fs.writeFileSync(p, JSON.stringify(v, null, indent) + '\n');
+// The fixture's file pins (make-fixtures.sh) are the sha256 of these strings: the seed is the
+// real file bytes, so the manifest's layer digest and the list's pinned file hash agree —
+// a real artifact's manifest names the pinned file, and step d checks that agreement.
+const seededFileBytes = (e) => e.base_id
+  ? Buffer.from(`fixture base squashfs ${e.base_id === 'base-r' ? 'r' : 'py'}`)
+  : Buffer.from(`fixture layer ${e.method_id}`);
 
 // The checkouts' origin is the real repository URL; a git config of this test (in place of
 // the user's global one) sends it to a local bare repository (url.<bare>.insteadOf).
@@ -71,7 +78,7 @@ function assemble(listDir, args) {
  */
 function world({ publishedSeq = 1, otherBytes = false, noBases = false, sideRevision = false, unpinned = null,
   publishedKey = STUB_KEY.key_id, publishedExtraRow = false, seqTags = [], appUrl = APP_URL,
-  methodsUrl = METHODS_URL } = {}) {
+  methodsUrl = METHODS_URL, wrongFile = null } = {}) {
   const base = tmp();
   gitConfig = path.join(base, 'gitconfig');
   fs.writeFileSync(gitConfig, '');
@@ -122,10 +129,13 @@ function world({ publishedSeq = 1, otherBytes = false, noBases = false, sideRevi
   assemble(listDir, ['--previous', prev]);
   const methodsCommit = commitAll(methods, 'list 2');
 
-  // The registry: every pin, and the published list.
+  // The registry: every pin, and the published list. The file bytes are the fixture's own
+  // pinned bytes; `wrongFile` puts a DIFFERENT file under that tag (its blob digest and the
+  // manifest agree with each other, but not with the list's pin).
   for (const e of [...(images.bases || []), ...images.envs]) {
     if (unpinned && e.tag === unpinned) continue;
-    seedArtifact(bin, e.oci_ref, e.tag, { 'layer.squashfs': Buffer.from(e.tag) }, e.digest);
+    const content = e.tag === wrongFile ? Buffer.from('different ' + e.tag) : seededFileBytes(e);
+    seedArtifact(bin, e.oci_ref, e.tag, { [e.base_id ? 'base.squashfs' : 'layer.squashfs']: content }, e.digest);
   }
   let published = null;
   if (publishedSeq !== null) {
@@ -275,6 +285,52 @@ test('refuses_unresolvable_pin', () => {
   assert.equal(readLog(w.bin, 'minisign').length, 0);
 });
 
+test('refuses_a_pin_whose_file_blob_is_missing', () => {
+  // The tag resolves to its manifest, but the squashfs FILE the manifest names is gone
+  // (never pushed, deleted, made private): the run must stop at the pin, before anything
+  // is signed. One layer and one base, so both artifact kinds are covered.
+  const images = readJson(path.join(LIST_DIR, 'method-env-images.json'));
+  for (const e of [images.envs[0], images.bases[0]]) {
+    const w = world();
+    const file = e.base_id ? 'base.squashfs' : 'layer.squashfs';
+    fs.rmSync(path.join(w.bin, '..', 'registry', e.oci_ref.replace(/[/:]/g, '_'),
+      'blobs', e.digest.replace(':', '_'), 'files', file));
+    // The manifest names the pinned file's digest (the seeded bytes are the pin's preimage).
+    const blobHex = e.base_id ? e.squashfs_sha256 : e.layer_sha256;
+    const r = publish(w);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, new RegExp(`pin ${e.oci_ref}:${e.tag}: the file blob sha256:${blobHex} cannot be read: publish the layer or base again`));
+    // The manifest was fetched (by the resolved digest), then its blob refused — in step d,
+    // before signing or pushing.
+    const calls = readLog(w.bin, 'oras');
+    assert.ok(calls.some((c) => c.sub === 'manifest' && c.argv.includes(`${e.oci_ref}@${e.digest}`)));
+    assert.ok(calls.some((c) => c.sub === 'blob' && c.argv.includes(`${e.oci_ref}@sha256:${blobHex}`)));
+    assert.equal(readLog(w.bin, 'minisign').length, 0);
+    assert.equal(pushes(w).length, 0);
+    assert.equal(tags(w).length, 0);
+  }
+});
+
+test('refuses_a_pin_whose_file_is_not_the_pinned_one', () => {
+  // A DIFFERENT file is under the tag: its manifest and blob agree with each other, but the
+  // blob digest is not the list entry's pinned file hash (layer_sha256 / squashfs_sha256) —
+  // the tag must be refused, before anything is signed. One layer and one base, so both
+  // artifact kinds are covered.
+  const images = readJson(path.join(LIST_DIR, 'method-env-images.json'));
+  for (const e of [images.envs[0], images.bases[0]]) {
+    const file = e.base_id ? 'base.squashfs' : 'layer.squashfs';
+    const pinned = e.base_id ? e.squashfs_sha256 : e.layer_sha256;
+    const w = world({ wrongFile: e.tag });
+    const other = createHash('sha256').update(Buffer.from('different ' + e.tag)).digest('hex');
+    const r = publish(w);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, new RegExp(`pin ${e.oci_ref}:${e.tag}: the ${file} under the tag is sha256:${other}, not the list's pinned sha256:${pinned}`));
+    assert.equal(readLog(w.bin, 'minisign').length, 0);
+    assert.equal(pushes(w).length, 0);
+    assert.equal(tags(w).length, 0);
+  }
+});
+
 test('refuses_list_without_bases', () => {
   const w = world({ noBases: true });
   const r = publish(w);
@@ -407,7 +463,13 @@ test('dry_run_touches_nothing', () => {
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /dry run: nothing is signed or pushed/);
   assert.equal(readLog(w.bin, 'minisign').length, 0);
-  assert.deepEqual(readLog(w.bin, 'oras').map((c) => c.sub).filter((s) => s !== 'resolve' && s !== 'pull'), []);
+  // The dry run may resolve, pull and check pins (a-d), and nothing else: manifest/blob
+  // only as `fetch` (a push of a blob or manifest, or a mis-ordered fetch, fails this).
+  const subs = readLog(w.bin, 'oras')
+    .filter((c) => !(c.sub === 'resolve' || c.sub === 'pull'
+      || ((c.sub === 'manifest' || c.sub === 'blob') && c.argv[1] === 'fetch')))
+    .map((c) => c.sub);
+  assert.deepEqual(subs, []);
   assert.ok(readLog(w.bin, 'oras').every((c) => c.configText === '{}'), 'only anonymous reads');
   assert.equal(registryTag(w, 'v2'), before);
   assert.equal(registryTag(w, 'v2-seq-000002'), null);
@@ -418,7 +480,8 @@ test('a loopback rehearsal: plain HTTP to 127.0.0.1, no token; --keys only there
   // Re-seed the registry under the loopback host.
   const images = readJson(path.join(w.listDir, 'method-env-images.json'));
   for (const e of [...images.bases, ...images.envs]) {
-    seedArtifact(w.bin, e.oci_ref.replace('ghcr.io', '127.0.0.1:5055'), e.tag, { f: Buffer.from('x') }, e.digest);
+    seedArtifact(w.bin, e.oci_ref.replace('ghcr.io', '127.0.0.1:5055'), e.tag,
+      { [e.base_id ? 'base.squashfs' : 'layer.squashfs']: seededFileBytes(e) }, e.digest);
   }
   seedArtifact(w.bin, PACKAGE.replace('ghcr.io', '127.0.0.1:5055'), 'v2', {
     'method-list.json': w.published,

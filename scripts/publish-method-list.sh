@@ -34,7 +34,11 @@
 #      v2-seq-* list that does verify (its sequence and its rows), and v2 must still be at
 #      that digest when it is moved.
 #   d. anonymously resolve every layer and base tag the list names: each must give its
-#      pinned digest.
+#      pinned digest, its manifest must name the pinned squashfs file, that file blob must
+#      be readable anonymously, and — where the list entry pins a file hash — the blob
+#      digest must be that hash (a tag whose file is missing, private, or a different file
+#      than the list pins is refused here, not discovered by a distribution that fails
+#      after the list is signed).
 #   e. SIGN in a scrubbed environment: `env -i PATH HOME minisign -S` with the trusted
 #      comment `txresbench-method-list format=2 sequence=<N>`; the password is asked at
 #      the prompt. GHCR_TOKEN is not read before this step and is never in the signer's
@@ -150,7 +154,18 @@ REF=$(target "$PACKAGE")
 plain=()
 [ -z "$LOOPBACK" ] || plain=(--plain-http)
 # Anonymous oras: the empty registry config, so no Docker login or credential helper is read.
-oras_anon() { local sub=$1; shift; oras "$sub" --registry-config "$EMPTY_CONFIG" ${plain[@]+"${plain[@]}"} "$@"; }
+# `manifest`/`blob` name a SUB-subcommand (`fetch`, `push`); oras (cobra) can swallow that
+# word as the value of a flag it does not know on the parent command, so the sub-subcommand
+# comes first (the order publish-method-env-images.sh's oras_cmd uses).
+oras_anon() {
+  local sub=$1; shift
+  if [ "$sub" = "blob" ] || [ "$sub" = "manifest" ]; then
+    local sub2=$1; shift
+    oras "$sub" "$sub2" --registry-config "$EMPTY_CONFIG" ${plain[@]+"${plain[@]}"} "$@"
+  else
+    oras "$sub" --registry-config "$EMPTY_CONFIG" ${plain[@]+"${plain[@]}"} "$@"
+  fi
+}
 
 # The verifier: --cli, or this checkout's own build. cargo runs IN the checkout so it reads
 # the repository's .cargo/config.toml (its [env] build settings); every argument is absolute.
@@ -302,23 +317,48 @@ if [ -n "$PUBLISHED_SEQ" ]; then
     || die "the list does not keep the published list's rows and facts"
 fi
 
-# ── d. every pinned layer and base resolves to its digest ──────────────────────
+# ── d. every pinned layer and base resolves and its file blob is the pinned file ──────────
 echo "== d. pins"
 python3 - "$WORK/list-dir/method-env-images.json" > "$WORK/pins.txt" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1]))
 for e in doc.get("bases") or []:
-    print(e["oci_ref"], e["tag"], e["digest"])
+    print(e["oci_ref"], e["tag"], e["digest"], "base.squashfs", e.get("squashfs_sha256") or "")
 for e in doc["envs"]:
-    print(e["oci_ref"], e["tag"], e["digest"])
+    print(e["oci_ref"], e["tag"], e["digest"], "layer.squashfs", e.get("layer_sha256") or "")
 PY
 n_pins=0
-while read -r oci_ref tag digest; do
+while read -r oci_ref tag digest file_name file_hash; do
   got=$(oras_anon resolve "$(target "$oci_ref"):$tag" 2>/dev/null || true)
   [ "$got" = "$digest" ] || die "pin $oci_ref:$tag resolves to '${got:-nothing}', the list pins $digest: publish the layer or base first"
+  # A tag resolving answers only for the MANIFEST. The runtime extracts the squashfs FILE
+  # the manifest names (title `org.opencontainers.image.title`, the file's blob digest), so
+  # check that file too, anonymously like the resolve: a manifest whose file blob is missing
+  # or private must stop the run here, before anything is signed. Fetched by the resolved
+  # digest, so the very bytes the resolve pinned are the ones examined (never a later tag).
+  manifest=$(oras_anon manifest fetch "$(target "$oci_ref")@$got" 2>"$WORK/manifest.err") \
+    || die "pin $oci_ref:$tag: the manifest cannot be read: $(tr '\n' ' ' < "$WORK/manifest.err")"
+  blob_digest=$(printf '%s' "$manifest" | python3 -c '
+import json, sys
+name = sys.argv[1]
+doc = json.load(sys.stdin)
+for layer in doc.get("layers") or []:
+    title = (layer.get("annotations") or {}).get("org.opencontainers.image.title", "")
+    if title == name:
+        print(layer.get("digest", ""))
+        break
+' "$file_name") || true
+  [ -n "$blob_digest" ] \
+    || die "pin $oci_ref:$tag: its manifest names no $file_name file: publish the layer or base again"
+  oras_anon blob fetch --descriptor "$(target "$oci_ref")@$blob_digest" >/dev/null 2>"$WORK/blob.err" \
+    || die "pin $oci_ref:$tag: the file blob $blob_digest cannot be read: publish the layer or base again"
+  if [ -n "$file_hash" ]; then
+    [ "$blob_digest" = "sha256:$file_hash" ] \
+      || die "pin $oci_ref:$tag: the $file_name under the tag is $blob_digest, not the list's pinned sha256:$file_hash: publish the layer or base again"
+  fi
   n_pins=$((n_pins + 1))
 done < "$WORK/pins.txt"
-echo "$n_pins pins resolve to their digests"
+echo "$n_pins pins resolve and their file blobs are the pinned files"
 
 COMMENT="txresbench-method-list format=$FORMAT_VERSION sequence=$LOCAL_SEQ"
 if [ "$DRY_RUN" = 1 ]; then

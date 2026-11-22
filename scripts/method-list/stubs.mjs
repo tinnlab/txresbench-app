@@ -6,6 +6,10 @@
 //              logged to <bin>/oras.log with its arguments, working dir, the content and
 //              mode of its --registry-config file, and whether GHCR_TOKEN was in its
 //              environment. <bin>/behavior.json changes what it does (see below).
+//              An artifact's OCI manifest is stored beside its files (the shape the
+//              publishers push), so `manifest fetch` serves it and `blob fetch
+//              --descriptor` checks a blob's existence by its sha256 (the publisher's
+//              step-d pin check).
 //   minisign   -S writes a minisign-SHAPED signature (key id E7620F1842B4E81F, the sha256
 //              of the file and of the trusted comment, no real ed25519); -V checks one
 //              against the key id of -P. Its environment is logged to <bin>/minisign.log (it
@@ -32,6 +36,10 @@ export const STUB_KEY = {
   key_id: 'E7620F1842B4E81F',
   public_key: 'RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3',
 };
+
+// The OCI artifact types the env-image publishers pin (scripts/generate-method-env-images.py).
+const LAYER_ARTIFACT_TYPE = 'application/vnd.txr.method-env.layer.v1';
+const BASE_ARTIFACT_TYPE = 'application/vnd.txr.method-env.base.v1';
 
 const COMMON = String.raw`
 import crypto from 'node:crypto';
@@ -65,15 +73,17 @@ const REG = path.join(BIN, '..', 'registry');
 const behavior = fs.existsSync(path.join(BIN, 'behavior.json')) ? JSON.parse(fs.readFileSync(path.join(BIN, 'behavior.json'), 'utf8')) : {};
 const argv = process.argv.slice(2);
 const sub = argv[0];
-const pos = []; const ann = []; let config = null; let plain = false; let out = null; let type = null;
+const pos = []; const ann = []; let config = null; let plain = false; let out = null; let type = null; let descriptor = false;
+let firstPos = -1;
 for (let i = 1; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--registry-config') config = argv[++i];
   else if (a === '--plain-http') plain = true;
   else if (a === '--annotation') ann.push(argv[++i]);
   else if (a === '--artifact-type') type = argv[++i];
+  else if (a === '--descriptor') descriptor = true;
   else if (a === '-o') out = argv[++i];
-  else pos.push(a);
+  else { if (firstPos < 0) firstPos = i; pos.push(a); }
 }
 let configText = null; let configMode = null;
 if (config && fs.existsSync(config)) { configText = fs.readFileSync(config, 'utf8'); configMode = (fs.statSync(config).mode & 0o777).toString(8); }
@@ -93,6 +103,13 @@ const resolve = (ref) => {
   return fs.existsSync(tagFile(r.repo, r.tag)) ? fs.readFileSync(tagFile(r.repo, r.tag), 'utf8').trim() : null;
 };
 const fail = (m) => { process.stderr.write('Error: ' + m + '\n'); process.exit(1); };
+// "manifest"/"blob" take a SUB-subcommand ("fetch"): real oras (cobra) can swallow it as the
+// value of a flag it does not know on the parent command, so the publisher must put the
+// sub-subcommand FIRST. Refuse the bad order (a flag before "fetch") here so a publisher
+// regression is caught by the test instead of silently accepted.
+if ((sub === 'manifest' || sub === 'blob') && firstPos > 1 && (pos[0] === 'fetch' || pos[0] === 'push')) {
+  fail('stub oras: ' + sub + ' ' + pos[0] + ' must come before any flag (a flag before "' + pos[0] + '" can swallow it)');
+}
 const tagged = () => fs.existsSync(path.join(BIN, 'oras.log')) && fs.readFileSync(path.join(BIN, 'oras.log'), 'utf8').split('\n').some((l) => l.includes('"sub":"tag"'));
 // privateUntilPublic: the method list package answers anonymous reads with nothing.
 const anonymous = !configText || configText === '{}';
@@ -101,6 +118,34 @@ if (behavior.privateUntilPublic && anonymous && (sub === 'resolve' || sub === 'p
 }
 const pushedFile = path.join(BIN, 'pushed.txt');
 const pushed = () => fs.existsSync(pushedFile) ? fs.readFileSync(pushedFile, 'utf8').split('\n').filter(Boolean) : [];
+// The OCI artifact-manifest shape the real publishers push (generate-method-env-images.py
+// pins it): one layer per file, titled with the file name (the name oras pull extracts),
+// the OCI empty JSON as the config. The manifest digests are the real sha256 of the stored
+// bytes, so the manifest-fetch and blob-fetch subcommands model a registry that verifies
+// blobs against their digest on upload.
+const OCI_MANIFEST_MEDIA = 'application/vnd.oci.image.manifest.v1+json';
+const LAYER_MEDIA = 'application/vnd.txr.method-env.layer.v1';
+const BASE_MEDIA = 'application/vnd.txr.method-env.base.v1';
+const OCI_EMPTY_CONFIG = {
+  mediaType: 'application/vnd.oci.empty.v1+json',
+  digest: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+  size: 2,
+};
+const mediaForFile = (name) => name === 'base.squashfs' ? BASE_MEDIA : name.endsWith('.squashfs') ? LAYER_MEDIA : 'application/octet-stream';
+const ociManifest = (artifactType, layers, annotations = {}) => ({
+  schemaVersion: 2, mediaType: OCI_MANIFEST_MEDIA, artifactType,
+  config: OCI_EMPTY_CONFIG, layers, annotations,
+});
+// The OCI manifest of one artifact holding files (name, bytes, media), digesting every
+// file from its stored bytes (a registry verifies a blob against its digest on upload).
+const writeOciManifest = (dir, artifactType, files, annotations = {}) =>
+  fs.writeFileSync(path.join(dir, 'manifest.json'),
+    JSON.stringify(ociManifest(artifactType, files.map((f) => ({
+      mediaType: f.media || mediaForFile(f.name),
+      digest: 'sha256:' + sha(f.bytes).toString('hex'),
+      size: f.bytes.length,
+      annotations: { 'org.opencontainers.image.title': f.name },
+    })), annotations)));
 if (sub === 'resolve') {
   if ((behavior.resolveError || []).includes(split(pos[0]).tag)) fail('GET ' + pos[0] + ': unexpected status code 500');
   const d = resolve(pos[0]); if (!d) fail('not found: ' + pos[0]); process.stdout.write(d + '\n');
@@ -126,7 +171,9 @@ if (sub === 'resolve') {
   const dir = path.join(repoDir(r.repo), 'blobs', digest.replace(':', '_'));
   fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
   for (const f of files) fs.copyFileSync(path.join(process.cwd(), f.name), path.join(dir, 'files', f.name));
-  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ artifactType: type, annotations: ann, files: desc }));
+  writeOciManifest(dir, type,
+    files.map((f) => ({ name: f.name, bytes: fs.readFileSync(path.join(process.cwd(), f.name)), media: f.media })),
+    Object.fromEntries(ann.map((a) => { const i = a.indexOf('='); return [a.slice(0, i), a.slice(i + 1)]; })));
   fs.mkdirSync(path.dirname(tagFile(r.repo, r.tag)), { recursive: true });
   fs.writeFileSync(tagFile(r.repo, r.tag), digest);
   fs.appendFileSync(pushedFile, digest + '\n');
@@ -147,6 +194,36 @@ if (sub === 'resolve') {
   const d = resolve(pos[0]); if (!d) fail('not found: ' + pos[0]);
   const r = split(pos[0]);
   for (const t of pos.slice(1)) { fs.mkdirSync(path.dirname(tagFile(r.repo, t)), { recursive: true }); fs.writeFileSync(tagFile(r.repo, t), d); }
+} else if (sub === 'manifest' && pos[0] === 'fetch') {
+  const ref = pos[1];
+  const d = resolve(ref); if (!d) fail('not found: ' + ref);
+  const manifest = path.join(repoDir(split(ref).repo), 'blobs', d.replace(':', '_'), 'manifest.json');
+  if (!fs.existsSync(manifest)) fail('not found: ' + ref);
+  process.stdout.write(fs.readFileSync(manifest, 'utf8'));
+} else if (sub === 'blob' && pos[0] === 'fetch') {
+  const ref = pos[1];
+  const r = split(ref);
+  if (!r.digest) fail('invalid reference: ' + ref);
+  const hex = r.digest.replace(/^sha256:/, '');
+  let found = null;
+  const blobs = path.join(repoDir(r.repo), 'blobs');
+  if (fs.existsSync(blobs)) {
+    for (const blob of fs.readdirSync(blobs)) {
+      const files = path.join(blobs, blob, 'files');
+      if (!fs.existsSync(files)) continue;
+      for (const f of fs.readdirSync(files)) {
+        const bytes = fs.readFileSync(path.join(files, f));
+        if (sha(bytes).toString('hex') === hex) { found = { name: f, bytes }; break; }
+      }
+      if (found) break;
+    }
+  }
+  if (!found) fail('not found: ' + ref);
+  if (descriptor) {
+    process.stdout.write(JSON.stringify({ mediaType: 'application/octet-stream', digest: 'sha256:' + hex, size: found.bytes.length }) + '\n');
+  } else {
+    fail('stub oras: blob fetch needs --descriptor (the existence check)');
+  }
 } else {
   fail('stub oras: unsupported ' + sub);
 }
@@ -279,12 +356,39 @@ export function stubSignature(bytes, comment, keyIdHex = STUB_KEY.key_id) {
   return `untrusted comment: stub\n${line2}\ntrusted comment: ${comment}\n${line4}\n`;
 }
 
-/** Put an artifact holding `files` ({name: Buffer}) at `<ref>:<tag>` in the stub registry. */
-export function seedArtifact(bin, repo, tag, files, digest) {
+/** Put an artifact holding `files` ({name: Buffer}) at `<ref>:<tag>` in the stub registry.
+ * The OCI artifact manifest is written alongside (the shape the publishers push; the
+ * digest of each layer is the sha256 of the stored bytes), so `oras manifest fetch`
+ * answers for it like a real registry. `artifactType`/`annotations` are optional; the
+ * artifact type is derived from the file names when not given. */
+export function seedArtifact(bin, repo, tag, files, digest, { artifactType = null, annotations = {} } = {}) {
   const dir = path.join(bin, '..', 'registry', repo.replace(/[/:]/g, '_'));
   const blob = path.join(dir, 'blobs', digest.replace(':', '_'), 'files');
   fs.mkdirSync(blob, { recursive: true });
   for (const [name, bytes] of Object.entries(files)) fs.writeFileSync(path.join(blob, name), bytes);
+  const names = Object.keys(files);
+  const type = artifactType || (names.includes('base.squashfs') ? BASE_ARTIFACT_TYPE
+    : names.some((n) => n.endsWith('.squashfs')) ? LAYER_ARTIFACT_TYPE
+    : 'application/vnd.txresbench.method-list.v1');
+  fs.writeFileSync(path.join(dir, 'blobs', digest.replace(':', '_'), 'manifest.json'),
+    JSON.stringify({
+      schemaVersion: 2,
+      mediaType: 'application/vnd.oci.image.manifest.v1+json',
+      artifactType: type,
+      config: {
+        mediaType: 'application/vnd.oci.empty.v1+json',
+        digest: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+        size: 2,
+      },
+      layers: Object.entries(files).map(([name, bytes]) => ({
+        mediaType: name === 'base.squashfs' ? BASE_ARTIFACT_TYPE
+          : name.endsWith('.squashfs') ? LAYER_ARTIFACT_TYPE : 'application/octet-stream',
+        digest: 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex'),
+        size: bytes.length,
+        annotations: { 'org.opencontainers.image.title': name },
+      })),
+      annotations,
+    }));
   fs.mkdirSync(path.join(dir, 'tags'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'tags', tag), digest);
 }
