@@ -13,8 +13,11 @@
  * structured facts), board copy comes out (DEC-5 — the server sends
  * structured fields; the display text is the consumer's). A row's reason
  * templates read the STRUCTURED fields only (`reasons[].code`,
- * `coverage`, `min_draws`, `missing_markers[].display_name`), never
- * `reasons[].params` (its key set is unpinned — DEC-5).
+ * `coverage`, `min_draws`, `missing_markers[].display_name`), plus — for
+ * the three study-answer codes (step2-filters: `DISEASE_NOT_MATCHED`,
+ * `TREATMENT_NOT_MATCHED`, `OUTCOME_NOT_MATCHED`) — the per-code params
+ * the server's `filter_reasons` pins (`made_for` / `predicts`); the other
+ * codes keep reading no params (their key set stays unpinned — DEC-5).
  *
  * Never blank: every documented code — and any unexpected code a future
  * provider or model-list emits — maps to a non-empty constant line (the
@@ -37,7 +40,7 @@ import type { TxrMethodNeeds, TxrMethodRank, TxrRunStatus } from '../types'
 /**
  * The reason-code vocabulary the formatter renders.
  *
- * The provider's own 14 codes (PROV-MC-5, `ReasonCode` from the generated
+ * The provider's own 17 codes (PROV-MC-5, `ReasonCode` from the generated
  * api-client — the closed set `method-catalogue` may emit) plus the two
  * model-list codes the grown branches render (PROV-MS-9
  * `MODEL_REQUIREMENTS_UNRECORDED`, PROV-PC-8 `ASSET_NOT_AVAILABLE` — the
@@ -48,6 +51,38 @@ export type TxrReasonCode =
   | ReasonCode
   | 'MODEL_REQUIREMENTS_UNRECORDED'
   | 'ASSET_NOT_AVAILABLE'
+
+/** The per-code params a reason carries (`params` keys are per-code; the
+ *  study-answer codes' ones are pinned by the server — see
+ *  `method_catalogue/eligibility.rs` — so this surface names the fields the
+ *  formatter reads). */
+export interface TxrReasonParams {
+  /** DISEASE_NOT_MATCHED / TREATMENT_NOT_MATCHED: what the method is made for
+   *  (the method's disease groups joined with ", ", a scope name, or the
+   *  treatment-class ids joined with ", "). */
+  made_for?: string
+  /** OUTCOME_NOT_MATCHED: the method's group (the `MethodGroup` wire code). */
+  predicts?: string
+  /** The answered ids (not rendered; the sentence speaks the method's side). */
+  answer?: unknown
+}
+
+/** The reasons' shape the formatter reads (code + the study-answer params). */
+export interface TxrReasonFacts {
+  code: TxrReasonCode
+  params?: TxrReasonParams | undefined
+}
+
+/**
+ * The vocabulary label table a reason line may read (step2-filters): the
+ * treatment-class display labels from `filter_options.treatment_classes`.
+ * When absent (or before it loads) the line falls back to the class id
+ * itself — the ids are plain, readable words, so the fallback is never a
+ * guess.
+ */
+export interface TxrReasonLabels {
+  treatmentClasses?: ReadonlyArray<{ id: string; label: string }>
+}
 
 /** The coverage facts the reason line reads (the wire `coverage` shape). */
 export interface TxrCoverageFacts {
@@ -184,11 +219,12 @@ export const NO_PUBLISHED_ENVIRONMENT_REASON = 'no published environment availab
  */
 export function formatReasonLine(
   status: TxrRunStatus,
-  reasons: ReadonlyArray<{ code: TxrReasonCode }>,
+  reasons: ReadonlyArray<TxrReasonFacts>,
   coverage: TxrCoverageFacts,
   minDraws: TxrMinDrawsFacts,
   missingMarkers: ReadonlyArray<{ display_name?: string }>,
   missingGroups: ReadonlyArray<{ display_name?: string }> = [],
+  labels: TxrReasonLabels = {},
 ): string {
   const code = reasons[0]?.code
   if (code === undefined) return 'cannot run with this file'
@@ -229,6 +265,12 @@ export function formatReasonLine(
       return "its requirements weren't recorded"
     case 'ASSET_NOT_AVAILABLE':
       return "the model file isn't available"
+    case 'DISEASE_NOT_MATCHED':
+      return diseaseNotMatchedLine(reasons[0]?.params)
+    case 'TREATMENT_NOT_MATCHED':
+      return treatmentNotMatchedLine(reasons[0]?.params, labels)
+    case 'OUTCOME_NOT_MATCHED':
+      return outcomeNotMatchedLine(reasons[0]?.params)
   }
   // Exhaustive over TxrReasonCode (TEST-UL-13: a code added to the
   // provider's union fails THIS line until a rendering branch covers it).
@@ -236,6 +278,85 @@ export function formatReasonLine(
   // fallback below, never a blank line.
   const _unreachable: never = code
   return 'cannot run with this file'
+}
+
+/**
+ * The plain sentence-join of the board ("a and b", "a, b and c" — no
+ * Oxford comma, the `joinPhrases` rule of the panel sentence).
+ */
+function joinPlain(parts: ReadonlyArray<string>): string {
+  if (parts.length <= 1) return parts.join('')
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
+/**
+ * The scope names a method's disease fact may use when it is not
+ * group-scoped (the server sends them verbatim as `made_for`); the sentence
+ * spells them plainly.
+ */
+const DISEASE_SCOPE_NAMES: Readonly<Record<string, string>> = {
+  'any-solid-tumour': 'solid tumours',
+  'any-cancer': 'cancers',
+}
+
+/** DISEASE_NOT_MATCHED — "Made for melanoma, not your disease"; the coarse
+ *  scopes read as the plain words ("solid tumours", "cancers"). A group
+ *  scope arrives as a ", " list ("lung cancer, breast cancer") and is
+ *  joined the same plain way as the treatment classes (5a3: the old line
+ *  rendered the comma list verbatim, never reading after "Made for"). */
+export function diseaseNotMatchedLine(params: TxrReasonParams | undefined): string {
+  const madeFor = params?.made_for
+  if (typeof madeFor === 'string' && madeFor.length > 0) {
+    const named = madeFor.split(', ').map(part => DISEASE_SCOPE_NAMES[part] ?? part)
+    return `Made for ${joinPlain(named)}, not your disease`
+  }
+  return 'Made for another disease'
+}
+
+/** TREATMENT_NOT_MATCHED — "Made for chemotherapy, not your treatments"
+ *  (several classes: "Made for chemotherapy and radiotherapy, not your
+ *  treatments"). The classes come as the ids joined with ", "; the
+ *  vocabulary's display labels are used when available, the id is the
+ *  fallback. */
+export function treatmentNotMatchedLine(
+  params: TxrReasonParams | undefined,
+  labels: TxrReasonLabels = {},
+): string {
+  const madeFor = params?.made_for
+  const classes =
+    typeof madeFor === 'string' && madeFor.length > 0
+      ? madeFor.split(', ')
+      : []
+  if (classes.length === 0) return 'Made for other treatments'
+  const named = classes.map(id => {
+    const label = labels.treatmentClasses?.find(treatment => treatment.id === id)?.label
+    return typeof label === 'string' && label.length > 0 ? label : id
+  })
+  return `Made for ${joinPlain(named)}, not your treatments`
+}
+
+/**
+ * The method group a method predicts in → the phrase AFTER "Predicts" in
+ * the reason sentence (5a3: the plain words, read directly — "Predicts a
+ * yes or no response", "Predicts the chance of response", "Predicts the
+ * risk by a set day", "Predicts risk over time"). The wire spelling is the
+ * fallback for a group the table does not know.
+ */
+const OUTCOME_GROUP_PHRASES: Readonly<Record<string, string>> = {
+  'response-call': 'a yes or no response',
+  'response-probability': 'the chance of response',
+  'static-risk': 'the risk by a set day',
+  'dynamic-risk': 'risk over time',
+}
+
+/** OUTCOME_NOT_MATCHED — "Predicts risk over time, not what you chose". */
+export function outcomeNotMatchedLine(params: TxrReasonParams | undefined): string {
+  const predicts = params?.predicts
+  const phrase =
+    typeof predicts === 'string' && predicts.length > 0
+      ? (OUTCOME_GROUP_PHRASES[predicts] ?? predicts)
+      : 'a different outcome'
+  return `Predicts ${phrase}, not what you chose`
 }
 
 /**
@@ -251,15 +372,16 @@ export function formatReasonLine(
  */
 export function formatReasonLines(
   status: TxrRunStatus,
-  reasons: ReadonlyArray<{ code: TxrReasonCode }>,
+  reasons: ReadonlyArray<TxrReasonFacts>,
   coverage: TxrCoverageFacts,
   minDraws: TxrMinDrawsFacts,
   missingMarkers: ReadonlyArray<{ display_name?: string }>,
   missingGroups: ReadonlyArray<{ display_name?: string }> = [],
+  labels: TxrReasonLabels = {},
 ): string[] {
   if (reasons.length === 0) return [formatCoverage(coverage)]
   return reasons.map(r =>
-    formatReasonLine(status, [r], coverage, minDraws, missingMarkers, missingGroups),
+    formatReasonLine(status, [r], coverage, minDraws, missingMarkers, missingGroups, labels),
   )
 }
 

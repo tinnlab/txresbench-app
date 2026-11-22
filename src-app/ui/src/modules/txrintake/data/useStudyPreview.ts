@@ -24,6 +24,15 @@
  * - No `groups` yet (the marker-list fetch is still in flight, or failed):
  *   no request and `fit: null` — the panel's count slot renders the
  *   loading ellipsis; the B screen's checkboxes carry their own state.
+ * - The filter-options vocabulary (step2-filters): the disease/treatment
+ *   facts of the request are valid only against it, so the hook reads it
+ *   (`useFilterOptions`, the same shared cache) and the request body's
+ *   disease/treatment facts are the answers FILTERED by the vocabulary —
+ *   an id it does not know (a stale persisted one) is omitted before it
+ *   can 422 the server, and while the vocabulary is not loaded those
+ *   fields are omitted (the outcome still rides); when the vocabulary
+ *   lands the request is re-issued. The excluded-list reason lines read
+ *   the vocabulary's treatment-class labels too.
  * - No answer AT ALL (R2-1): no request either — the "N of M methods fit"
  *   count before any answer was reported as a defect (the old body was the
  *   all-groups-false + default schedule the user never composed); the page
@@ -37,6 +46,7 @@ import { useMethodListRevision } from '@/lib/txr-method-list/revision'
 import { ApiClient } from '@/api-client'
 import type { EligibilityResponse, MarkerGroup, MethodEligibility } from '@/api-client/types'
 import { formatReasonLine } from '@/modules/txrlist/lib/format'
+import { useFilterOptions } from './useFilterOptions'
 import {
   buildStudyPreviewRequest,
   excludedMethods,
@@ -50,9 +60,17 @@ import type { StudyAnswers } from '../types'
 
 export const STUDY_PREVIEW_DEBOUNCE_MS = 200
 
-/** The CONS-UI-INTAKE-9 surface, bound to the real txrlist formatters. */
-const PREVIEW_FORMATTERS: TxrPreviewFormatters = {
-  formatReasonLine,
+/** The CONS-UI-INTAKE-9 surface, bound to the real txrlist formatters with
+ *  the loaded vocabulary's treatment-class labels (5a3): the reason lines
+ *  read the table the vocabulary provides. */
+function previewFormatters(vocabulary: ReturnType<typeof useFilterOptions>['vocabulary']): TxrPreviewFormatters {
+  return {
+    formatReasonLine,
+    labels:
+      vocabulary === null
+        ? undefined
+        : { treatmentClasses: vocabulary.treatment_classes },
+  }
 }
 
 export interface UseStudyPreviewResult {
@@ -86,12 +104,13 @@ const EMPTY_STATE: StudyPreviewState = {
   error: null,
 }
 
-/** The panel's derived view of one eligibility response. */
-function derive(response: EligibilityResponse): StudyPreviewState {
+/** The panel's derived view of one eligibility response (with the label
+ *  table the reason lines read). */
+function derive(response: EligibilityResponse, vocabulary: ReturnType<typeof useFilterOptions>['vocabulary']): StudyPreviewState {
   return {
     fit: fitCounts(response),
     methods: new Map(response.methods.map(method => [method.id, method])),
-    excluded: excludedMethods(response, PREVIEW_FORMATTERS),
+    excluded: excludedMethods(response, previewFormatters(vocabulary)),
     loading: false,
     error: null,
   }
@@ -103,7 +122,7 @@ function requestKey(answers: StudyAnswers, groups: MarkerGroup[] | null): string
   return JSON.stringify({
     answers: [
       answers.disease,
-      answers.treatment,
+      answers.treatments,
       answers.outcome,
       answers.markerGroups,
       answers.beforeTreatment,
@@ -126,9 +145,15 @@ export function useStudyPreview(
   // The method list's revision is part of the key: a new list asks again (the
   // verdicts are the list's), the old entries are simply never read.
   const revision = useMethodListRevision()
+  // The filter-options vocabulary (5a3): the request body's disease and
+  // treatment facts must be the answers against the CURRENT vocabulary —
+  // while it is not loaded they are omitted (never a stale id), and when it
+  // lands the request is re-issued with the known answers. The reason lines
+  // also read the vocabulary's treatment-class labels.
+  const { vocabulary } = useFilterOptions()
   const key = useMemo(
-    () => `${requestKey(answers, groups)}#${revision}`,
-    [answers, groups, revision],
+    () => `${requestKey(answers, groups)}#${revision}#${vocabulary === null ? 'vocab-not-loaded' : 'vocab-loaded'}`,
+    [answers, groups, revision, vocabulary],
   )
   const [state, setState] = useState<StudyPreviewState>(EMPTY_STATE)
   const [refresh, setRefresh] = useState(0)
@@ -152,11 +177,11 @@ export function useStudyPreview(
     setState(prev => ({ ...prev, loading: true, error: null }))
     const timer = setTimeout(() => {
       void ApiClient.MethodCatalogue.eligibility({
-        preview: buildStudyPreviewRequest(answers, groups),
+        preview: buildStudyPreviewRequest(answers, groups, vocabulary),
       })
         .then((response: EligibilityResponse) => {
           if (epoch.current !== requestEpoch) return
-          const derived = derive(response)
+          const derived = derive(response, vocabulary)
           cache.current.set(key, derived)
           setState(derived)
         })

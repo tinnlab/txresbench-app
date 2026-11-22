@@ -237,6 +237,162 @@ describe('formatReasonLine', () => {
     ).toBe('needs LDH, not in your file')
   })
 
+  it('renders DISEASE_NOT_MATCHED plainly, naming what the method was made for (step2-filters)', () => {
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'DISEASE_NOT_MATCHED', params: { made_for: 'melanoma', answer: 'colorectal cancer' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for melanoma, not your disease')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'DISEASE_NOT_MATCHED', params: { made_for: 'any-solid-tumour', answer: 'breast cancer' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for solid tumours, not your disease')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'DISEASE_NOT_MATCHED', params: { made_for: 'any-cancer', answer: 'COVID-19' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for cancers, not your disease')
+  })
+
+  it('a group-scope made_for is a ", " list — joined the same plain way as treatments (5a3)', () => {
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'DISEASE_NOT_MATCHED', params: { made_for: 'lung cancer, breast cancer', answer: 'colorectal cancer' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for lung cancer and breast cancer, not your disease')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'DISEASE_NOT_MATCHED', params: { made_for: 'melanoma, lung cancer, breast cancer', answer: 'colorectal cancer' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for melanoma, lung cancer and breast cancer, not your disease')
+  })
+
+  it('the empty-param fallback is the plain phrase (5a3: no dangling "not your disease")', () => {
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'DISEASE_NOT_MATCHED' }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for another disease')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'TREATMENT_NOT_MATCHED' }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for other treatments')
+  })
+
+  it('renders TREATMENT_NOT_MATCHED plainly, joining several classes, using the vocabulary labels when available', () => {
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'TREATMENT_NOT_MATCHED', params: { made_for: 'chemotherapy', answer: 'radiotherapy' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for chemotherapy, not your treatments')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'TREATMENT_NOT_MATCHED', params: { made_for: 'chemotherapy, radiotherapy', answer: 'targeted therapy' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Made for chemotherapy and radiotherapy, not your treatments')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'TREATMENT_NOT_MATCHED', params: { made_for: 'immune checkpoint inhibitor, chemotherapy, radiotherapy', answer: 'targeted therapy' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+        [],
+        {
+          treatmentClasses: [
+            { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+            { id: 'chemotherapy', label: 'Chemotherapy' },
+            { id: 'radiotherapy', label: 'Radiotherapy' },
+          ],
+        },
+      ),
+    ).toBe('Made for Immune checkpoint inhibitor, Chemotherapy and Radiotherapy, not your treatments')
+  })
+
+  it('renders OUTCOME_NOT_MATCHED with the plain words after "Predicts" (5a3)', () => {
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'OUTCOME_NOT_MATCHED', params: { predicts: 'dynamic-risk', answer: 'response-call' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Predicts risk over time, not what you chose')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'OUTCOME_NOT_MATCHED', params: { predicts: 'static-risk', answer: 'dynamic-risk' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Predicts the risk by a set day, not what you chose')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'OUTCOME_NOT_MATCHED', params: { predicts: 'response-call', answer: 'static-risk' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Predicts a yes or no response, not what you chose')
+    expect(
+      formatReasonLine(
+        'cannot',
+        [{ code: 'OUTCOME_NOT_MATCHED', params: { predicts: 'response-probability', answer: 'static-risk' } }],
+        COVERAGE(0, 151),
+        minDraws,
+        [],
+      ),
+    ).toBe('Predicts the chance of response, not what you chose')
+  })
+
+  it('the study-answer lines never blank when the params are absent (a caller without them)', () => {
+    for (const code of ['DISEASE_NOT_MATCHED', 'TREATMENT_NOT_MATCHED', 'OUTCOME_NOT_MATCHED'] as TxrReasonCode[]) {
+      const line = formatReasonLine('cannot', SOME(code), COVERAGE(0, 151), minDraws, [])
+      expect(line.trim().length, code).toBeGreaterThan(0)
+    }
+  })
+
   it('falls back to the constant for an unknown code and for an empty reasons list', () => {
     const reasons = [{ code: 'SOME_FUTURE_CODE' as TxrReasonCode }]
     expect(formatReasonLine('cannot', reasons, COVERAGE(151, 151), minDraws, MISSING_LDH)).toBe(
@@ -261,6 +417,9 @@ describe('formatReasonLine', () => {
       'RESPONSE_LABEL_MISSING',
       'SURVIVAL_OUTCOME_MISSING',
       'MARKER_COUNT_UNMET',
+      'DISEASE_NOT_MATCHED',
+      'TREATMENT_NOT_MATCHED',
+      'OUTCOME_NOT_MATCHED',
       'MODEL_REQUIREMENTS_UNRECORDED',
       'ASSET_NOT_AVAILABLE',
     ]

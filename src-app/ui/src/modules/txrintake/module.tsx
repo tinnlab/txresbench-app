@@ -11,6 +11,10 @@ import '@/core/actions/builtin/stepActions'
 // Side-effect import: registers the day choices' actions (`flow.setLastDrawDay`
 // on the questions step, `runSettings.setDay` on step 4's settings).
 import '@/core/actions/builtin/dayActions'
+// Side-effect import: registers the study-answers action
+// (`intake.setStudyAnswers`, step2-filters) — the disease / treatment /
+// outcome controls and the AI drive the same store mutation through it.
+import '@/core/actions/builtin/intakeActions'
 
 /**
  * txrintake — the intake flow of TxResBench: screen A (Start), B (Your

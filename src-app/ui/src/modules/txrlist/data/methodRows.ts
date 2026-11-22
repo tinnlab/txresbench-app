@@ -20,6 +20,9 @@
  *   from the STRUCTURED fields only — `reasons[].code`, `coverage`,
  *   `min_draws`, `missing_markers[].display_name`,
  *   `missing_groups[].display_name` — never `reasons[].params` (DEC-5);
+ *   the study-answer codes' pinned params are the exception
+ *   (step2-filters), and their display names read the vocabulary's
+ *   treatment-class `labels` the caller threads (missing → the id).
  * - `estimate` comes from the eligibility verdict's `estimated_seconds` +
  *   `estimate_quality` (DEC-6: one estimate call serves the whole list); a
  *   card with no verdict has no estimate;
@@ -36,7 +39,12 @@
  */
 import type { EligibilityResponse, EligibilityStatus, MethodSummary } from '@/api-client/types'
 import type { TxrMethodCard, TxrMethodNeeds } from '../types'
-import { formatCoverage, formatMethodCoverage, formatReasonLines } from '../lib/format'
+import {
+  formatCoverage,
+  formatMethodCoverage,
+  formatReasonLines,
+  type TxrReasonLabels,
+} from '../lib/format'
 
 /** The provider's three verdict codes → the three board status codes. */
 function toRunStatus(status: EligibilityStatus): TxrMethodCard['run']['status'] {
@@ -173,6 +181,7 @@ function unavailableCard(summary: MethodSummary): TxrMethodCard {
 export function buildMethodCards(
   methods: MethodSummary[],
   eligibility: EligibilityResponse,
+  labels: TxrReasonLabels = {},
 ): TxrMethodCard[] {
   const verdictById = new Map(eligibility.methods.map(verdict => [verdict.id, verdict]))
   return methods.map(summary => {
@@ -184,6 +193,9 @@ export function buildMethodCards(
     // env fact first, the file's data reasons beside it — so an unrunnable
     // row reads "no published environment available · needs LDH, not in
     // your file" instead of hiding the fixable fact behind the first one.
+    // The vocabulary's treatment-class labels ride (5a3): a reason's
+    // `TREATMENT_NOT_MATCHED` "made_for" ids are the classes' ids; the row
+    // renders the labels the vocabulary names them with.
     const reasonLines =
       verdict.reasons.length > 0
         ? formatReasonLines(
@@ -193,6 +205,7 @@ export function buildMethodCards(
             verdict.min_draws,
             verdict.missing_markers,
             verdict.missing_groups,
+            labels,
           )
         : [formatCoverage(verdict.coverage)]
     const reasonLine = reasonLines[0] ?? 'cannot run with this file'

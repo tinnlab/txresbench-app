@@ -75,8 +75,8 @@ function makeSnapshot(overrides: Partial<IntakeSnapshot> = {}): IntakeSnapshot {
     intent: 'train',
     mode: 'study',
     study: {
-      disease: 'colorectal',
-      treatment: null,
+      disease: 'colorectal cancer',
+      treatments: null,
       outcome: 'progression-by-day',
       markerGroups: null,
       beforeTreatment: null,

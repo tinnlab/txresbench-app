@@ -13,11 +13,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   BEFORE_TREATMENT_OPTIONS,
-  DISEASE_OPTIONS,
   DRAWS_OPTIONS,
   OUTCOME_OPTIONS,
   PREVIEW_REASON_FALLBACK,
-  TREATMENT_OPTIONS,
   fitHeading,
   groupNumber,
   leftOutHeading,
@@ -27,33 +25,6 @@ import {
 } from './format'
 
 describe('option labels (TEST-INT-13)', () => {
-  it('disease options are the board text verbatim', () => {
-    expect(DISEASE_OPTIONS.map(o => o.label)).toEqual([
-      'Colorectal cancer',
-      'Lung cancer',
-      'Breast cancer',
-      'Prostate cancer',
-      'Other or not listed',
-    ])
-    expect(DISEASE_OPTIONS.map(o => o.value)).toEqual([
-      'colorectal',
-      'lung',
-      'breast',
-      'prostate',
-      'other',
-    ])
-  })
-
-  it('treatment options are the board text verbatim', () => {
-    expect(TREATMENT_OPTIONS.map(o => o.label)).toEqual([
-      'Immunotherapy',
-      'Chemotherapy',
-      'Targeted therapy',
-      'Radiotherapy',
-      'Other or mixed',
-    ])
-  })
-
   it('outcome pills are the board text verbatim', () => {
     expect(OUTCOME_OPTIONS.map(o => o.label)).toEqual([
       'Will the treatment work? (yes or no)',

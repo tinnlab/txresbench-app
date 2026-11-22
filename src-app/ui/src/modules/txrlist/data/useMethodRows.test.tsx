@@ -70,6 +70,8 @@ function summary(
   return {
     container: true,
     covariates: 'none',
+    disease: { scope: 'any-solid-tumour', groups: [] },
+    treatment: { classes: ['chemotherapy'], confidence: 'stated' },
     embeds_training_data: false,
     frozen_model: false,
     group: 'response-probability',
@@ -390,6 +392,45 @@ describe('useMethodRows (TEST-UL-11)', () => {
       ],
     })
     expect(stableInventoryKey(withPatientDraws)).not.toBe(stableInventoryKey(reversed))
+  })
+
+  it('threads the vocabulary labels into the reason lines (the production call path, 5a3)', async () => {
+    // The E screen's page threads the loaded vocabulary's treatment classes;
+    // the hook's joined card must read the LABEL ("Immune checkpoint
+    // inhibitor"), never the raw id — the production path, not the
+    // formatter alone.
+    api.eligibility.mockResolvedValue({
+      ...eligibilityResponse(),
+      methods: [
+        verdict({
+          id: 'direct-on',
+          status: 'cannot_run',
+          reasons: [
+            {
+              code: 'TREATMENT_NOT_MATCHED',
+              params: { made_for: 'immune checkpoint inhibitor', answer: 'chemotherapy' },
+            },
+          ],
+        }),
+      ],
+    })
+    const { result } = renderHook(
+      ({ inv }) =>
+        useMethodRows(inv, {
+          treatmentClasses: [
+            { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+            { id: 'chemotherapy', label: 'Chemotherapy' },
+          ],
+        }),
+      { initialProps: { inv: inventory() } },
+    )
+    await act(async () => {})
+    expect(result.current.cards[0].run.reasonLine).toBe(
+      'Made for Immune checkpoint inhibitor, not your treatments',
+    )
+    expect(result.current.cards[0].run.reasonLines).toEqual([
+      'Made for Immune checkpoint inhibitor, not your treatments',
+    ])
   })
 })
 

@@ -9,14 +9,14 @@ import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { useMarkers } from '../data/useMarkers'
+import { useFilterOptions } from '../data/useFilterOptions'
 import { useStudyPreview } from '../data/useStudyPreview'
 import {
   BEFORE_TREATMENT_OPTIONS,
-  DISEASE_OPTIONS,
   DRAWS_OPTIONS,
   EXCLUDED_LIST_LIMIT,
+  FILTER_OPTIONS_UNAVAILABLE_LINE,
   OUTCOME_OPTIONS,
-  TREATMENT_OPTIONS,
   leftOutHeading,
   someFitLine,
 } from '../lib/format'
@@ -31,7 +31,7 @@ import { FLOW_ROUTES, previousLearnRoute } from '@/modules/txrshell/lib/flowStep
 import { isExampleStudy } from '../lib/example'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
-import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
+import type { OutcomeId } from '../types'
 
 /**
  * Screen B — Your study (board Criteria.dc.html, ITEM-5): the six question
@@ -297,6 +297,11 @@ export function StudyPage() {
   )
   const recheck = useRecheck()
   const { groups, loading: groupsLoading, error: groupsError } = useMarkers()
+  const {
+    categories,
+    treatmentClasses,
+    error: filterOptionsError,
+  } = useFilterOptions()
   const panel = useStudyPreview(study, groups)
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
@@ -315,6 +320,52 @@ export function StudyPage() {
       patchStudy({ markerGroups: { ...(study.markerGroups ?? {}), [groupId]: checked } })
     },
     [patchStudy, study.markerGroups],
+  )
+
+  /**
+   * The disease options are the loaded filter-options vocabulary's node ids
+   * (the ids ARE the readable names — the category / disease / sub-group).
+   * The grouped picker is the next round; until then this flat list is the
+   * same vocabulary, and the option set updates when it loads.
+   */
+  const diseaseOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = []
+    for (const category of categories) {
+      options.push({ value: category.id, label: category.id })
+      for (const disease of category.diseases) {
+        options.push({ value: disease.id, label: disease.id })
+        for (const child of disease.children) options.push({ value: child, label: child })
+      }
+    }
+    return options
+  }, [categories])
+
+  /** The treatment options are the vocabulary's base classes: the id (what
+   *  the requests send) with the label (what the user reads). */
+  const treatmentOptions = useMemo(
+    () => treatmentClasses.map(treatment => ({ value: treatment.id, label: treatment.label })),
+    [treatmentClasses],
+  )
+
+  /**
+   * The registered study-answers action (step2-filters): the disease,
+   * treatment and outcome answers are the method filters, so the SAME
+   * validates-the-vocabulary path the AI drives is the human controls' path —
+   * never a parallel store write. A refusal is shown, never silent.
+   */
+  const applyAnswer = useCallback(
+    async (patch: {
+      disease_group?: string | null
+      treatment_classes?: string[]
+      outcome?: OutcomeId | null
+    }) => {
+      try {
+        await runAction('intake.setStudyAnswers', patch)
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : 'Could not set the answer.')
+      }
+    },
+    [],
   )
 
   /** The last-draw answer is the engine's decision day (one value): the
@@ -410,9 +461,9 @@ export function StudyPage() {
                         data-testid="txr-intake-study-disease"
                         aria-label="Disease"
                         value={study.disease ?? undefined}
-                        onChange={v => patchStudy({ disease: v as DiseaseId })}
+                        onChange={v => applyAnswer({ disease_group: v as string })}
                         placeholder="Choose a disease…"
-                        options={DISEASE_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+                        options={diseaseOptions}
                       />
                     </div>
                     <div style={FIELD}>
@@ -421,13 +472,21 @@ export function StudyPage() {
                         id="txr-intake-study-treatment"
                         data-testid="txr-intake-study-treatment"
                         aria-label="Treatment"
-                        value={study.treatment ?? undefined}
-                        onChange={v => patchStudy({ treatment: v as TreatmentId })}
+                        value={study.treatments?.[0] ?? undefined}
+                        onChange={v => applyAnswer({ treatment_classes: [v as string] })}
                         placeholder="Choose a treatment…"
-                        options={TREATMENT_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+                        options={treatmentOptions}
                       />
                     </div>
                   </div>
+                  {/* 5a3: ONE line, plain words, no raw fetch error — the
+                      old page repeated the raw message under both the
+                      Disease and the Treatment control. */}
+                  {filterOptionsError !== null ? (
+                    <div role="alert" data-testid="txr-intake-filter-options-error" style={PANEL_ERROR}>
+                      {FILTER_OPTIONS_UNAVAILABLE_LINE}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={QUESTION_GROUP}>
@@ -442,9 +501,7 @@ export function StudyPage() {
                           variant="outline"
                           aria-pressed={selected}
                           style={selected ? PILL_SELECTED : PILL}
-                          onClick={() =>
-                            patchStudy({ outcome: selected ? null : (option.value as OutcomeId) })
-                          }
+                          onClick={() => applyAnswer({ outcome: selected ? null : option.value })}
                         >
                           {option.label}
                         </Button>

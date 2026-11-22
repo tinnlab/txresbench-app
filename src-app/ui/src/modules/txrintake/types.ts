@@ -60,16 +60,24 @@ import type {
  */
 export type IntakeIntent = 'pretrained' | 'train' | 'reuse'
 
-/** Screen B, "which disease" — the first question group's option set. */
-export type DiseaseId = 'colorectal' | 'lung' | 'breast' | 'prostate' | 'other'
+/**
+ * Screen B, "which disease" — ONE NODE ID of the method catalogue's
+ * `filter_options` vocabulary (GET /api/methods/filter-options): a category
+ * id (e.g. "Solid tumours"), a disease id (e.g. "colorectal cancer") or a
+ * sub-group (a disease's `children`). The ids ARE the readable names, so the
+ * screens render them directly; the server refuses an id outside the
+ * vocabulary (`UNKNOWN_DISEASE_GROUP`), so an unknown value is never sent
+ * (the store drops it to unanswered once the vocabulary loads).
+ */
+export type DiseaseId = string
 
-/** Screen B, "which treatment" — the second question group's option set. */
-export type TreatmentId =
-  | 'immunotherapy'
-  | 'chemotherapy'
-  | 'targeted'
-  | 'radiotherapy'
-  | 'other-mixed'
+/**
+ * Screen B, "which treatment" — a base treatment-class id of the same
+ * `filter_options` vocabulary (e.g. "immune checkpoint inhibitor",
+ * "chemotherapy"). The ids are the machine-readable forms; the display labels
+ * come from `treatment_classes[].label`.
+ */
+export type TreatmentId = string
 
 /**
  * Screen B, "what to predict" — the four outcome pills. `'progression-by-day'`
@@ -103,7 +111,12 @@ export type OutcomeId =
  */
 export interface StudyAnswers {
   disease: DiseaseId | null
-  treatment: TreatmentId | null
+  /**
+   * The ticked base treatment-class ids (`filter_options.treatment_classes`
+   * ids). `null` and `[]` both mean "no filter" — the requests OMIT the
+   * field for them (an unanswered question is never sent as a guess).
+   */
+  treatments: TreatmentId[] | null
   outcome: OutcomeId | null
   markerGroups: Record<string, boolean> | null
   beforeTreatment: 'always' | 'sometimes' | null

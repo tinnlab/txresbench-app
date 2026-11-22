@@ -61,6 +61,7 @@ import type { LoadedFile, StudyAnswers } from './types'
 import {
   TXR_INTAKE_EXAMPLE_BUNDLE,
   TXR_INTAKE_EXAMPLE_SET,
+  TXR_INTAKE_FILTER_OPTIONS,
   TXR_INTAKE_FIXTURE_BUNDLE,
   TXR_INTAKE_GROUPS,
   TXR_INTAKE_VOCABULARY,
@@ -97,12 +98,12 @@ function NavigationResultLine() {
   )
 }
 
-/** The B story's seeded answers: colorectal, risk by a day, no groups yet. */
+/** The B story's seeded answers: colorectal cancer, risk by a day, no groups yet. */
 function seedStudyAnswers(fresh = true): void {
   if (fresh) TxrIntake.reset()
   TxrIntake.patchStudy({
-    disease: 'colorectal',
-    treatment: 'immunotherapy',
+    disease: 'colorectal cancer',
+    treatments: ['immune checkpoint inhibitor'],
     outcome: 'progression-by-day',
     beforeTreatment: 'always',
     drawsDuringTreatment: 2,
@@ -380,6 +381,7 @@ export const gallery: ModuleGallery = {
   // (`extendEligibilityForPreviewStory`).
   cassette: {
     'MethodCatalogue.markers': TXR_INTAKE_VOCABULARY,
+    'MethodCatalogue.filterOptions': TXR_INTAKE_FILTER_OPTIONS,
     'FileValidation.inspect': (ctx: MockRequestContext) =>
       txrInspectResponse((ctx.body ?? {}) as Parameters<typeof txrInspectResponse>[0]),
     'FileValidation.validate': (ctx: MockRequestContext) =>
@@ -404,7 +406,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-intake-b',
       title: 'Your study (screen B) — the live fit panel',
-      note: 'The six question groups (seeded: colorectal, immunotherapy, risk by a day, no marker groups) with the REAL eligibility hook over the mock cassette: "26 of 39 methods fit" (22 can run + 4 for some patients — the head-to-the-tail inclusive count) + the left-out list with one reason per method; checking the ctDNA group re-runs the panel (28 fit, 11 left out).',
+      note: 'The six question groups (seeded: colorectal cancer, immune checkpoint inhibitor, risk by a day, no marker groups) with the REAL eligibility hook over the mock cassette: "26 of 39 methods fit" (22 can run + 4 for some patients — the head-to-the-tail inclusive count) + the left-out list with one reason per method; checking the ctDNA group re-runs the panel (28 fit, 11 left out).',
       path: '/study',
       initialPath: '/study',
       component: lazy(() => Promise.resolve({ default: BStoryView })),

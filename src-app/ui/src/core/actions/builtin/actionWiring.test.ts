@@ -17,6 +17,7 @@ import './methodActions'
 import './stepActions'
 import './wslSetupActions'
 import './dayActions'
+import './intakeActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -34,6 +35,7 @@ const NEW_IDS = [
   'sandbox.setupWsl',
   'flow.setLastDrawDay',
   'runSettings.setDay',
+  'intake.setStudyAnswers',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
@@ -44,6 +46,7 @@ const MODULE_IMPORTS: Record<string, string[]> = {
   'src/modules/txrintake/module.tsx': [
     '@/core/actions/builtin/stepActions',
     '@/core/actions/builtin/dayActions',
+    '@/core/actions/builtin/intakeActions',
   ],
   'src/modules/txrshell/module.tsx': ['@/core/actions/builtin/wslSetupActions'],
 }

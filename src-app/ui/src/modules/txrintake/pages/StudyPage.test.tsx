@@ -51,6 +51,7 @@ import { __resetFetchCacheForTests } from '../data/fetchCache'
 const api = vi.hoisted(() => ({
   eligibility: vi.fn(),
   markers: vi.fn(),
+  filterOptions: vi.fn(),
   validate: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
@@ -58,6 +59,7 @@ vi.mock('@/api-client', () => ({
     MethodCatalogue: {
       eligibility: api.eligibility,
       markers: api.markers,
+      filterOptions: api.filterOptions,
     },
     FileValidation: {
       validate: api.validate,
@@ -66,14 +68,34 @@ vi.mock('@/api-client', () => ({
 }))
 
 // The day field runs the registered `flow.setLastDrawDay` (the module import
-// registers it in the app).
+// registers it in the app); the disease/treatment/outcome controls run the
+// registered `intake.setStudyAnswers`.
 import '@/core/actions/builtin/dayActions'
+import '@/core/actions/builtin/intakeActions'
 
 const GROUPS: MarkerGroup[] = [
   { id: 'ctdna', display_name: 'Tumour DNA in blood (ctDNA)' },
   { id: 'counts', display_name: 'Blood counts (platelets, haemoglobin)' },
   { id: 'ldh', display_name: 'LDH' },
 ]
+
+/** The filter-options vocabulary the page's disease/treatment selects read
+ *  (step2-filters): ids the server's catalogue knows. */
+const FILTER_OPTIONS = {
+  disease_categories: [
+    {
+      id: 'Solid tumours',
+      diseases: [
+        { id: 'colorectal cancer', children: [] },
+        { id: 'breast cancer', children: [] },
+      ],
+    },
+  ],
+  treatment_classes: [
+    { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+    { id: 'chemotherapy', label: 'Chemotherapy' },
+  ],
+}
 
 const CANNOT = 13
 const SOME = 4
@@ -216,7 +238,9 @@ const store = () => useTxrIntakeStore.getState()
 beforeEach(() => {
   api.eligibility.mockReset()
   api.markers.mockReset()
+  api.filterOptions.mockReset()
   api.markers.mockResolvedValue({ groups: GROUPS, markers: [] })
+  api.filterOptions.mockResolvedValue(FILTER_OPTIONS)
   api.eligibility.mockResolvedValue(eligibilityResponse())
   window.localStorage.clear()
   store().reset()
@@ -295,12 +319,15 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
     api.eligibility.mockClear()
 
-    // A quick burst: three answer changes inside one debounce window.
+    // A quick burst: three answer changes inside one debounce window. The
+    // outcome pills run the registered `intake.setStudyAnswers` action
+    // (step2-filters), so their store write settles after a microtask — the
+    // waitFor absorbs it with the same assertions.
     fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
     fireEvent.click(screen.getByTestId('txr-intake-study-outcome-progression-by-day'))
     fireEvent.click(screen.getByTestId('txr-intake-study-outcome-binary-response'))
     expect(store().study.markerGroups?.ctdna).toBe(true)
-    expect(store().study.outcome).toBe('binary-response')
+    await waitFor(() => expect(store().study.outcome).toBe('binary-response'))
 
     await waitFor(() => {
       expect(api.eligibility).toHaveBeenCalledTimes(1)
@@ -647,6 +674,19 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     api.markers.mockRejectedValueOnce(new Error('markers down'))
     renderStudy()
     expect(await screen.findByText('markers down')).toBeTruthy()
+  })
+
+  it('a failing filter-options fetch shows ONE plain line, never the raw error under both controls (5a3)', async () => {
+    api.filterOptions.mockRejectedValueOnce(new Error('catalogue down'))
+    renderStudy()
+    const alert = await screen.findByTestId('txr-intake-filter-options-error')
+    // Exactly ONE alert for the failed vocabulary; the raw fetch message is
+    // never rendered (neither under Disease nor under Treatment).
+    expect(screen.getAllByTestId('txr-intake-filter-options-error')).toHaveLength(1)
+    expect(alert.textContent).toBe(
+      'The disease and treatment lists could not be loaded. The methods are not filtered by them.',
+    )
+    expect(screen.queryByText('catalogue down')).toBeNull()
   })
 })
 

@@ -9,12 +9,16 @@ import type {
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
 import {
+  buildMethodFilters,
   buildTxrRunInput,
+  hasMethodFilters,
   STEP_BACK_STARTING_REASON,
   TxrIntake,
   TxrStepBack,
   TxrStepBackBar,
   TxrStepLine,
+  useFilterOptions,
+  useIntakeAnswers,
   useStepBack,
   useTxrIntakeStore,
 } from '@/modules/txrintake'
@@ -262,6 +266,7 @@ function TxrMethodPickerFrame({
   recheckAsks,
   initialPreset,
   onPresetChosen,
+  treatmentClassLabels,
   demo = false,
 }: {
   inventory: InventoryEligibilityRequest
@@ -284,10 +289,15 @@ function TxrMethodPickerFrame({
   initialPreset: TxrMethodPreset | null
   /** A preset was applied: the page keeps it with the ticks. */
   onPresetChosen(preset: TxrMethodPreset): void
+  /** The vocabulary's treatment-class labels (step2-filters): the reason
+   *  lines render the names the vocabulary carries, never the raw ids. */
+  treatmentClassLabels: ReadonlyArray<{ id: string; label: string }>
   /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
   demo?: boolean
 }) {
-  const { cards, loading, error, refetch, methodListSequence } = useMethodRows(inventory)
+  const { cards, loading, error, refetch, methodListSequence } = useMethodRows(inventory, {
+    treatmentClasses: treatmentClassLabels,
+  })
   // Ticks that exist for these files (seeded, or the user's own tick or
   // preset) turn the auto-recommendation off — a settings change recomputes
   // eligibility but never overrides them, and neither does a return to the
@@ -417,6 +427,18 @@ export function ChooseMethodsPage() {
   const methodPicks = useStore(useTxrIntakeStore, s => s.methodPicks)
   const dayFacts = useStore(useTxrIntakeStore, s => s.dayFacts)
   const lookAheadDay = useStore(useTxrIntakeStore, s => s.lookAheadDay)
+  // The intake answers' filter facts the eligibility request carries
+  // (step2-filters): the same builder the preview body uses — answered
+  // fields only, the whole block omitted when nothing is answered. The
+  // vocabulary (5a3) is the answers' validity gate: only the ids it knows
+  // are sent, and before it loads the disease/treatment fields are omitted
+  // (a stale persisted id must never 422 this screen; the outcome rides).
+  const intakeAnswers = useIntakeAnswers()
+  const { vocabulary, treatmentClasses } = useFilterOptions()
+  const methodFilters = useMemo(
+    () => buildMethodFilters(intakeAnswers, vocabulary),
+    [intakeAnswers, vocabulary],
+  )
   const runConfig = useRunConfig()
   const { keepCopies } = useKeepCopies()
   const { isDemo } = useAppMode()
@@ -620,7 +642,11 @@ export function ChooseMethodsPage() {
   // shows — the decision day and the extra-inputs switch are the two
   // settings the verdicts read (the wire's own fields), so a change here
   // changes the inventory's content key and the adapter refetches (the
-  // visible re-check state) while the picker keeps the last cards.
+  // visible re-check state) while the picker keeps the last cards. The
+  // intake answers' filter facts ride the same request as the `filters`
+  // block (step2-filters) — answered fields only; the block itself is
+  // omitted for an unanswered question group (the request without it is
+  // exactly the "any" verdicts).
   const settingsInventory = useMemo(
     () =>
       inventory === null
@@ -629,8 +655,9 @@ export function ChooseMethodsPage() {
             ...inventory,
             decision_day: settings.decision_day,
             covariates: settings.covariates ? inventory.covariates : [],
+            ...(hasMethodFilters(methodFilters) ? { filters: methodFilters } : {}),
           },
-    [inventory, settings.decision_day, settings.covariates],
+    [inventory, settings.decision_day, settings.covariates, methodFilters],
   )
   const [cardsState, setCards] = useState<TxrMethodCard[]>([])
   // While the validation is null (Change files has just changed a file),
@@ -890,6 +917,7 @@ export function ChooseMethodsPage() {
                   recheckAsks={recheckAsks}
                   initialPreset={ownPicks?.preset ?? null}
                   onPresetChosen={rememberPreset}
+                  treatmentClassLabels={treatmentClasses}
                   demo={isDemo}
                 />
               )}

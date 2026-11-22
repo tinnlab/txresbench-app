@@ -21,7 +21,7 @@ function snapshot(overrides: Partial<IntakeSnapshot> = {}): IntakeSnapshot {
     mode: 'study',
     study: {
       disease: null,
-      treatment: null,
+      treatments: null,
       outcome: null,
       markerGroups: null,
       beforeTreatment: null,

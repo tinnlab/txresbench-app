@@ -48,6 +48,7 @@
 
 import type {
   EligibilityResponse,
+  FilterOptions,
   MarkerGroup,
   MethodEligibility,
   PreviewEligibilityRequest,
@@ -57,6 +58,8 @@ import type {
   TxrCoverageFacts,
   TxrMinDrawsFacts,
   TxrReasonCode,
+  TxrReasonLabels,
+  TxrReasonParams,
 } from '@/modules/txrlist/lib/format'
 import {
   PREVIEW_REASON_FALLBACK,
@@ -64,6 +67,7 @@ import {
   groupShortName,
   outcomeClause,
 } from './format'
+import { buildMethodFilters } from './filters'
 import type { StudyAnswers } from '../types'
 
 /** The schedule answers the preview request carries — each is OPTIONAL:
@@ -76,16 +80,28 @@ export interface PreviewSchedule {
   last_draw_day?: number
 }
 
-/** Build the exact PROV-MC-5 preview body (DEC-5: all group ids explicit). */
+/** Build the exact PROV-MC-5 preview body (DEC-5: all group ids explicit).
+ *  The three method-filter facts ride the SAME body the inventory `filters`
+ *  block carries, flattened to the top level (`disease_group`,
+ *  `treatment_classes`, `method_group`); an unanswered question is OMITTED
+ *  (never `null`, never an empty list — the same rule as the schedule
+ *  answers, and the same builder the E screen's `filters` block uses).
+ *  The vocabulary is the same builder's answer-validity gate (step2-filters,
+ *  brief 5a3): only ids it knows are sent, and while it is not loaded the
+ *  disease/treatment fields are omitted (the outcome is still sent). */
 export function buildStudyPreviewRequest(
   answers: StudyAnswers,
   groups: ReadonlyArray<MarkerGroup>,
+  vocabulary: FilterOptions | null,
 ): PreviewEligibilityRequest {
   const marker_groups: Record<string, boolean> = {}
   for (const group of groups) {
     marker_groups[group.id] = answers.markerGroups?.[group.id] ?? false
   }
-  const request: PreviewEligibilityRequest = { marker_groups }
+  const request: PreviewEligibilityRequest = {
+    marker_groups,
+    ...buildMethodFilters(answers, vocabulary),
+  }
   if (answers.beforeTreatment !== null) request.before_treatment = answers.beforeTreatment
   if (answers.drawsDuringTreatment !== null) request.draws_during_treatment = answers.drawsDuringTreatment
   if (answers.lastDrawDay !== null) request.last_draw_day = answers.lastDrawDay
@@ -228,7 +244,7 @@ export function toRunStatus(status: EligibilityResponse['methods'][number]['stat
 export function hasStudyAnswers(answers: StudyAnswers): boolean {
   return (
     answers.disease !== null ||
-    answers.treatment !== null ||
+    (answers.treatments !== null && answers.treatments.length > 0) ||
     answers.outcome !== null ||
     answers.markerGroups !== null ||
     answers.beforeTreatment !== null ||
@@ -246,16 +262,23 @@ export const PREVIEW_ANSWER_INVITE =
  * real txrlist functions, injected so the pure lib stays testable with the
  * same bytes the page binds. The fallback for B lives HERE (`PREVIEW_REASON_FALLBACK`),
  * not in the formatter: the E-row fallback is file-phrased.
+ * `labels` is the vocabulary's label table (step2-filters, brief 5a3): the
+ * treatment-class display names the reason lines read — the production
+ * binding (the preview hook) threads the loaded vocabulary's
+ * `treatment_classes` here, so B and E render the same names.
  */
 export interface TxrPreviewFormatters {
   formatReasonLine(
     status: TxrRunStatus,
-    reasons: ReadonlyArray<{ code: TxrReasonCode }>,
+    reasons: ReadonlyArray<{ code: TxrReasonCode; params?: unknown }>,
     coverage: TxrCoverageFacts,
     minDraws: TxrMinDrawsFacts,
     missingMarkers: ReadonlyArray<{ display_name?: string }>,
     missingGroups?: ReadonlyArray<{ display_name?: string }>,
+    labels?: TxrReasonLabels,
   ): string
+  /** The vocabulary's treatment-class labels for the reason lines. */
+  labels?: TxrReasonLabels
 }
 
 /**
@@ -280,6 +303,12 @@ const PREVIEW_SHARED_CODES: ReadonlySet<string> = new Set([
   'TASK_INCOMPATIBLE',
   'RESPONSE_LABEL_MISSING',
   'SURVIVAL_OUTCOME_MISSING',
+  // step2-filters: the answers' own three verdict causes (disease /
+  // treatment / outcome mismatch) — the shared E-vocabulary templates read
+  // only the verdict's structured params, so B renders them too.
+  'DISEASE_NOT_MATCHED',
+  'TREATMENT_NOT_MATCHED',
+  'OUTCOME_NOT_MATCHED',
 ])
 
 /**
@@ -311,6 +340,7 @@ export function excludedReasonLine(
       method.min_draws,
       method.missing_markers,
       method.missing_groups,
+      formatters.labels,
     )
   }
   if (code === 'MIN_DRAWS_UNMET') return `needs ${method.min_draws.required} or more draws`
@@ -322,6 +352,7 @@ export function excludedReasonLine(
     method.min_draws,
     method.missing_markers,
     method.missing_groups,
+    formatters.labels,
   )
 }
 

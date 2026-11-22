@@ -253,8 +253,8 @@ describe('ITEM-2 — the state-contract barrel (PROV-UI-INTAKE-2)', () => {
       intent: 'train',
       mode: 'study',
       study: {
-        disease: 'colorectal',
-        treatment: null,
+        disease: 'colorectal cancer',
+        treatments: null,
         outcome: 'progression-by-day',
         markerGroups: { ctdna: true, counts: true, ldh: true },
         beforeTreatment: 'always',
