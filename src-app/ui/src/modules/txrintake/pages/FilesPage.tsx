@@ -24,7 +24,6 @@ import {
 import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } from '../lib/download'
 import { FLOW_ROUTES, nextLearnRoute, previousLearnRoute } from '@/modules/txrshell/lib/flowSteps'
 import { TxrFileCard } from '../components/TxrFileCard'
-import { TxrFileMessagesRow } from '../components/TxrFileMessages'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
 import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
 import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER, runExampleFlow } from '../lib/example'
@@ -49,11 +48,10 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
  * The card markup itself is the shared `TxrFileCard` (ITEM-9's component
  * extraction — the markup moved, the flow stayed): this page owns the C
  * flow round and the Continue gate; the card's parts render the store's
- * files + the shared validation slot. The cards keep the drop zone / file
- * preview only; what the check says about each file (status box, problem
- * list, offers) is ONE full-width row under the two cards
- * (`TxrFileMessagesRow`, step3-file-cards): a block per chosen file,
- * patients first, each titled with the file kind and name.
+ * files + the shared validation slot. What the check says about each file
+ * (status box, problem list, offers) is a full-width row INSIDE its own
+ * card (step3-file-cards A): the card's last child, after both halves,
+ * titled with the file kind and name.
  *
  * Suggestion discipline (DEC-9): nothing is auto-joined and nothing fuzzy
  * is auto-mapped. The validate response's non-fuzzy ladder matches
@@ -579,28 +577,6 @@ export function FilesPage() {
                     onRejectColumn={rejectColumn}
                     onDownloadTemplate={() => void downloadCsv('measurements', 'template')}
                     onDownloadExample={() => void downloadCsv('measurements', 'example')}
-                  />
-
-                  <TxrFileMessagesRow
-                    mode="study"
-                    slots={[
-                      {
-                        kind: 'patients',
-                        file: patients,
-                        onRemove: () => handleRemove('patients'),
-                      },
-                      {
-                        kind: 'measurements',
-                        file: measurements,
-                        onRemove: () => handleRemove('measurements'),
-                      },
-                    ]}
-                    onAcceptJoin={acceptJoin}
-                    onRejectJoin={rejectJoin}
-                    onAcceptVocab={acceptVocab}
-                    onRejectVocab={rejectVocab}
-                    onAcceptColumn={acceptColumn}
-                    onRejectColumn={rejectColumn}
                   />
                 </>
               )}

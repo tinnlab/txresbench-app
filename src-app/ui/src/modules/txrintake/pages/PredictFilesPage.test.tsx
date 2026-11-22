@@ -390,28 +390,35 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
   })
 })
 
-describe('step3-file-cards — the predict screen uses the messages row too', () => {
-  it('the status box and the offers render in the row under the card, titled with the file name', async () => {
+describe('step3-file-cards — the predict screen carries its messages in its card', () => {
+  it('the status box and the offers render inside the card, titled with the file name', async () => {
     renderPredict()
-    expect(screen.queryByTestId('txr-intake-file-messages')).toBeNull()
+    // No file: no element carries the OLD shared row's id
+    // (`txr-intake-file-messages`), which nothing renders any more, so a
+    // leftover row outside the card cannot hide behind a stale query.
+    expect(document.querySelectorAll('[data-testid="txr-intake-file-messages"]')).toHaveLength(0)
     pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
 
     const card = screen.getByTestId('txr-intake-file-card-measurements')
-    const row = screen.getByTestId('txr-intake-file-messages')
-    expect(card.contains(row)).toBe(false)
-    expect(card.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const row = screen.getByTestId('txr-intake-file-messages-measurements')
+    // The messages row is INSIDE the one card and is its last child.
+    expect(card.contains(row)).toBe(true)
+    expect(card.lastElementChild).toBe(row)
+    // The count check of 2: the one chosen file owns exactly its row + its
+    // title — no old shared row, no duplicate render.
+    expect(document.querySelectorAll('[data-testid^="txr-intake-file-messages-"]')).toHaveLength(2)
     expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
       'Measurements file: predict_measurements.csv',
     )
-    expect(row.querySelectorAll(':scope > section')).toHaveLength(1)
-    const block = screen.getByTestId('txr-intake-file-messages-measurements')
-    expect(within(block).getByTestId('txr-intake-file-status-measurements')).toBeTruthy()
-    // The offer arrives with the validate round: wait for it IN the block, so
-    // the card-absence checks below run after it exists.
-    expect(await within(block).findByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
-    expect(card.querySelector('[data-testid^="txr-intake-file-status-"]')).toBeNull()
-    expect(card.querySelector('[data-testid^="txr-intake-vocab-offer-"]')).toBeNull()
+    expect(within(row).getByTestId('txr-intake-file-status-measurements')).toBeTruthy()
+    // The offer arrives with the validate round: wait for it IN the row, so
+    // the half-absence checks below run after it exists.
+    expect(await within(row).findByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    // The card holds exactly ONE status box and ONE vocab offer — both in
+    // its messages row; the halves keep only the preview.
+    expect(card.querySelectorAll('[data-testid^="txr-intake-file-status-"]')).toHaveLength(1)
+    expect(card.querySelectorAll('[data-testid^="txr-intake-vocab-offer-"]')).toHaveLength(1)
   })
 
   it('"Choose a different file" stays on the card once the file checks out, and a new pick re-checks', async () => {
@@ -425,7 +432,7 @@ describe('step3-file-cards — the predict screen uses the messages row too', ()
     fireEvent.click(within(card).getByTestId('txr-intake-file-choose-again-measurements'))
     expect(store().predictMeasurements).toBeNull()
     expect(continueButton().disabled).toBe(true)
-    expect(screen.queryByTestId('txr-intake-file-messages')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-messages-measurements')).toBeNull()
 
     pickMeasurements('predict_v2.csv', MEASUREMENTS_CSV)
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(2))
@@ -514,6 +521,9 @@ describe('demo mode (ITEM-6) — the example predict card replaces the upload', 
     expect(within(card).getByText(/^2 rows/)).toBeTruthy()
     expect(within(card).getByText('Download the template (CSV)')).toBeTruthy()
     expect(within(card).getByText('Download the full example (CSV)')).toBeTruthy()
+    // The demo path's example card shows no file-messages row (the card
+    // messages belong to the upload path's TxrFileCard only).
+    expect(document.querySelectorAll('[data-testid^="txr-intake-file-messages"]')).toHaveLength(0)
 
     expect(screen.queryByTestId('txr-intake-file-card-measurements')).toBeNull()
     expect(screen.queryByTestId('txr-intake-file-drop-measurements')).toBeNull()

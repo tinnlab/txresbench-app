@@ -9,9 +9,10 @@
  * the "Choose a different file" link in its place (every state —
  * step3-file-cards B). What the check says about the file (the status box,
  * the problem list and the offer rows) is `TxrFileMessages`: rendered here
- * for `messages: 'inline'`, or by the host in the full-width
- * `TxrFileMessagesRow` under the cards for `messages: 'row'` (screens C and
- * N — step3-file-cards A).
+ * for `messages: 'inline'` under the preview (the E-screen dialog), or in
+ * the card's own full-width row — the card's LAST child, below both halves,
+ * introduced by the file's title — for `messages: 'row'` (screens C and N
+ * — step3-file-cards A).
  *
  * The surface is CONTROLLED — the frozen props carry the card facts and the
  * host's store actions (onPick / onRemove / the four offer answers / the two
@@ -35,14 +36,14 @@
  */
 
 import type { CSSProperties } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, Button } from '@txresbench/kit'
 import type { FileTableKind } from '@/api-client/types'
 import { exampleLinkLabel, templateLinkLabel } from '../lib/download'
 import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 import { TxrFileDrop } from './TxrFileDrop'
-import { TxrFileMessages } from './TxrFileMessages'
+import { TxrFileMessages, fileMessagesTitle } from './TxrFileMessages'
 
 /** The card's mode — screen C's two cards vs screen N's one. */
 export type TxrFileCardMode = 'study' | 'predict'
@@ -71,8 +72,9 @@ export interface TxrFileCardProps {
   /**
    * Where the check's messages render (step3-file-cards A): `'inline'` (the
    * default — inside the card, under the preview: the E-screen dialog) or
-   * `'row'` (the host shows them in `TxrFileMessagesRow` below the cards:
-   * screens C and N).
+   * `'row'` (a full-width row INSIDE the card, after both halves and as the
+   * card's last child, titled with the file's name: screens C and N). With
+   * `'row'` and no chosen file the card renders no messages at all.
    */
   messages?: 'inline' | 'row'
 }
@@ -95,6 +97,28 @@ const CARD_RIGHT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+}
+
+/** The card's full-width messages row (step3-file-cards A): its own flex
+ *  line under BOTH halves at every width, divided from them by the card's
+ *  border token, with a little top padding. */
+const MESSAGES_ROW: CSSProperties = {
+  flex: '1 1 100%',
+  minWidth: 0,
+  borderTop: '1px solid var(--txr-border)',
+  paddingTop: 14,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+}
+
+/** The row's title: the file kind and the adopted file's name. */
+const MESSAGES_TITLE: CSSProperties = {
+  margin: 0,
+  fontFamily: "'Source Serif 4', Georgia, serif",
+  fontWeight: 600,
+  fontSize: 17,
+  overflowWrap: 'anywhere',
 }
 
 const CARD_TITLE: CSSProperties = {
@@ -287,6 +311,8 @@ export function TxrFileCard(props: TxrFileCardProps) {
   } = props
   const spec = cardSpec(mode, kind)
   const exampleRows = (file?.table.rows ?? []).slice(0, EXAMPLE_ROW_LIMIT)
+  // The messages row's accessible name is its own title (aria-labelledby).
+  const messagesTitleId = useId()
   const offerHandlers = {
     onAcceptJoin,
     onRejectJoin,
@@ -392,6 +418,27 @@ export function TxrFileCard(props: TxrFileCardProps) {
           <TxrFileMessages kind={kind} mode={mode} file={file} onRemove={onRemove} {...offerHandlers} />
         ) : null}
       </div>
+
+      {/* step3-file-cards A: with a chosen file the check's messages are the
+          card's own full-width row — after both halves, the card's last
+          child, titled with the file kind and name (the card shows the file
+          name nowhere else). No file: no row. */}
+      {messages === 'row' && file !== null ? (
+        <section
+          style={MESSAGES_ROW}
+          data-testid={`txr-intake-file-messages-${kind}`}
+          aria-labelledby={`${messagesTitleId}-${kind}`}
+        >
+          <h3
+            id={`${messagesTitleId}-${kind}`}
+            style={MESSAGES_TITLE}
+            data-testid={`txr-intake-file-messages-title-${kind}`}
+          >
+            {fileMessagesTitle(kind, file)}
+          </h3>
+          <TxrFileMessages kind={kind} mode={mode} file={file} onRemove={onRemove} {...offerHandlers} />
+        </section>
+      ) : null}
     </section>
   )
 }
