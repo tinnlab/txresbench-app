@@ -219,7 +219,11 @@ test('TEST-7 each leg’s stdout and stderr reach the aggregate output, failing 
 // the coercion corpus, all deleted by the node's plan. A plan shrinkage, not the
 // "lower the floor to fit a red" §5 names as the anti-pattern; see the ITEM-2 block in
 // the TEST-21 ledger below.
-const MIN_LEGS_FLOOR = 5;
+// 5 -> 11 (gate-tests phase 1): the UI `npm run check` chain was split into seven
+// `ui-*` legs (one per link / guard family) because its red first link (`check:e2e-routing`)
+// was hiding `test:unit` behind it — the #287 defect one level down. A pure ADD, so the
+// floor moved UP with the set, in the same diff as `--min-legs` and AGGREGATE_FLOORS.
+const MIN_LEGS_FLOOR = 11;
 
 /**
  * The body of a `just` recipe, delimited the way JUST delimits it: every following line
@@ -658,7 +662,12 @@ function runRealJustCheck({ fail = '' } = {}) {
   // distinguishable from the run it stands in for is not standing in for it.
   const failFile = path.join(d, 'fail-directive');
   fs.writeFileSync(failFile, fail);
-  for (const name of ['cargo', 'npm', 'node', 'just']) {
+  // `npx` (and `tsc`, the binary it resolves) are stubbed too: the split UI chain runs
+  // `npx --no-install tsc --noEmit` as its OWN leg now, on the raw PATH — without a stub
+  // the behavioural tests would execute the real compiler (minutes, and it needs
+  // node_modules/.bin) and record nothing for TEST-17/18/19. (`tsc` is kept so a bare
+  // `tsc` invocation anywhere would also be intercepted, not executed for real.)
+  for (const name of ['cargo', 'npm', 'node', 'just', 'npx', 'tsc']) {
     fs.writeFileSync(
       path.join(bin, name),
       `#!/usr/bin/env bash\n` +
@@ -704,16 +713,34 @@ const EXPECTED_GATES = [
   // the gate while `node --test …` still shows up in the recorded argv.
   `node --test ${path.join(SCRIPTS_DIR, 'check-aggregate.test.mjs')}`,
   'cargo check --workspace --tests',
-  'npm run check',
+  // The UI `npm run check` chain (gate-tests phase 1): one recorded command per link —
+  // the chain was split out of the single opaque `npm run check` leg precisely so a red
+  // link (currently `check:e2e-routing`) cannot hide the links after it. TEST-25 keeps
+  // the package.json chain and the `ui-*` legs in parity; these rows are the frozen
+  // case-table half of the same property over the REAL recipe. The tsc link runs through
+  // `npx --no-install` because `tsc` is on PATH only inside `npm run` (node_modules/.bin)
+  // — a plain shell leg would say "tsc: command not found".
+  'npx --no-install tsc --noEmit',
+  'npm run typecheck:tests',
+  'node scripts/collect-actions.mjs --check',
+  'node scripts/action-refs-lint.mjs',
+  'node scripts/action-coverage.mjs',
+  'node scripts/lint-no-domain-in-builtin.mjs',
+  'node scripts/lint-text-source-bytes.mjs',
+  'node scripts/lint-native-controls.mjs',
+  'node scripts/lint-secret-input-caps.mjs',
+  'npm run check:e2e-routing',
+  'npm run check:rename-mechanical',
+  'npm run test:unit',
   'npm run build',
   'just check-invariants',
 ];
 
 // ── TEST-17 [acceptance] [invariant: INV-1] ─────────────────────────────────────────
 test('TEST-17 [acceptance] [invariant: INV-1] the REAL `just check` runs every gate when one fails', () => {
-  // Fail the ui type-check — the leg that was actually red on main and that made seven
-  // gates unreachable in the first place.
-  const { invocations, status } = runRealJustCheck({ fail: 'npm run check' });
+  // Fail the e2e-routing gate — the chain link that is red on main and that made every
+  // later link of the old one-leg `npm run check` unreachable.
+  const { invocations, status } = runRealJustCheck({ fail: 'npm run check:e2e-routing' });
   assert.notEqual(status, 0, 'sanity: the run had a failing gate and must not be green');
 
   const missing = EXPECTED_GATES.filter((g) => !invocations.includes(g));
@@ -741,8 +768,8 @@ test('TEST-18 [acceptance] [invariant: INV-2] the REAL `just check` exits non-ze
   // Read from the process's own status. This is the assertion that ` || true` anywhere in
   // the recipe — on the runner invocation or on any single leg — turns RED, which no
   // text-shape check reliably did.
-  // EVERY gate, one at a time — not a sample. Forcing only three of the ten left the other
-  // seven able to be made unable to fail (` || true`, `&`, a redirect) with the suite green.
+  // EVERY gate, one at a time — not a sample. Forcing only a sample of the gates left the
+  // rest able to be made unable to fail (` || true`, `&`, a redirect) with the suite green.
   // Each run is ~0.1s because every leg is a stub.
   for (const gate of EXPECTED_GATES) {
     const { status, out } = runRealJustCheck({ fail: gate });
@@ -808,8 +835,12 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // App repo (PR 4a, the method list) — 'check-guards': 4 -> 6. Two legs added,
 // `check-method-list-controls` and `check-method-list` (the method list guard + its controls),
 // in the SAME diff that adds them, next to their pins in scripts/guard-hashes.txt.
+// gate-tests phase 1 — 'check': 5 -> 11. The UI `npm run check` chain was split into
+// seven `ui-*` legs (one per link / guard family): the chain's red first link
+// (`check:e2e-routing`) was hiding `test:unit`, the #287 defect one level down. A pure
+// ADD, raised in the SAME diff as `--min-legs` and MIN_LEGS_FLOOR (see TEST-8).
 const AGGREGATE_FLOORS = {
-  check: 5,
+  check: 11,
   'check-invariants': 9,
   'check-guards': 6,
 };
@@ -965,7 +996,7 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176  5f356c5e THIS-CHANGE
+ * check                      b781c4635aeac1b8030e092934a3bd3e81a9b3490bf25f82cd12834b0d7bec8b  THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
  * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
@@ -1092,6 +1123,34 @@ const REACHABLE_FROM_CHECK = [
  *             STRENGTHENING.
  *             Establish it yourself: `git show <this commit> -- justfile` is one recipe.
  *
+ * ── CHECK MOVES AGAIN (gate-tests phase 1, THIS-CHANGE) ────────────────────────────────
+ * `check` 555f7ffb -> 9c09d395: the recipe's single opaque `ui-npm-check` leg
+ * (`cd src-app/ui && npm run check`) is replaced by seven `ui-*` legs, one per link of
+ * the `check` chain (or per guard family): `ui-tsc`
+ * (`npx --no-install tsc --noEmit`),
+ * `ui-typecheck-tests`, `ui-guards-actions` (collect-actions + action-refs-lint +
+ * action-coverage, one family), `ui-guards-lint` (the four lint scripts, one family),
+ * `ui-e2e-routing`, `ui-rename-mechanical` and `ui-unit`. `--min-legs` rises 5 -> 11
+ * with them, and AGGREGATE_FLOORS / MIN_LEGS_FLOOR move to 11 in this same diff, so
+ * the recipe cannot be edited into agreement with itself. Nothing removed, no leg
+ * repointed, no floor lowered; `npm run check` is unchanged in package.json (the
+ * developer's one-shot command), and the new TEST-25 asserts the chain and the legs
+ * are in parity so a link added to one and not the other reddens here. STRENGTHENING:
+ * the chain's red first link (`check:e2e-routing`) no longer hides `test:unit`.
+ *
+ * ── CHECK MOVES AGAIN AGAIN (gate-tests phase 1 fix — the `ui-tsc` leg) ────────────────
+ * `check` 9c09d395 -> b781c463: the `ui-tsc` leg is `npx --no-install tsc --noEmit`
+ * instead of bare `tsc --noEmit`. `tsc` is on PATH only inside `npm run`
+ * (node_modules/.bin), so the leg as written could not work — a plain shell leg says
+ * "tsc: command not found". `npx --no-install` resolves the installed `tsc` from
+ * node_modules/.bin without fetching anything (it refuses to install a missing package),
+ * on the same npm version resolution the `npm run` chain uses. The gate is the SAME
+ * `tsc --noEmit` typecheck — the invocation is repaired, not weakened: TEST-25
+ * normalises a leading `npx --no-install ` to the bare link text so parity holds against
+ * the unchanged package.json link `tsc --noEmit`, and the frozen case table pins the
+ * leg's recorded command as `npx --no-install tsc --noEmit` (TEST-17/18/19 fail it by
+ * exact string, so the leg cannot drop back to a form that cannot run). FIX.
+ *
  * ── THE ANCHOR IS a9bc4c1c, NOT 2caaa6e9 ────────────────────────────────────────────────
  *
  * Stated exactly, because the first draft of this block said "unmoved since the pins were
@@ -1101,11 +1160,13 @@ const REACHABLE_FROM_CHECK = [
  * the top-level directives joined the hash) and added `__directives__`, so every value in this
  * object moved there for a reason that has nothing to do with any recipe. `check-r-regime`'s
  * BODY genuinely moved at a9bc4c1c too — a bare `-eq 0` suite check became
- * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly three recipes have moved: `check-guards`
- * once, `check-invariants` twice and `check-processor-versions` once — the four rows above.
+ * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly four recipes have moved: `check-guards`
+ * once, `check-invariants` twice, `check-processor-versions` once and `check` twice
+ * (gate-tests phase 1 and its phase-1 `ui-tsc` leg fix — the two blocks above) — the
+ * rows above.
  */
 const RECIPE_PINS = {
-  "check": "555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176",
+  "check": "b781c4635aeac1b8030e092934a3bd3e81a9b3490bf25f82cd12834b0d7bec8b",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",
@@ -1284,5 +1345,119 @@ test('TEST-24 docs/aggregate-gate-reporting.md states the same floors as AGGREGA
     AGGREGATE_FLOORS,
     'the floors in docs/aggregate-gate-reporting.md §4 differ from AGGREGATE_FLOORS in this file; ' +
       'fix the DOC (never lower a floor to match a stale doc)',
+  );
+});
+
+// ── TEST-25 ─────────────────────────────────────────────────────────────────────────
+/**
+ * The `npm run check` chain and the `just check` UI legs must stay in PARITY.
+ *
+ * The recipe no longer runs `npm run check` as one opaque leg: that is the #287 defect
+ * one level down — the chain's red first link (`check:e2e-routing` is red on main) hid
+ * every later link, including `test:unit`. The chain is split into per-link `ui-*` legs
+ * (`ui-tsc`, `ui-typecheck-tests`, `ui-guards-actions`, `ui-guards-lint`,
+ * `ui-e2e-routing`, `ui-rename-mechanical`, `ui-unit`), so a red link is a named red
+ * leg and the legs after it still run.
+ *
+ * This test holds both sides to the same list. A link added to `src-app/ui/package.json`'s
+ * `check` chain without a matching `ui-*` leg — or a `ui-*` leg whose command is not a
+ * link of the chain — reddens here. Links are compared by THEIR OWN TEXT (`npm run X`
+ * compares as `X`: the script's body command is irrelevant, only that the same script
+ * name is wired on both sides; every other link, e.g. `node scripts/foo.mjs`, compares
+ * verbatim, so a command changed in ONE place without the other is also a parity break).
+ * `ui-npm-build` is excluded: the bundle build is a separate gate that has no place in
+ * the `check` chain.
+ *
+ * The FAILING direction is demonstrated in `.dsh/parity-proof.txt` (gate-tests phase 1):
+ * dropping one `ui-*` leg from the justfile turns this test red while the chain is
+ * untouched.
+ */
+function uiChainLinks() {
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'src-app/ui/package.json'), 'utf8'));
+  const chain = pkg.scripts.check;
+  assert.ok(chain, '`src-app/ui/package.json` no longer declares a `check` script');
+  const links = chain.split('&&').map((l) => l.trim()).filter(Boolean);
+  assert.ok(
+    links.length >= 10,
+    `the ui check chain has only ${links.length} link(s) — it must still be the full chain, ` +
+      `not something an emptied parser would read as complete`,
+  );
+  return links;
+}
+
+/**
+ * `npm run X` compares as `X`; a leg that invokes a binary through
+ * `npx --no-install <cmd>` is treated as `<cmd>` itself (the SAME tool, resolved via
+ * node_modules/.bin by npx — the leg fix for `tsc` being off the raw PATH). Every other
+ * link compares as its own text.
+ */
+function uiLinkKey(link) {
+  const m = /^npm run ([\w:.-]+)$/.exec(link);
+  if (m) return m[1];
+  return link.replace(/^npx --no-install /, '');
+}
+
+/** The `ui-*` legs of the `check:` recipe: leg name -> [normalised link(s) of its command]. */
+function uiLegCommands() {
+  const { legs } = legLinesOf(checkBlock());
+  const out = new Map();
+  for (const leg of legs) {
+    const [name, ...rest] = leg.split(/\s+/);
+    if (!name.startsWith('ui-')) continue;
+    const cmd = rest.join(' ').trim();
+    assert.ok(
+      cmd.startsWith('cd {{ui_dir}} && '),
+      `ui leg '${name}' does not begin with 'cd {{ui_dir}} && ' — a leg that does not run ` +
+        `from the UI directory cannot be the link's own command`,
+    );
+    out.set(
+      name,
+      cmd.slice('cd {{ui_dir}} && '.length).split('&&').map((l) => l.trim()).filter(Boolean).map(uiLinkKey),
+    );
+  }
+  return out;
+}
+
+test('TEST-25 every ui link of the `check` chain has a `just check` ui-* leg, and vice versa', () => {
+  const chain = uiChainLinks().map(uiLinkKey);
+  const legs = uiLegCommands();
+  // The bundle build is a separate gate and is deliberately NOT part of the check chain.
+  assert.ok(
+    legs.has('ui-npm-build'),
+    '`just check` must keep the `ui-npm-build` leg (its `npm run build` is not a `check`-chain link)',
+  );
+  const chainLegs = new Map(legs);
+  chainLegs.delete('ui-npm-build');
+
+  // Every declared linkage must have both sides: a chain link with no leg, and a leg
+  // command that is not a chain link. These come FIRST so a dropped leg reddens with
+  // the link named, not with a count message (`.dsh/parity-proof.txt`).
+  const legLinks = new Map();
+  for (const [name, keys] of chainLegs) for (const k of keys) legLinks.set(k, name);
+  const uncovered = chain.filter((k) => !legLinks.has(k));
+  assert.deepEqual(
+    uncovered,
+    [],
+    `these link(s) of ui/package.json's \`check\` chain have no \`ui-*\` leg in the justfile ` +
+      `(the chain: ${chain.join(' && ')}): ${uncovered.join(', ')}`,
+  );
+  const chainSet = new Set(chain);
+  const stray = [];
+  for (const [name, keys] of chainLegs) {
+    for (const k of keys) if (!chainSet.has(k)) stray.push(`${name} -> ${k}`);
+  }
+  assert.deepEqual(
+    stray,
+    [],
+    `these \`ui-*\` leg command(s) are not link(s) of ui/package.json's \`check\` chain: ` +
+      `${stray.join(', ')}`,
+  );
+  // POSITIVE COUNT, last: a parser that extracted nothing is caught by the two assertions
+  // above (every link is then "uncovered"), and this keeps the split from silently
+  // re-collapsing into fewer legs while somehow staying in parity.
+  assert.ok(
+    chainLegs.size >= 7,
+    `only ${chainLegs.size} ui-* chain leg(s) found — the split must be one leg per link ` +
+      `or guard family, not a re-collapsed chain`,
   );
 });

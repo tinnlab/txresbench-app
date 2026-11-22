@@ -7,7 +7,7 @@
 #
 # <sha256>  <path>
 6cabd764847af5f39601c65d2514807c4172b3d2f64020850d78eb33c2a85413  scripts/check-aggregate.sh
-338c409ced2458a2c9480e132707d67dfe4f6daf1ce0e3e807da764ff3a99f6d  scripts/check-aggregate.test.mjs
+5a0b4691e3e0e71c59d053fa9d5ac012d7a0acc7102b15260a84a0d5bf6106ba  scripts/check-aggregate.test.mjs
 c8341df7e2b2b5f068239d11d99a843c09c73e3d9200909161639893b99db94e  scripts/check-dead-refs.sh
 6646bedfba154370ccdc873345d4b83593652d0441559da3bdb7425f704d31db  scripts/check-guard-integrity.sh
 a3a75703d2b670fdc5443beed8efcf40012870e54d86cc56dd828219d925a475  scripts/check-method-env-images.sh

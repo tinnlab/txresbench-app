@@ -60,13 +60,28 @@ test-unit:
 # `--min-legs` is the floor: a leg silently dropped from the heredoc below — or a heredoc
 # that stops expanding — must redden rather than shrink the gate to a green over a smaller
 # set. Adding a leg needs no edit to it; removing one does.
+#
+# The UI leg is SPLIT: `npm run check` is one `&&` chain of twelve links, so a red link
+# hides every later one — the #287 defect one level down (`check:e2e-routing` is red on
+# main and was hiding `test:unit`). Each link is now its own visible leg (`ui-tsc`,
+# `ui-typecheck-tests`, `ui-guards-actions` = the three action guards, `ui-guards-lint` =
+# the four lint guards, `ui-e2e-routing`, `ui-rename-mechanical`, `ui-unit`), so a red
+# link is a named red leg and the legs after it still run. `npm run check` is unchanged
+# in package.json as the developer's one-shot command; TEST-25 pins the chain and the
+# legs in parity.
 check:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 5 --controls-leg check-aggregate-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 11 --controls-leg check-aggregate-controls <<'LEGS'
     check-aggregate-controls node --test "{{justfile_directory()}}/scripts/check-aggregate.test.mjs"
     cargo-check-workspace cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo check --workspace --tests
-    ui-npm-check cd {{ui_dir}} && npm run check
+    ui-tsc cd {{ui_dir}} && npx --no-install tsc --noEmit
+    ui-typecheck-tests cd {{ui_dir}} && npm run typecheck:tests
+    ui-guards-actions cd {{ui_dir}} && node scripts/collect-actions.mjs --check && node scripts/action-refs-lint.mjs && node scripts/action-coverage.mjs
+    ui-guards-lint cd {{ui_dir}} && node scripts/lint-no-domain-in-builtin.mjs && node scripts/lint-text-source-bytes.mjs && node scripts/lint-native-controls.mjs && node scripts/lint-secret-input-caps.mjs
+    ui-e2e-routing cd {{ui_dir}} && npm run check:e2e-routing
+    ui-rename-mechanical cd {{ui_dir}} && npm run check:rename-mechanical
+    ui-unit cd {{ui_dir}} && npm run test:unit
     ui-npm-build cd {{ui_dir}} && npm run build
     check-invariants just check-invariants
     LEGS
