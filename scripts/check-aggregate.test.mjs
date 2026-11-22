@@ -255,7 +255,17 @@ test('TEST-7 each leg’s stdout and stderr reach the aggregate output, failing 
 // (the node's diff-surface rule) fails because the gate-tests phase diffs themselves
 // touch docs/justfile/scripts, and build.test.mjs TEST-16 (self-contained + green)
 // inherits that red — named reds, never excluded (the floor rises WITH the set).
-const MIN_LEGS_FLOOR = 16;
+// 16 -> 18 (gate-tests phase 4): TWO legs added — `scripts-node-tests` (a run-time
+// `find` over scripts/ for every `*.test.mjs` not already a leg, minus the one docker
+// suite the gate cannot build) and `scripts-py-tests` (the six stdlib-unittest
+// `*.test.py` under scripts/demo + scripts/dev-registry, `python3 -I`). A pure ADD —
+// committed suites no leg ran — again in the same diff as `--min-legs` and
+// AGGREGATE_FLOORS. Both legs are expected RED today on THIS box for path-only
+// reasons: the demo scripts' tests hardcode /data/pbya/... work dirs (absent here), and
+// build-wsl-rootfs + installer/surface + e2e_demo carry pre-existing code-state reds —
+// NAMED reds per file (TEST-26 keeps the coverage claim machine-checked), never
+// skipped, never edited.
+const MIN_LEGS_FLOOR = 18;
 
 /**
  * The body of a `just` recipe, delimited the way JUST delimits it: every following line
@@ -699,7 +709,12 @@ function runRealJustCheck({ fail = '' } = {}) {
   // the behavioural tests would execute the real compiler (minutes, and it needs
   // node_modules/.bin) and record nothing for TEST-17/18/19. (`tsc` is kept so a bare
   // `tsc` invocation anywhere would also be intercepted, not executed for real.)
-  for (const name of ['cargo', 'npm', 'node', 'just', 'npx', 'tsc']) {
+  // `python3` joins the stub set with the gate-tests phase-4 `scripts-py-tests` leg:
+  // without it the behavioural runs would execute the REAL six-suite python leg once per
+  // TEST-17/18/19 run (minutes of squashfs packaging, plus it is RED on this box on the
+  // absent /data/pbya paths, so TEST-19's all-green sanity would redden for an
+  // environment reason). The stub set is exactly the external commands a leg may call.
+  for (const name of ['cargo', 'npm', 'node', 'just', 'npx', 'tsc', 'python3']) {
     fs.writeFileSync(
       path.join(bin, name),
       `#!/usr/bin/env bash\n` +
@@ -780,6 +795,44 @@ const EXPECTED_GATES = [
   `node ${path.join(REPO, 'sdk/packages/gallery/scripts/check-harness-parity.mjs')}`,
   `node --test ${path.join(REPO, 'sdk/packages/gallery/scripts/check-harness-parity.test.mjs')}`,
   'node --test site/tests/*.test.mjs',
+  // gate-tests phase 4: the scripts/ suites as their own legs. `scripts-node-tests`
+  // discovers every `scripts/**/*.test.mjs` with a run-time `find` and runs each as its
+  // own `node --test` subprocess (one per suite, so a suite that crashes or fails cannot
+  // mask the files after it; sort for a deterministic order), excluding ONLY the five
+  // suites another leg already runs (check-aggregate-controls in this recipe;
+  // check-method-env-images-controls + check-method-list-controls in `check-guards`;
+  // check-network-allowlist-controls + check-pub-orphans-controls in `check-invariants`)
+  // and build-wsl-rootfs.docker.test.mjs (needs docker + network + ~minutes — the leg
+  // PRINTS `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker`, so the skip is never
+  // silent; the docker suite remains its own TXR_WSL_ROOTFS_DOCKER_TEST=1 lane). The 13
+  // rows below are the file set as of this phase, frozen in find|sort order; a NEW test
+  // file that lands is discovered by the leg, and TEST-26 asserts over the filesystem
+  // that every scripts/**/*.test.mjs and *.test.py is covered or named in an exclusion.
+  // `scripts-py-tests` runs the six stdlib-unittest `*.test.py` under scripts/demo +
+  // scripts/dev-registry, each `python3 -I`, TMPDIR at a per-run dir under $HOME (the
+  // four that honor TMPDIR write there; the demo/e2e_real tests hardcode /data/pbya
+  // work dirs — path-only reds on this box, named, never skipped). Both legs are one
+  // subprocess per file and exit non-zero after the LAST file regardless of the
+  // failures before it, exactly the no-hiding property the aggregate itself has.
+  'node --test scripts/assemble-method-list.test.mjs',
+  'node --test scripts/build-installer-local.test.mjs',
+  'node --test scripts/build-wsl-rootfs.test.mjs',
+  'node --test scripts/fetch-oras.test.mjs',
+  'node --test scripts/import-method-list.test.mjs',
+  'node --test scripts/installer/bundle-pretrained-models.test.mjs',
+  'node --test scripts/installer/discover-artifacts.test.mjs',
+  'node --test scripts/installer/lib/artifacts.test.mjs',
+  'node --test scripts/installer/make-update-feed.test.mjs',
+  'node --test scripts/installer/surface.test.mjs',
+  'node --test scripts/installer/write-downloads-config.test.mjs',
+  'node --test scripts/publish-method-list.test.mjs',
+  'node --test scripts/verify-macos-vm-runtime.test.mjs',
+  'python3 -I scripts/demo/e2e_demo.test.py',
+  'python3 -I scripts/demo/record_demo_bundle.test.py',
+  'python3 -I scripts/dev-registry/e2e_real.test.py',
+  'python3 -I scripts/dev-registry/make_real_inputs.test.py',
+  'python3 -I scripts/dev-registry/publish.test.py',
+  'python3 -I scripts/dev-registry/registry.test.py',
   // The UI `npm run check` chain (gate-tests phase 1): one recorded command per link —
   // the chain was split out of the single opaque `npm run check` leg precisely so a red
   // link (currently `check:e2e-routing`) cannot hide the links after it. TEST-25 keeps
@@ -922,8 +975,16 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // the site leg is expected RED today on deploy.test.mjs TEST-18 (diff-surface rule vs
 // the gate-tests phase diffs) + build.test.mjs TEST-16 (suite-must-be-green) — a NAMED
 // red leg, never excluded.
+// gate-tests phase 4 — 'check': 16 -> 18. Two legs added: `scripts-node-tests` (the
+// run-time-discovered node:test suites under scripts/, minus the five suites another leg
+// runs and the docker-only suite, which the leg prints a SKIPPED line for) and
+// `scripts-py-tests` (the six stdlib-unittest *.test.py, python3 -I). A pure ADD (all
+// were committed test populations no leg ran), raised in the SAME diff as `--min-legs`
+// and MIN_LEGS_FLOOR; both legs are expected RED today for path-only + pre-existing
+// code-state reasons — NAMED reds per failing suite (the justfile comment and TEST-26
+// list them), never excluded.
 const AGGREGATE_FLOORS = {
-  check: 16,
+  check: 18,
   'check-invariants': 9,
   'check-guards': 6,
 };
@@ -1079,7 +1140,7 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      09335a9a6720a31a0150cd79b78592fb9e9fa7296dab96b759c702329da41f47  THIS-CHANGE
+ * check                      a872f993c562dd039df073336ba1a8d363dc2ebf3ff63731a873c9571026506e  THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
  * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
@@ -1346,6 +1407,55 @@ const REACHABLE_FROM_CHECK = [
  * guards finally have a caller, and the new leg commands are frozen by exact string in
  * EXPECTED_GATES (TEST-17/18/19) so they cannot silently drop back to a weaker form.
  *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN AGAIN AGAIN (gate-tests phase 4, THIS-CHANGE) ────
+ * `check` 09335a9a -> a872f993: TWO legs are ADDED after `site-test`:
+ * `scripts-node-tests` and `scripts-py-tests` — the committed scripts/ test suites that
+ * NO leg had ever run (the five top-level control suites and the docker WSL-rootfs
+ * suite are the only .mjs suites handled elsewhere; EVERYTHING else — 7 top-level
+ * suites, the installer node's 6, and all 6 *.test.py — was run by nothing, AUDIT
+ * B4/D17). `--min-legs` rises 16 -> 18 with them, and AGGREGATE_FLOORS /
+ * MIN_LEGS_FLOOR move to 18 in this same diff. Nothing removed, no leg repointed, no
+ * floor lowered.
+ * `scripts-node-tests` is `find scripts -name '*.test.mjs'` at run time (piped through
+ * `sort` for a deterministic order), one `node --test <file>` subprocess per suite
+ * (a suite that crashes or fails cannot make the files after it unrun), with an
+ * exclusion list naming only what another leg already runs — check-aggregate.test.mjs
+ * (check-aggregate-controls, first leg of this recipe), check-method-env-images.test.mjs
+ * + check-method-list.test.mjs (check-method-*-controls in `check-guards`),
+ * check-network-allowlist.test.mjs + check-pub-orphans.test.mjs (the controls in
+ * `check-invariants`) — plus build-wsl-rootfs.docker.test.mjs, the docker builds suite
+ * (linux/amd64 + arm64, network, minutes; its own header self-skips unless
+ * TXR_WSL_ROOTFS_DOCKER_TEST=1, and the gate image ships no docker), for which the leg
+ * prints `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` — the only exclusion
+ * without a runner, and never silent. A new *.test.mjs that lands next month is picked
+ * up with NO justfile edit (the self-growing scope the farm rules demand); the new
+ * TEST-26 asserts over the filesystem that every scripts/ *.test.mjs and *.test.py is
+ * covered by one of the two legs' globs or named in an exclusion whose claim is
+ * provable — so a new orphan suite, or an exclusion entry no leg runs, turns the gate
+ * red. `scripts-py-tests` runs the six stdlib-unittest files (scripts/demo + the
+ * dev-registry quartet) with `python3 -I` (each loads its module under test by explicit
+ * sys.path.insert/importlib.util, so isolated mode's sys.path is not a problem) and
+ * TMPDIR at a per-run dir under $HOME — never /tmp, never the repo. The `python3` stub
+ * joined the behavioural stubs (TEST-17/18/19) in this same diff for the same reason
+ * npm/cargo are stubbed, so the real (red, path-bound) python leg is never executed
+ * four dozen times inside the controls. REDS, NAMED, NOT FIXED (a red is listed, never
+ * skipped): scripts/demo/e2e_demo.test.py — a route-surface assertion (133 vs 130
+ * policy rows) plus 6 errors on the absent /data/pbya work dir; scripts/demo/
+ * record_demo_bundle.test.py — 3 errors on the absent /data/pbya work dir;
+ * scripts/dev-registry/e2e_real.test.py — module error: makedirs /data/pbya is
+ * PermissionError (absent, root-owned); scripts/dev-registry/publish.test.py — 1 error
+ * on the absent /data/share/pbya/sigtrans/methods/... real-method tree (11 pass, 1
+ * skipped); scripts/build-wsl-rootfs.test.mjs — 1 pre-existing failure (the test's
+ * expected tauri.conf.json object lacks the windows.nsis keys the installers node added
+ * to the real config; 31 pass); scripts/installer/surface.test.mjs — 2 pre-existing
+ * failures (TEST-IR-13: the diff vs the installers node base touches src-app/ui paths
+ * committed after that base; ITEM-6: release.yml's step order no longer matches the
+ * test's expectations). registry.test.py, make_real_inputs.test.py (1 self-skip: no
+ * benchmark tree) and the other ten node suites pass. STRENGTHENING: nineteen committed
+ * suites no leg executed are now legs, the two newly-run legs are frozen by exact string
+ * in EXPECTED_GATES (TEST-17/18/19), the coverage claim has its own test (TEST-26), and
+ * `python3 -I` + TMPDIR isolate the python leg from the ambient environment.
+ *
  * ── THE ANCHOR IS a9bc4c1c, NOT 2caaa6e9 ────────────────────────────────────────────────
  *
  * Stated exactly, because the first draft of this block said "unmoved since the pins were
@@ -1356,13 +1466,14 @@ const REACHABLE_FROM_CHECK = [
  * object moved there for a reason that has nothing to do with any recipe. `check-r-regime`'s
  * BODY genuinely moved at a9bc4c1c too — a bare `-eq 0` suite check became
  * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly four recipes have moved: `check-guards`
- * once, `check-invariants` twice, `check-processor-versions` once and `check` four
+ * once, `check-invariants` twice, `check-processor-versions` once and `check` five
  * times (gate-tests phase 1, its phase-1 `ui-tsc` leg fix, the phase-2 crate-test
- * legs, and the phase-3 JS/TS legs — the four blocks above) — the
+ * legs, the phase-3 JS/TS legs, and the phase-4 scripts/ suites — the five blocks
+ * above) — the
  * rows above.
  */
 const RECIPE_PINS = {
-  "check": "09335a9a6720a31a0150cd79b78592fb9e9fa7296dab96b759c702329da41f47",
+  "check": "a872f993c562dd039df073336ba1a8d363dc2ebf3ff63731a873c9571026506e",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",
@@ -1656,4 +1767,162 @@ test('TEST-25 every ui link of the `check` chain has a `just check` ui-* leg, an
     `only ${chainLegs.size} ui-* chain leg(s) found — the split must be one leg per link ` +
       `or guard family, not a re-collapsed chain`,
   );
+});
+
+// ── TEST-26 ─────────────────────────────────────────────────────────────────────────
+/**
+ * The scripts/ test-suite legs (gate-tests phase 4) must actually cover every committed
+ * test file under scripts/ — otherwise `just check` again answers about a subset of its
+ * suites, which is the failure class this whole file exists to remove, one level up.
+ *
+ * `scripts-node-tests` discovers at run time (`find scripts -name '*.test.mjs'`) and
+ * excludes an EXPLICIT list; `scripts-py-tests` discovers `*.test.py`. A test file that
+ * no glob runs is an orphan suite the gate never executes. So this test derives the
+ * ground truth from the FILESYSTEM — every scripts/ `*.test.mjs` and `*.test.py` on
+ * disk (a `**` glob in prose would terminate this block comment; the pattern is spelled
+ * as the legs spell it) —
+ * and checks each file against the two legs' own commands as spelled in the `check:`
+ * recipe (never against a second copy of the list, which is the tautology §4 warns
+ * about):
+ *
+ *  - a file NOT in the exclusions is covered by the run-time glob (which is also why a
+ *    NEW suite that lands is picked up with no justfile edit — that self-growing property
+ *    is the member here, and the frozen cases are the exclusions' claims);
+ *  - a file IN an exclusion list is legal only when its claim is provable from the
+ *    justfile: another leg runs it by path (`node --test … scripts/<file>`), or — the one
+ *    designed exception — it is build-wsl-rootfs.docker.test.mjs, for which the leg
+ *    prints `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` (the suite needs
+ *    docker + network + minutes; its own header self-skips unless
+ *    TXR_WSL_ROOTFS_DOCKER_TEST=1, so excluding it WITHOUT the printed line would be a
+ *    silent skip — the precisely-named anti-pattern);
+ *  - an exclusion name that matches NO file on disk is drift, not a skip: it excludes
+ *    nothing and would leave the suite double-run or silently dropped;
+ *  - the discover globs' exact patterns and the SKIPPED print remain spelled in the legs,
+ *    so the discovery cannot be narrowed to a subset in a diff nobody reads.
+ *
+ * FLOOR. The suite set GROWS without a justfile edit by design (a new *.test.mjs that
+ * lands is discovered automatically), so the floor here is a MINIMUM, not the exact
+ * count: today 19 *.test.mjs + 6 *.test.py = 25 files. It moves UP with a deliberate
+ * shrink, NEVER down to fit a red — the derived-guards §5 rule, applied to a set whose
+ * growth is automatic and whose shrink therefore has to be argued for.
+ */
+test('TEST-26 every scripts/**/*.test.mjs and *.test.py is covered by the scripts-node-tests / scripts-py-tests globs or a named exclusion', () => {
+  const { legs } = legLinesOf(checkBlock());
+  const nodeLeg = legs.find((l) => l.startsWith('scripts-node-tests '));
+  const pyLeg = legs.find((l) => l.startsWith('scripts-py-tests '));
+  assert.ok(
+    nodeLeg,
+    '`just check` no longer declares the scripts-node-tests leg — the coverage claim ' +
+      'this test exists to keep cannot be verified over a missing leg',
+  );
+  assert.ok(
+    pyLeg,
+    '`just check` no longer declares the scripts-py-tests leg — the coverage claim this ' +
+      'test exists to keep cannot be verified over a missing leg',
+  );
+  const nodeCmd = nodeLeg.slice('scripts-node-tests '.length);
+  const pyCmd = pyLeg.slice('scripts-py-tests '.length);
+
+  // The discovery patterns are part of the contract, frozen by exact string: a narrowed
+  // glob (a subset, a different suffix) drops suites with every other check still green.
+  assert.match(
+    nodeCmd,
+    /find scripts -name '\*\.test\.mjs'/,
+    `scripts-node-tests must discover with \`find scripts -name '*.test.mjs'\` — a narrower ` +
+      `glob would silently drop suites: ${nodeCmd}`,
+  );
+  assert.match(
+    pyCmd,
+    /find scripts -name '\*\.test\.py'/,
+    `scripts-py-tests must discover with \`find scripts -name '*.test.py'\` — a narrower ` +
+      `glob would silently drop suites: ${pyCmd}`,
+  );
+  // The docker suite's exclusion must stay LOUD: without the printed line it is exactly
+  // the silent skip (a suite whose own header self-skips) the leg exists to prevent.
+  assert.match(
+    nodeCmd,
+    /SKIPPED build-wsl-rootfs\.docker\.test\.mjs: needs docker/,
+    'scripts-node-tests must print `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` ' +
+      '— an exclusion with no printed reason is a silent skip',
+  );
+
+  const nodeExcluded = new Set([...nodeCmd.matchAll(/-not -name '([^']+)'/g)].map((m) => m[1]));
+  const pyExcluded = new Set([...pyCmd.matchAll(/-not -name '([^']+)'/g)].map((m) => m[1]));
+
+  // Every test file under scripts/, DERIVED — never a hand-list (a hand-list is a
+  // snapshot of what existed the day someone typed it; this is the file system).
+  const files = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith('.test.mjs') || e.name.endsWith('.test.py')) files.push(p);
+    }
+  };
+  walk(path.join(REPO, 'scripts'));
+  assert.ok(
+    files.length >= 20,
+    `only ${files.length} test file(s) found under scripts/ (25 today: 19 *.test.mjs + ` +
+      `6 *.test.py) — the scan collapsed? Do NOT lower this floor to fit a red; a shrink ` +
+      `of the suite set has to be argued for like any other guard removal`,
+  );
+
+  /**
+   * "Another leg runs it": a non-comment recipe line that invokes `node --test` naming
+   * the suite's path. The two new legs run files through `"$f"`, so they can never
+   * satisfy this — an exclusion cannot be self-justifying.
+   */
+  const runnerOf = (base) => {
+    const hits = [];
+    for (const rec of allRecipes().values()) {
+      for (const l of rec.body) {
+        const t = l.trim();
+        if (!t || t.startsWith('#')) continue;
+        if (t.includes('node --test') && t.includes(`scripts/${base}`)) hits.push(t);
+      }
+    }
+    return hits;
+  };
+
+  const problems = [];
+  for (const p of files) {
+    const rel = path.relative(REPO, p).split(path.sep).join('/');
+    const base = path.basename(p);
+    const py = rel.endsWith('.test.py');
+    const excluded = (py ? pyExcluded : nodeExcluded).has(base);
+    if (!excluded) continue;
+    if (base === 'build-wsl-rootfs.docker.test.mjs') continue; // its SKIPPED line is asserted above
+    if (runnerOf(base).length === 0) {
+      problems.push(
+        `${rel} is excluded from the ${py ? 'scripts-py' : 'scripts-node'}-tests leg's glob ` +
+          `but NO other leg runs it — excluded-but-unrun is exactly the orphan suite this ` +
+          `phase came to close. Let the glob run it (it is discovered automatically) or ` +
+          `justify the exclusion beside the leg in the justfile`,
+      );
+    }
+  }
+  assert.deepEqual(
+    problems,
+    [],
+    `script-suite coverage holes (a file only counts as covered when it is run):\n  ` +
+      `${problems.join('\n  ')}`,
+  );
+
+  // The reverse drift: an exclusion that names no file on disk excludes nothing. It can
+  // silently re-run a suite that is already a leg, or pretend to skip one that never
+  // existed — both put the coverage claim in a diff nobody reads.
+  for (const base of nodeExcluded) {
+    assert.ok(
+      files.some((p) => path.basename(p) === base),
+      `scripts-node-tests excludes '${base}', which is not a *.test.mjs under scripts/ — ` +
+        `an exclusion that names nothing is drift, not a skip`,
+    );
+  }
+  for (const base of pyExcluded) {
+    assert.ok(
+      files.some((p) => path.basename(p) === base),
+      `scripts-py-tests excludes '${base}', which is not a *.test.py under scripts/ — an ` +
+        `exclusion that names nothing is drift, not a skip`,
+    );
+  }
 });

@@ -146,10 +146,51 @@ test-unit:
 # `--min-legs` (13 -> 16) rises with the three legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
 # the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
 # into agreement with itself.
+#
+# The scripts/ test suites as gate legs (gate-tests phase 4, AUDIT B4/D17): the `scripts/`
+# tree carries 13 top-level `*.test.mjs` (plus 6 more under `scripts/installer/` when the
+# installer node's own six suites are counted) and 6 `*.test.py` (scripts/demo + the
+# dev-registry quartet). FIVE of the top-level .mjs files are ALREADY legs elsewhere —
+# check-aggregate.test.mjs (check-aggregate-controls, below), check-method-env-images
+# .test.mjs + check-method-list.test.mjs (check-method-*-controls in `check-guards`),
+# check-network-allowlist.test.mjs + check-pub-orphans.test.mjs (the controls in
+# `check-invariants`) — and EVERYTHING ELSE was run by NO leg, so two legs now run the
+# rest: `scripts-node-tests` (`node --test` per file, one subprocess per suite so a
+# crashing suite cannot mask the files after it) and `scripts-py-tests` (each file with
+# `python3 -I`, stdlib-unittest, no runner beyond the file's own `unittest.main()`).
+# `scripts-node-tests` DISCOVERS at run time (`find scripts -name '*.test.mjs'`, piped
+# through `sort` for a deterministic order): a test file that lands next month is picked
+# up with no justfile edit — the same self-growing property the farm guards already
+# demand of a runner's scope. The exclusion list below is the ONLY run-time excluded
+# set, and it is exactly the ones another leg already runs (each named here with its
+# leg) plus `build-wsl-rootfs.docker.test.mjs`: that suite builds the WSL root in
+# docker (linux/amd64 + arm64, network, ~minutes) and its own header says a plain
+# `node --test` skips it silently unless TXR_WSL_ROOTFS_DOCKER_TEST=1; the gate image
+# ships no docker, so the leg excludes it AND prints
+# `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` — the skip is never silent.
+# The docker build remains a deliberate, separately-invoked lane
+# (`TXR_WSL_ROOTFS_DOCKER_TEST=1 node --test scripts/build-wsl-rootfs.docker.test.mjs`),
+# not a test hidden behind an env var. TEST-26 in check-aggregate.test.mjs pins all of
+# this: every scripts/**/*.test.mjs and *.test.py is either covered by one of the two
+# legs' run-time globs or named in the exclusion list WITH the leg that runs it, so a
+# new orphan suite (or an exclusion entry with no running leg) turns the gate red.
+# `scripts-py-tests` runs with `python3 -I` (every one of the six loads the module under
+# test by explicit `sys.path.insert`/`importlib.util`, so the isolated-mode sys.path
+# does not matter — verified) and with TMPDIR pointed at a per-run dir under $HOME
+# (never /tmp, never the repo): the four scripts that honor TMPDIR write their scratch
+# there and clean up; the demo/e2e_real tests hardcode /data/pbya/... paths instead and
+# are ABSENT on this box — the failures are path-only and stay NAMED reds (listed in the
+# phase-4 change note), never skipped or edited. Both legs keep the same shape the old
+# `check-py` used: `env`-style isolation, run every file, collect each failure, exit
+# non-zero once — a red file cannot hide the ones after it.
+#
+# `--min-legs` (16 -> 18) rises with the two legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
+# the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
+# into agreement with itself.
 check:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 16 --controls-leg check-aggregate-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 18 --controls-leg check-aggregate-controls <<'LEGS'
     check-aggregate-controls node --test "{{justfile_directory()}}/scripts/check-aggregate.test.mjs"
     cargo-check-workspace cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo check --workspace --tests
     sdk-crates-test cd {{justfile_directory()}}/sdk && cargo test --workspace --no-default-features --features "sqlite-backend,routes,module" --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1
@@ -157,6 +198,8 @@ check:
     sdk-ts-test cd {{justfile_directory()}} && npm test --workspace=@txresbench/framework --workspace=@txresbench/kit --workspace=@txresbench/gallery --workspace=@txresbench/shell --workspace=@txresbench/config
     gallery-guards cd {{ui_dir}} && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs --build && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.mjs && node --test {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.test.mjs
     site-test cd {{justfile_directory()}} && node --test 'site/tests/*.test.mjs'
+    scripts-node-tests cd {{justfile_directory()}} && TMPDIR="${HOME}/.txresbench-gate-tests/node-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); node --test "$f" || rc=1; done < <(find scripts -name '*.test.mjs' -not -name 'check-aggregate.test.mjs' -not -name 'check-method-env-images.test.mjs' -not -name 'check-method-list.test.mjs' -not -name 'check-network-allowlist.test.mjs' -not -name 'check-pub-orphans.test.mjs' -not -name 'build-wsl-rootfs.docker.test.mjs' | sort); echo 'SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker'; echo "scripts-node-tests: ran $n suite file(s)"; [ "$n" -ge 7 ] || rc=1; exit $rc
+    scripts-py-tests cd {{justfile_directory()}} && TMPDIR="${HOME}/.txresbench-gate-tests/py-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); python3 -I "$f" || rc=1; done < <(find scripts -name '*.test.py' | sort); echo "scripts-py-tests: ran $n suite file(s)"; [ "$n" -ge 3 ] || rc=1; exit $rc
     ui-tsc cd {{ui_dir}} && npx --no-install tsc --noEmit
     ui-typecheck-tests cd {{ui_dir}} && npm run typecheck:tests
     ui-guards-actions cd {{ui_dir}} && node scripts/collect-actions.mjs --check && node scripts/action-refs-lint.mjs && node scripts/action-coverage.mjs

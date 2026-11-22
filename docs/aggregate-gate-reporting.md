@@ -52,7 +52,7 @@ pre-existing and now visible, not introduced. Each red belongs to its own issue 
 own owner. The strip node removed the legs whose subjects left the tree (the
 processor-package, env-recipe and coercion legs) and moved the `--min-legs` floor with
 the removal; the aggregate keeps one floor per critical line of defence
-(`check` 16, `check-invariants` 9, `check-guards` 6) and `check-aggregate.test.mjs`
+(`check` 18, `check-invariants` 9, `check-guards` 6) and `check-aggregate.test.mjs`
 asserts all of them. (`check`'s floor rose 5 -> 11 when the UI `npm run check` chain —
 one opaque leg whose red first link hid `test:unit` — was split into one `ui-*` leg per
 link, the same class of failure this document is about, one level down. It rose again
@@ -71,7 +71,22 @@ test, run from the app's `ui/` — the e2e gallery is deliberately not wired, th
 has no Playwright browsers) and `site-test` (`node --test` over `site/tests/`: landing page + the two
 feeds). `site-test` is expected RED on main — `deploy.test.mjs` TEST-18 asserts the
 current diff touches only the site node's file list, and the gate-tests phase diffs
-themselves touch docs/justfile/scripts — and the red is a named leg, never skipped.)
+themselves touch docs/justfile/scripts — and the red is a named leg, never skipped.
+It rose again 16 -> 18 when gate-tests phase 4 added `scripts-node-tests` (every
+`scripts/` `*.test.mjs` that is not already a leg elsewhere — discovered by a run-time
+`find`, so a new suite is picked up with no justfile edit; the five control suites and
+the docker-only WSL-rootfs build suite are excluded by an explicit list, and the docker
+suite's exclusion prints `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` so it
+is never silent) and `scripts-py-tests` (the six stdlib-unittest `*.test.py` under
+`scripts/demo` + `scripts/dev-registry`, run `python3 -I` with TMPDIR at a per-run dir
+under `$HOME` — never /tmp, never the repo). Both are expected RED on a bare box for
+path-bound reasons the suites themselves hardcode (the demo scripts' `WORK_DIR` is
+`/data/pbya/...`; the dev-registry real-method and benchmark trees are outside this
+checkout) — the failures are per-file NAMED reds listed in the phase-4 change note,
+never skipped, never edited to pass. TEST-26 in `check-aggregate.test.mjs` asserts the
+coverage claim over the filesystem: every `scripts/` `*.test.mjs` and `*.test.py` is
+either covered by one of the two legs' globs or named in an exclusion list with the leg
+that runs it.)
 
 ## §5 Non-negotiables
 
