@@ -34,6 +34,7 @@ import {
   useMethodListUpdates,
 } from '@/lib/txr-method-list/revision'
 import type { TxrMethodCard } from '../types'
+import type { TxrReasonLabels } from '../lib/format'
 import { buildMethodCards } from './methodRows'
 
 export interface UseMethodRowsResult {
@@ -94,7 +95,10 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Failed to load methods'
 }
 
-export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethodRowsResult {
+export function useMethodRows(
+  inventory: InventoryEligibilityRequest,
+  labels: TxrReasonLabels = {},
+): UseMethodRowsResult {
   const key = useMemo(() => stableInventoryKey(inventory), [inventory])
   const [cards, setCards] = useState<TxrMethodCard[]>([])
   const [noEnvCount, setNoEnvCount] = useState(0)
@@ -140,7 +144,7 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
           return
         }
         mixed.current = 0
-        setCards(buildMethodCards(list.methods.filter(method => method.runnable), eligibility))
+        setCards(buildMethodCards(list.methods.filter(method => method.runnable), eligibility, labels))
         setNoEnvCount(eligibility.total_no_env ?? 0)
         const sequence = eligibility.method_list_sequence ?? list.method_list_sequence ?? null
         setMethodListSequence(sequence)

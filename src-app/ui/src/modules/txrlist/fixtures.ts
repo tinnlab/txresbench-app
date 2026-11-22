@@ -271,6 +271,12 @@ export const TXRLIST_METHODS: MethodSummary[] = FX_METHODS.map(spec => ({
   container: true,
   embeds_training_data: false,
   spec_status: 'wrapped',
+  // The catalogue's schema-2 facts (the wire carries them; the E rows do
+  // not render them, so a fixture default that is true of every row is
+  // honest enough — the answers' own filters run on the ELIGIBILITY
+  // verdicts, not on these summary fields).
+  disease: { scope: 'any-solid-tumour', groups: [] },
+  treatment: { classes: ['chemotherapy'], confidence: 'stated' },
   markers: { kind: 'multi', count: 3 },
   covariates: 'optional',
   min_draws: spec.reason === 'MIN_DRAWS_UNMET' ? 3 : 1,

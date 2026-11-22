@@ -1,0 +1,34 @@
+# Each treatment class of the benchmark (as written per method) -> the base classes it is made of
+# (separated by ";", empty = none: the method always stays). Reviewed in the PR; judgment calls:
+# "radiotherapy or chemoradiotherapy" -> chemotherapy and radiotherapy (15 of its 17 methods involve chemotherapy; a method stays unless it shares nothing); "neoadjuvant systemic therapy" -> chemotherapy;
+# "systemic radiopharmaceutical (drug)" (a targeted radioligand) -> radiotherapy and targeted therapy; the anti-CD20 + alkylating agent + corticosteroid regimen -> biologic immunomodulator, chemotherapy, corticosteroid; the myeloma combination drops its optional anti-CD38 antibody.
+# Columns: benchmark_class<TAB>base_classes.
+# The last five rows are not benchmark classes: they refine methods the benchmark files under "other drug" (see method-treatment.tsv).
+benchmark_class	base_classes
+antibacterial or anti-TB	anti-infective
+antifungal	anti-infective
+antiviral	anti-infective
+biologic immunomodulator	biologic immunomodulator
+biologic immunomodulator (anti-CD20)	biologic immunomodulator
+biologic immunomodulator (anti-CD20) + alkylating agent + corticosteroid	biologic immunomodulator;chemotherapy;corticosteroid
+biologic immunomodulator (anti-TNF)	biologic immunomodulator
+cell therapy	cell therapy
+checkpoint inhibitor or targeted therapy	immune checkpoint inhibitor;targeted therapy
+chemo + checkpoint inhibitor	chemotherapy;immune checkpoint inhibitor
+chemotherapy	chemotherapy
+chemotherapy or checkpoint inhibitor	chemotherapy;immune checkpoint inhibitor
+chemotherapy or targeted therapy	chemotherapy;targeted therapy
+chemotherapy, checkpoint inhibitor or targeted therapy	chemotherapy;immune checkpoint inhibitor;targeted therapy
+hormone therapy	hormone therapy
+immune checkpoint inhibitor	immune checkpoint inhibitor
+n/a	
+neoadjuvant systemic therapy	chemotherapy
+not a drug	
+not stated	
+other drug	other drug
+proteasome inhibitor + immunomodulatory drug (IMiD) + corticosteroid (+ anti-CD38 monoclonal antibody)	targeted therapy;small-molecule immunomodulator or immunosuppressant;corticosteroid
+radiotherapy or chemoradiotherapy	chemotherapy;radiotherapy
+small-molecule immunomodulator or immunosuppressant	small-molecule immunomodulator or immunosuppressant
+systemic radiopharmaceutical (drug)	radiotherapy;targeted therapy
+targeted therapy	targeted therapy
+vaccine	vaccine

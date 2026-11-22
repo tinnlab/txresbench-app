@@ -79,6 +79,7 @@ export const ApiEndpoints = {
   'MethodCatalogue.detail': 'GET /api/methods/{method_id}',
   'MethodCatalogue.eligibility': 'POST /api/methods/eligibility',
   'MethodCatalogue.estimate': 'POST /api/methods/estimate',
+  'MethodCatalogue.filterOptions': 'GET /api/methods/filter-options',
   'MethodCatalogue.list': 'GET /api/methods',
   'MethodCatalogue.markers': 'GET /api/markers',
   'MethodList.checkUpdates': 'POST /api/methods/updates/check',

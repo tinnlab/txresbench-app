@@ -364,6 +364,8 @@ mod tests {
             "required_markers": null,
             "needs_detection_call": false,
             "marker_groups_required": [],
+            "disease": {"scope": "group", "groups": ["lung cancer"]},
+            "treatment": {"classes": ["immune checkpoint inhibitor"], "confidence": "stated"},
             "description": "d",
             "timing": {"base_seconds_per_fold": base_seconds,
                        "benchmarked_units": units, "quality": quality},
@@ -384,7 +386,14 @@ mod tests {
                 "generated_at": "2026-01-01T00:00:00Z"},
             "methods": methods,
             "markers": [],
-            "groups": [{"id": "ctdna", "display_name": "Tumour DNA in blood (ctDNA)"}]
+            "groups": [{"id": "ctdna", "display_name": "Tumour DNA in blood (ctDNA)"}],
+            "filter_options": {"disease_categories": [
+                {"id": "Solid tumours", "diseases": [
+                    {"id": "lung cancer", "children": ["non-small cell lung cancer"]}
+                ]}
+            ], "treatment_classes": [
+                {"id": "immune checkpoint inhibitor", "label": "Immune checkpoint inhibitor"}
+            ]}
         });
         parse_catalogue(serde_json::to_vec(&doc).unwrap().as_slice()).expect("test catalogue")
     }

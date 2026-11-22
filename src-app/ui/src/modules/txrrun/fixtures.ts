@@ -240,6 +240,8 @@ export function txrrunSmallMethods(): MethodListResponse['methods'] {
     container: true,
     embeds_training_data: false,
     spec_status: 'wrapped',
+    disease: { scope: 'any-solid-tumour', groups: [] },
+    treatment: { classes: ['chemotherapy'], confidence: 'stated' },
     markers: { kind: 'multi', count: 3 },
     covariates: 'optional',
     min_draws: 1,

@@ -64,7 +64,7 @@ test('writes_previous_plus_one', () => {
   const doc = readJson(list);
   assert.equal(doc.sequence, 2);
   assert.equal(doc.format, 'txresbench-method-list');
-  assert.equal(doc.format_version, 1);
+  assert.equal(doc.format_version, 2);
   assert.equal(doc.assembled_at, '2026-01-01T00:00:00Z');
   assert.deepEqual(doc.catalogue, readJson(path.join(dir, 'catalogue.json')));
   assert.deepEqual(doc.images, readJson(path.join(dir, 'method-env-images.json')));

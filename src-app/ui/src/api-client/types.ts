@@ -527,6 +527,32 @@ export interface DemoLimits {
 }
 
 /**
+ * The disease categories `filter_options.disease_categories[]` — each category
+ *  lists the diseases under it, and each disease lists its child disease names
+ *  (the strings a method's `disease.groups` may name directly).
+ */
+export interface DiseaseCategory {
+  diseases: DiseaseEntry[]
+  /** The category id (e.g. `Solid tumours`). */
+  id: string
+}
+
+/**
+ * One disease of a category: its id and the child disease names under it
+ *  (`children` empty when the disease has none).
+ */
+export interface DiseaseEntry {
+  children: string[]
+  id: string
+}
+
+/**
+ * The scope of a method's disease fact. `group` names specific diseases
+ *  ([`MethodDisease::groups`]); the coarser scopes stand for every disease.
+ */
+export type DiseaseScope = 'group' | 'any' | 'any-solid-tumour' | 'any-cancer'
+
+/**
  * The cancel/prune query (`?prune=true` removes the cached file for the
  *  entry's digest — DEC-17's explicit prune).
  */
@@ -922,6 +948,16 @@ export interface FileVersion {
 }
 
 /**
+ * `filter_options` — the fixed `filter_options` vocabulary at the catalogue's top
+ *  level: the disease categories (disease + child levels) and the treatment
+ *  classes every method row references.
+ */
+export interface FilterOptions {
+  disease_categories: DiseaseCategory[]
+  treatment_classes: TreatmentClass[]
+}
+
+/**
  * One frontend action. Field names match CONTRACT.md's `frontend-actions.json`
  *  schema exactly — the SAME shape whether the entry came from the committed
  *  app-owned manifest or was REPORTED by the controlled browser session
@@ -1029,6 +1065,13 @@ export interface InventoryEligibilityRequest {
   baseline_max_day: number
   covariates: InventoryCovariate[]
   decision_day: number
+  /**
+   * The method filters (see [`MethodFilters`]). Absent = no method filter —
+   *  exactly the verdicts a request without the block gives; an unknown
+   *  answer id is a 422 (`UNKNOWN_DISEASE_GROUP` /
+   *  `UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+   */
+  filters?: MethodFilters
   markers: InventoryMarker[]
   /**
    * The outcome-column facts of the file, when the consumer knows them
@@ -1369,6 +1412,11 @@ export interface Method {
   citations: number
   container: boolean
   covariates: CovariateMode
+  /**
+   * The disease(s) the method applies to (schema 2): a scope, or the named
+   *  diseases/children under [`Catalogue::filter_options`].
+   */
+  disease: MethodDisease
   embeds_training_data: boolean
   env: CatalogueEnv
   fitted: boolean
@@ -1409,9 +1457,25 @@ export interface Method {
   summary: string
   tasks: string[]
   timing: Timing
+  /**
+   * The treatment classes the method applies to, and how that was stated
+   *  (schema 2; class ids are ids of
+   *  [`Catalogue::filter_options`]'s treatment classes).
+   */
+  treatment: MethodTreatment
   uses_history: UsesHistory
   version: string
   year: number
+}
+
+/**
+ * A method's `disease` fact: a scope and, exactly when the scope is `group`,
+ *  the disease/child names it applies to (non-empty; empty for the coarser
+ *  scopes).
+ */
+export interface MethodDisease {
+  groups: string[]
+  scope: DiseaseScope
 }
 
 /** One method's eligibility verdict. */
@@ -1457,6 +1521,40 @@ export interface MethodEstimate {
   estimate_quality: TimingQuality
   estimated_seconds: number
   id: string
+}
+
+/**
+ * The filters block of an eligibility request: what the user's filters are
+ *  (the disease, the treatment classes, what to predict). Every field is
+ *  OPTIONAL — an absent answer (or an empty treatment class list) means "any":
+ *  no filter, exactly the verdicts a request without the block gives. The
+ *  inventory request carries this block as its `filters` object; the preview
+ *  request carries the SAME three fields flattened (top-level), so one struct
+ *  is the shape of both.
+ */
+export interface MethodFilters {
+  /**
+   * The answered disease node id: a disease, one of its children (a
+   *  sub-group), or a CATEGORY id ("another <category> disease, not listed"),
+   *  as named by [`Catalogue::filter_options`]. Absent = any disease. An id
+   *  outside the catalogue is an error (`UNKNOWN_DISEASE_GROUP`), never a
+   *  silent "any".
+   */
+  disease_group?: string
+  /**
+   * What the filters' run should predict (`response-call |
+   *  response-probability | static-risk | dynamic-risk` — the
+   *  [`MethodGroup`] wire spelling of the method rows' `group`). Absent =
+   *  any method group.
+   */
+  method_group?: MethodGroup
+  /**
+   * The ticked base treatment-class ids (the filters' treatment classes, the
+   *  ids of `filter_options.treatment_classes`). Absent OR empty = any
+   *  treatment. An id outside the catalogue is an error
+   *  (`UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+   */
+  treatment_classes?: string[]
 }
 
 /** The four benchmark method groups (the group chips on the list screen). */
@@ -1600,6 +1698,11 @@ export interface MethodSummary {
   title: string
   container: boolean
   covariates: CovariateMode
+  /**
+   * The disease(s) the method applies to — the same fact as the full row's,
+   *  so the list row and the detail never disagree.
+   */
+  disease: MethodDisease
   embeds_training_data: boolean
   frozen_model: boolean
   group: MethodGroup
@@ -1621,8 +1724,22 @@ export interface MethodSummary {
   summary: string
   tasks: string[]
   timing: Timing
+  /**
+   * The treatment classes the method applies to — the same fact as the full
+   *  row's.
+   */
+  treatment: MethodTreatment
   uses_history: UsesHistory
   year: number
+}
+
+/**
+ * A method's `treatment` fact: the base-class ids it applies to (empty when
+ *  nothing is stated) and how that was established.
+ */
+export interface MethodTreatment {
+  classes: string[]
+  confidence: TreatmentConfidence
 }
 
 /**
@@ -1858,7 +1975,7 @@ export interface ModelReason {
  *  is exhaustive: a new provider code fails to compile here instead of
  *  silently passing through.
  */
-export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'MODEL_REQUIREMENTS_UNRECORDED'
+export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'MODEL_REQUIREMENTS_UNRECORDED' | 'DISEASE_NOT_MATCHED'
 
 /**
  * The save response (201): the set (created or grown), the saved rows and the
@@ -2455,7 +2572,7 @@ export interface PretrainedReason {
  *  verdict). The `from_catalogue` mapper is exhaustive: a new provider code
  *  fails to compile here instead of silently passing through.
  */
-export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'ASSET_NOT_AVAILABLE'
+export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'ASSET_NOT_AVAILABLE' | 'DISEASE_NOT_MATCHED'
 
 /**
  * The refresh response: the origin actually in use + the catalogue facts of
@@ -2535,13 +2652,16 @@ export interface PretrainedTransferSummary {
 }
 
 /**
- * Screen B's preview body: which marker groups the user picked, and the
+ * Screen B's preview body: which marker groups the user picked, the
  *  draw-schedule answers (before-treatment values, draws during treatment, last
- *  draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered
- *  question is absent, and the preview treats an absent answer as "any" —
- *  it never assumes a value the user did not give (the old client sent the
- *  board's first options when unanswered, so an untouched question narrowed
- *  the fit count).
+ *  draw day) and the method filters (disease, treatment classes, what to
+ *  predict). Every schedule and filter field is OPTIONAL (R3-intake-2): an
+ *  unanswered question is absent, and the preview treats an absent answer as
+ *  "any" — it never assumes a value the user did not give (the old client sent
+ *  the board's first options when unanswered, so an untouched question narrowed
+ *  the fit count). The method filters are the THREE top-level fields of
+ *  [`MethodFilters`], flattened into this body (`disease_group`,
+ *  `treatment_classes`, `method_group`).
  */
 export interface PreviewEligibilityRequest {
   /**
@@ -2549,6 +2669,14 @@ export interface PreviewEligibilityRequest {
    *  before-treatment sample). Absent = not answered = no constraint.
    */
   before_treatment?: string
+  /**
+   * The answered disease node id: a disease, one of its children (a
+   *  sub-group), or a CATEGORY id ("another <category> disease, not listed"),
+   *  as named by [`Catalogue::filter_options`]. Absent = any disease. An id
+   *  outside the catalogue is an error (`UNKNOWN_DISEASE_GROUP`), never a
+   *  silent "any".
+   */
+  disease_group?: string
   /**
    * The number of on-treatment draws the user will record (1|2|4).
    *  Absent = not answered = any draw count (the minimum-draws verdict is
@@ -2559,6 +2687,20 @@ export interface PreviewEligibilityRequest {
   last_draw_day?: number
   /** group id → checked. Absent groups count as unchecked. */
   marker_groups: any
+  /**
+   * What the filters' run should predict (`response-call |
+   *  response-probability | static-risk | dynamic-risk` — the
+   *  [`MethodGroup`] wire spelling of the method rows' `group`). Absent =
+   *  any method group.
+   */
+  method_group?: MethodGroup
+  /**
+   * The ticked base treatment-class ids (the filters' treatment classes, the
+   *  ids of `filter_options.treatment_classes`). Absent OR empty = any
+   *  treatment. An id outside the catalogue is an error
+   *  (`UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+   */
+  treatment_classes?: string[]
 }
 
 /** Preview query params */
@@ -2608,13 +2750,13 @@ export interface Reason {
 }
 
 /**
- * The eligibility reason-code vocabulary — the FIXED, structured set of 12
+ * The eligibility reason-code vocabulary — the FIXED, structured set of 17
  *  codes a method verdict can carry. Display text is the consumer's; a renderer
  *  switches on the code, so the set is closed and documented here (PROV-MC-5's
  *  acceptance: every emitted code is one of these — consumers can never meet an
  *  undocumented code).
  */
-export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET'
+export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'DISEASE_NOT_MATCHED' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED'
 
 export interface RefreshTokenRequest {
   /**
@@ -3123,6 +3265,22 @@ export interface TokenPair {
   refresh_token: string
   token_type: string
 }
+
+/**
+ * One treatment class (`filter_options.treatment_classes[]`): the base id a
+ *  method's `treatment.classes` names plus the display label.
+ */
+export interface TreatmentClass {
+  id: string
+  label: string
+}
+
+/**
+ * The confidence a method's treatment classes were stated with. `not-stated`
+ *  carries an empty [`MethodTreatment::classes`]; `stated`/`inferred` carry the
+ *  classes.
+ */
+export type TreatmentConfidence = 'stated' | 'inferred' | 'not-stated'
 
 /**
  * The sticky E-screen settings (`txr_app_config` singleton; `config: null` is
@@ -4398,6 +4556,7 @@ export type ApiEndpointParameters = {
   'MethodCatalogue.detail': { method_id: string }
   'MethodCatalogue.eligibility': EligibilityRequest
   'MethodCatalogue.estimate': EstimateRequest
+  'MethodCatalogue.filterOptions': void
   'MethodCatalogue.list': { frozen?: boolean; group?: MethodGroup; q?: string; runnable?: boolean }
   'MethodCatalogue.markers': void
   'MethodList.checkUpdates': void
@@ -4535,6 +4694,7 @@ export type ApiEndpointResponses = {
   'MethodCatalogue.detail': Method
   'MethodCatalogue.eligibility': EligibilityResponse
   'MethodCatalogue.estimate': EstimateResponse
+  'MethodCatalogue.filterOptions': FilterOptions
   'MethodCatalogue.list': MethodListResponse
   'MethodCatalogue.markers': MarkerVocabularyResponse
   'MethodList.checkUpdates': MethodListStatus

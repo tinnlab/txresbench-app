@@ -33,6 +33,7 @@ import { createJSONStorage } from 'zustand/middleware'
 import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import type {
   FileTimeline,
+  FilterOptions,
   MarkerMapping,
   ParsedTable as EngineParsedTable,
   TxrRunInput,
@@ -178,12 +179,118 @@ function wholeDecisionDay(day: number): number {
 /** Birth study answers — every question unanswered (the user may skip B). */
 const EMPTY_STUDY: StudyAnswers = {
   disease: null,
-  treatment: null,
+  treatments: null,
   outcome: null,
   markerGroups: null,
   beforeTreatment: null,
   drawsDuringTreatment: null,
   lastDrawDay: null,
+}
+
+// ── the persisted study answers' one-time old-id map (step2-filters) ────────
+// Before this change the answers were the board's small option sets
+// (disease `'colorectal' | 'lung' | 'breast' | 'prostate' | 'other'`,
+// treatment `'immunotherapy' | … | 'other-mixed'`). The server's filter
+// vocabulary now names the ids exactly as `data/method-catalogue/catalogue.json`
+// `filter_options` does — every target below was checked against it; an old
+// id that is absent from the new vocabulary maps to unanswered (never a
+// guessed id, never a crash).
+
+/** Old disease answer → the current `filter_options` node id (`null` = unanswered). */
+const OLD_DISEASE_TO_NEW: Readonly<Record<string, string | null>> = {
+  colorectal: 'colorectal cancer',
+  breast: 'breast cancer',
+  prostate: 'prostate cancer',
+  lung: 'lung cancer',
+  other: null,
+}
+
+/** Old treatment answer → the current treatment-class id list (`null` = unanswered). */
+const OLD_TREATMENT_TO_NEW: Readonly<Record<string, string[] | null>> = {
+  immunotherapy: ['immune checkpoint inhibitor'],
+  chemotherapy: ['chemotherapy'],
+  targeted: ['targeted therapy'],
+  radiotherapy: ['radiotherapy'],
+  'other-mixed': null,
+}
+
+/**
+ * Normalise ONE persisted `study` value into the current `StudyAnswers`
+ * shape (the persist `merge`'s migration, step2-filters):
+ *
+ * - the old disease/treatment ids are mapped to the vocabulary, anything
+ *   else of the wrong shape (or an old id the map does not know) is
+ *   unanswered — never a crash, never a guessed id;
+ * - a new-shape value passes through (a `treatments` array of strings is
+ *   kept, the other settings fields keep their valid values);
+ * - the OLD-id map is read with `Object.hasOwn`, never `in` — a plain
+ *   object's prototype names (`constructor`, `toString`, `__proto__`)
+ *   must never match an old id and pull the prototype down as the answer
+ *   (the review's 5a3 crash);
+ * - a persisted EMPTY `treatments` list is unanswered (`null`) — exactly
+ *   the store's "no filter" spelling — and an array with a non-string
+ *   entry is unanswered too (never a partially-guessed list);
+ * - a disease id the CURRENT vocabulary does not know is NOT resolved here
+ *   (there is no vocabulary at rehydrate time) — the store's
+ *   `reconcileStudyWithVocabulary` drops it once the vocabulary loads.
+ */
+export function normalizePersistedStudy(persisted: unknown): StudyAnswers {
+  const raw = (typeof persisted === 'object' && persisted !== null ? persisted : {}) as Record<
+    string,
+    unknown
+  >
+  const study: StudyAnswers = { ...EMPTY_STUDY }
+
+  if (typeof raw.disease === 'string') {
+    study.disease = Object.hasOwn(OLD_DISEASE_TO_NEW, raw.disease)
+      ? OLD_DISEASE_TO_NEW[raw.disease]
+      : raw.disease
+  }
+
+  if (Array.isArray(raw.treatments)) {
+    // The NEW shape: every entry must be a string and the list non-empty
+    // (an empty list is exactly "no filter" — the store's `null`; a
+    // non-string entry makes the whole answer unanswered, never a filtered
+    // guess). The order is kept.
+    study.treatments =
+      raw.treatments.length > 0 && raw.treatments.every((value): value is string => typeof value === 'string')
+        ? (raw.treatments as string[])
+        : null
+  } else if (typeof raw.treatment === 'string') {
+    // The OLD shape: map the known value, anything else is unanswered.
+    study.treatments = Object.hasOwn(OLD_TREATMENT_TO_NEW, raw.treatment)
+      ? OLD_TREATMENT_TO_NEW[raw.treatment]
+      : null
+  } else {
+    study.treatments = null
+  }
+
+  if (
+    raw.outcome === 'binary-response' ||
+    raw.outcome === 'response-probability' ||
+    raw.outcome === 'progression-by-day' ||
+    raw.outcome === 'dynamic-risk' ||
+    raw.outcome === null
+  ) {
+    study.outcome = raw.outcome
+  }
+  if (
+    typeof raw.markerGroups === 'object' &&
+    raw.markerGroups !== null &&
+    !Array.isArray(raw.markerGroups)
+  ) {
+    study.markerGroups = { ...(raw.markerGroups as Record<string, boolean>) }
+  }
+  if (raw.beforeTreatment === 'always' || raw.beforeTreatment === 'sometimes' || raw.beforeTreatment === null) {
+    study.beforeTreatment = raw.beforeTreatment
+  }
+  if (raw.drawsDuringTreatment === 1 || raw.drawsDuringTreatment === 2 || raw.drawsDuringTreatment === 4 || raw.drawsDuringTreatment === null) {
+    study.drawsDuringTreatment = raw.drawsDuringTreatment
+  }
+  if (typeof raw.lastDrawDay === 'number' || raw.lastDrawDay === null) {
+    study.lastDrawDay = typeof raw.lastDrawDay === 'number' ? wholeDecisionDay(raw.lastDrawDay) : null
+  }
+  return study
 }
 
 const BIRTH_FILE_RECALLS: FileRecalls = {
@@ -285,7 +392,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
         ...current,
         ...(p.intent !== undefined ? { intent: p.intent } : {}),
         ...(p.mode !== undefined ? { mode: p.mode } : {}),
-        ...(p.study !== undefined ? { study: p.study } : {}),
+        ...(p.study !== undefined ? { study: normalizePersistedStudy(p.study) } : {}),
         ...(p.fileRecalls !== undefined ? { fileRecalls: p.fileRecalls } : {}),
         ...(p.joins !== undefined ? { joins: p.joins } : {}),
         ...(p.mapping !== undefined ? { mapping: p.mapping } : {}),
@@ -340,6 +447,44 @@ const TxrIntakeDef = defineStore('TxrIntake', {
       /** Merge one B answer group change (any field; unanswered fields stay null). */
       patchStudy: (patch: Partial<StudyAnswers>) => {
         set(s => ({ study: { ...s.study, ...patch } }))
+      },
+
+      /**
+       * Drop the answer ids the loaded `filter_options` vocabulary does not
+       * know (step2-filters): the server refuses an unknown disease node
+       * with 422 `UNKNOWN_DISEASE_GROUP` and an unknown treatment class with
+       * `UNKNOWN_TREATMENT_CLASS`, never a silent "any" — so a stale
+       * persisted id (or one a newer catalogue renamed) is set to
+       * unanswered instead of being sent. Idempotent; nothing changes when
+       * every id is known.
+       */
+      reconcileStudyWithVocabulary: (vocab: FilterOptions) => {
+        set(s => {
+          const diseaseIds = new Set<string>()
+          const treatmentIds = new Set<string>()
+          for (const category of vocab.disease_categories) {
+            diseaseIds.add(category.id)
+            for (const disease of category.diseases) {
+              diseaseIds.add(disease.id)
+              for (const child of disease.children) diseaseIds.add(child)
+            }
+          }
+          for (const treatment of vocab.treatment_classes) treatmentIds.add(treatment.id)
+          let study = s.study
+          let changed = false
+          if (study.disease !== null && !diseaseIds.has(study.disease)) {
+            study = { ...study, disease: null }
+            changed = true
+          }
+          if (study.treatments !== null) {
+            const kept = study.treatments.filter(id => treatmentIds.has(id))
+            if (kept.length !== study.treatments.length) {
+              study = { ...study, treatments: kept.length > 0 ? kept : null }
+              changed = true
+            }
+          }
+          return changed ? { study } : {}
+        })
       },
 
       /**

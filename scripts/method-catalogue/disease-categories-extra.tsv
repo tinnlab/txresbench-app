@@ -1,0 +1,9 @@
+# Diseases the methods are made for that the benchmark's disease category file does not list yet
+# (app-assigned; remove a row once the benchmark lists the disease). Reviewed in the PR.
+# Columns: disease_group<TAB>category<TAB>basis.
+disease_group	category	basis
+kidney transplant graft failure	Immune-mediated and allergic diseases	same roll-up as the benchmark's transplant rows
+membranous nephropathy	Immune-mediated and allergic diseases	an autoimmune kidney disease
+invasive aspergillosis	Infectious diseases	a fungal infection
+neonatal necrotizing enterocolitis	Other diseases	no closer category
+NAFLD / MASLD	Other diseases	no closer category

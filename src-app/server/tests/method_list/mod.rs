@@ -101,4 +101,4 @@ pub fn registry_calls(data_dir: &Path) -> String {
 }
 
 /// The server's loopback list reference.
-pub const LOOPBACK_REF: &str = "127.0.0.1:5999/tinnlab/txresbench-method-list:v1";
+pub const LOOPBACK_REF: &str = "127.0.0.1:5999/tinnlab/txresbench-method-list:v2";

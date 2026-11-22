@@ -2,7 +2,7 @@
 //!
 //! The list is ONE OCI artifact holding `method-list.json` and `method-list.json.minisig`,
 //! in the public package `ghcr.io/tinnlab/txresbench-method-list`; the moving tag
-//! `v<format_version>` (`v1`) names the newest published list of this format line. A check
+//! `v<format_version>` (`v2`) names the newest published list of this format line. A check
 //! resolves the tag to its manifest digest (a few hundred bytes); only a digest the app has
 //! not seen is pulled, BY DIGEST (`…@sha256:…`), so the files checked are exactly the
 //! resolved ones.
@@ -52,7 +52,7 @@ pub const TEST_KEY_ENV: &str = "TXR_METHOD_LIST_TEST_KEY";
 pub struct ListRef {
     /// `<host>/<namespace>/<package>`, without a scheme or a tag.
     pub repository: String,
-    /// The moving tag (`v1` in production).
+    /// The moving tag (`v2` in production).
     pub tag: String,
     /// Plain HTTP: a loopback registry named by the debug seam.
     pub plain_http: bool,
@@ -296,7 +296,7 @@ pub fn is_digest(s: &str) -> bool {
 /// The registry, through the bundled oras.
 pub struct OrasSource {
     list_ref: ListRef,
-    /// Pulls land in fresh folders under it (`<data_root>/method-list/v1`).
+    /// Pulls land in fresh folders under it (`<data_root>/method-list/v2`).
     work_dir: PathBuf,
 }
 
@@ -549,17 +549,17 @@ mod tests {
     }
 
     fn source(root: &Path, list_ref: ListRef) -> OrasSource {
-        OrasSource::new(list_ref, root.join("method-list").join("v1"))
+        OrasSource::new(list_ref, root.join("method-list").join("v2"))
     }
 
     fn loopback() -> ListRef {
-        ListRef::parse_seam("127.0.0.1:5055/tinnlab/txresbench-method-list:v1").unwrap()
+        ListRef::parse_seam("127.0.0.1:5055/tinnlab/txresbench-method-list:v2").unwrap()
     }
 
     #[test]
     fn list_ref_under_compiled_registry() {
         let r = ListRef::production();
-        assert_eq!(r.tag_ref(), "ghcr.io/tinnlab/txresbench-method-list:v1");
+        assert_eq!(r.tag_ref(), "ghcr.io/tinnlab/txresbench-method-list:v2");
         assert_eq!(r.host(), method_env::TXR_REGISTRY_HOST);
         assert!(r.repository.starts_with(&format!(
             "{}/{}/",
@@ -573,15 +573,15 @@ mod tests {
 
     #[test]
     fn list_seam_reads_loopback_and_https_refs() {
-        let l = ListRef::parse_seam("127.0.0.1:5055/tinnlab/txresbench-method-list:v1").unwrap();
+        let l = ListRef::parse_seam("127.0.0.1:5055/tinnlab/txresbench-method-list:v2").unwrap();
         assert!(l.plain_http);
         assert_eq!(l.host(), "127.0.0.1:5055");
         let l = ListRef::parse_seam("[::1]:5000/x/list:v1").unwrap();
         assert!(l.plain_http);
         // A personal package on GHCR: HTTPS.
-        let p = ListRef::parse_seam("ghcr.io/someone/txresbench-method-list-test:v1").unwrap();
+        let p = ListRef::parse_seam("ghcr.io/someone/txresbench-method-list-test:v2").unwrap();
         assert!(!p.plain_http);
-        assert_eq!(p.tag_ref(), "ghcr.io/someone/txresbench-method-list-test:v1");
+        assert_eq!(p.tag_ref(), "ghcr.io/someone/txresbench-method-list-test:v2");
         for bad in [
             "https://ghcr.io/x/y:v1",
             "ghcr.io/x/y@sha256:00",
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn release_build_ignores_list_seams() {
         let read = |k: &str| match k {
-            LIST_REF_ENV => Some("127.0.0.1:5055/tinnlab/txresbench-method-list:v1".to_string()),
+            LIST_REF_ENV => Some("127.0.0.1:5055/tinnlab/txresbench-method-list:v2".to_string()),
             TEST_KEY_ENV => Some("/some/test.pub".to_string()),
             _ => None,
         };
@@ -630,9 +630,9 @@ mod tests {
             "the pull names the resolved digest, never the moving tag: {pull}"
         );
         let resolve = calls.lines().find(|l| l.starts_with("resolve")).expect("a resolve call");
-        assert!(resolve.ends_with("127.0.0.1:5055/tinnlab/txresbench-method-list:v1"), "{resolve}");
+        assert!(resolve.ends_with("127.0.0.1:5055/tinnlab/txresbench-method-list:v2"), "{resolve}");
         // The pull folder is gone after the read.
-        let left: Vec<_> = std::fs::read_dir(root.join("method-list").join("v1")).unwrap().collect();
+        let left: Vec<_> = std::fs::read_dir(root.join("method-list").join("v2")).unwrap().collect();
         assert!(left.is_empty(), "{left:?}");
     }
 
@@ -642,7 +642,7 @@ mod tests {
         let (root, _g) = data_root("env");
         stub_oras(&root, &script(&root, two_files()));
         // HTTPS (a personal GHCR list): no --plain-http.
-        let https = ListRef::parse_seam("ghcr.io/someone/txresbench-method-list-test:v1").unwrap();
+        let https = ListRef::parse_seam("ghcr.io/someone/txresbench-method-list-test:v2").unwrap();
         let src = source(&root, https);
         src.pull(&src.resolve(Duration::from_secs(10)).unwrap(), Duration::from_secs(10))
             .expect("pulls");
@@ -715,7 +715,7 @@ mod tests {
         assert_eq!(err, FetchError::TooLarge);
         assert!(err.is_artifact_fault());
         assert!(started.elapsed() < Duration::from_secs(20), "killed, not waited out");
-        let left: Vec<_> = std::fs::read_dir(root.join("method-list").join("v1")).unwrap().collect();
+        let left: Vec<_> = std::fs::read_dir(root.join("method-list").join("v2")).unwrap().collect();
         assert!(left.is_empty(), "the partial pull is removed: {left:?}");
     }
 

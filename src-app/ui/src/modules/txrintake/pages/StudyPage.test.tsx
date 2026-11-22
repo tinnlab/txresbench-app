@@ -51,6 +51,7 @@ import { __resetFetchCacheForTests } from '../data/fetchCache'
 const api = vi.hoisted(() => ({
   eligibility: vi.fn(),
   markers: vi.fn(),
+  filterOptions: vi.fn(),
   validate: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
@@ -58,6 +59,7 @@ vi.mock('@/api-client', () => ({
     MethodCatalogue: {
       eligibility: api.eligibility,
       markers: api.markers,
+      filterOptions: api.filterOptions,
     },
     FileValidation: {
       validate: api.validate,
@@ -66,14 +68,44 @@ vi.mock('@/api-client', () => ({
 }))
 
 // The day field runs the registered `flow.setLastDrawDay` (the module import
-// registers it in the app).
+// registers it in the app); the disease/treatment/outcome controls run the
+// registered `intake.setStudyAnswers`.
 import '@/core/actions/builtin/dayActions'
+import '@/core/actions/builtin/intakeActions'
 
 const GROUPS: MarkerGroup[] = [
   { id: 'ctdna', display_name: 'Tumour DNA in blood (ctDNA)' },
   { id: 'counts', display_name: 'Blood counts (platelets, haemoglobin)' },
   { id: 'ldh', display_name: 'LDH' },
 ]
+
+/** The filter-options vocabulary the page's disease/treatment controls read
+ *  (step2-filters): ids the server's catalogue knows, with melanoma's real
+ *  sub-group and lung cancer's sub-group stand-in (see `fixtures.ts`) for
+ *  the nested picker search, and two categories so the "Another disease in
+ *  <category> (not listed)" option is category-scoped. */
+const FILTER_OPTIONS = {
+  disease_categories: [
+    {
+      id: 'Solid tumours',
+      diseases: [
+        { id: 'colorectal cancer', children: [] },
+        { id: 'breast cancer', children: [] },
+        { id: 'lung cancer', children: ['lung adenocarcinoma'] },
+        { id: 'melanoma', children: ['uveal melanoma'] },
+      ],
+    },
+    {
+      id: 'Other diseases',
+      diseases: [{ id: 'COVID-19', children: [] }],
+    },
+  ],
+  treatment_classes: [
+    { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+    { id: 'chemotherapy', label: 'Chemotherapy' },
+    { id: 'radiotherapy', label: 'Radiotherapy' },
+  ],
+}
 
 const CANNOT = 13
 const SOME = 4
@@ -117,8 +149,50 @@ function eligibilityResponse(): EligibilityResponse {
       estimated_seconds: 0,
       estimate_quality: 'estimate',
     },
+    {
+      id: 'disease-not-matched-method',
+      status: 'cannot_run',
+      reasons: [
+        { code: 'DISEASE_NOT_MATCHED', params: { made_for: 'melanoma', answer: 'colorectal cancer' } },
+      ],
+      coverage: { eligible: 0, total: 1, fraction: 0 },
+      min_draws: { required: 1, met: 0, unmet_patients: 0 },
+      missing_markers: [],
+      missing_groups: [],
+      estimated_seconds: 0,
+      estimate_quality: 'estimate',
+    },
+    {
+      id: 'treatment-not-matched-method',
+      status: 'cannot_run',
+      reasons: [
+        {
+          code: 'TREATMENT_NOT_MATCHED',
+          params: { made_for: 'chemotherapy', answer: 'targeted therapy' },
+        },
+      ],
+      coverage: { eligible: 0, total: 1, fraction: 0 },
+      min_draws: { required: 1, met: 0, unmet_patients: 0 },
+      missing_markers: [],
+      missing_groups: [],
+      estimated_seconds: 0,
+      estimate_quality: 'estimate',
+    },
+    {
+      id: 'outcome-not-matched-method',
+      status: 'cannot_run',
+      reasons: [
+        { code: 'OUTCOME_NOT_MATCHED', params: { predicts: 'dynamic-risk', answer: 'static-risk' } },
+      ],
+      coverage: { eligible: 0, total: 1, fraction: 0 },
+      min_draws: { required: 1, met: 0, unmet_patients: 0 },
+      missing_markers: [],
+      missing_groups: [],
+      estimated_seconds: 0,
+      estimate_quality: 'estimate',
+    },
   ]
-  for (let i = 0; i < CANNOT - 2; i += 1) {
+  for (let i = 0; i < CANNOT - 5; i += 1) {
     methods.push({
       id: `left-out-${i}`,
       status: 'cannot_run',
@@ -216,7 +290,9 @@ const store = () => useTxrIntakeStore.getState()
 beforeEach(() => {
   api.eligibility.mockReset()
   api.markers.mockReset()
+  api.filterOptions.mockReset()
   api.markers.mockResolvedValue({ groups: GROUPS, markers: [] })
+  api.filterOptions.mockResolvedValue(FILTER_OPTIONS)
   api.eligibility.mockResolvedValue(eligibilityResponse())
   window.localStorage.clear()
   store().reset()
@@ -237,12 +313,16 @@ async function answerFirst(selector: string) {
   fireEvent.click(screen.getByTestId(selector))
 }
 
+/** Open one grouped left-out section (view state — no action registered). */
+function openExcludedSection(code: string): void {
+  fireEvent.click(screen.getByTestId(`txr-intake-excluded-section-${code}`))
+}
+
 describe('StudyPage (screen B, ITEM-5)', () => {
   it('renders the question groups with the board copy, then the panel from live data', async () => {
     renderStudy()
     expect(screen.getByText('Tell us about your study')).toBeTruthy()
     expect(screen.getByLabelText('Disease')).toBeTruthy()
-    expect(screen.getByLabelText('Treatment')).toBeTruthy()
     expect(screen.getByText('Will the treatment work? (yes or no)')).toBeTruthy()
     expect(screen.getByText('Chance of response')).toBeTruthy()
     expect(screen.getByText('Risk of progression or death by a day')).toBeTruthy()
@@ -258,6 +338,16 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(screen.getByLabelText('Before treatment')).toBeTruthy()
     expect(screen.getByLabelText('Draws during treatment')).toBeTruthy()
     expect(screen.getByLabelText('Last draw you will use')).toBeTruthy()
+
+    // The treatment question is the multi-tick list (brief 5b): one checkbox
+    // per base class with the display label, under the Treatment heading.
+    expect(await screen.findByRole('checkbox', { name: 'Immune checkpoint inhibitor' })).toBeTruthy()
+    expect(screen.getByRole('checkbox', { name: 'Chemotherapy' })).toBeTruthy()
+    expect(screen.getByRole('checkbox', { name: 'Radiotherapy' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Treatment' })).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-study-treatment-hint').textContent).toBe(
+      'A combination is several ticks. Tick none to keep every treatment.',
+    )
   })
 
   it('before ANY answer the panel says what to do, never a count (R2-1)', async () => {
@@ -284,10 +374,24 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
     expect(screen.getByText(`${SOME} can run for some patients`)).toBeTruthy()
     const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
+    // The list is grouped and collapsed by default: the rows wait inside
+    // their sections (brief 5b) — open the three with rows to see them.
+    expect(excluded.queryByText('dynforest')).toBeNull()
+    expect(excluded.getAllByTestId(/txr-intake-excluded-section-/)).toHaveLength(4)
+    openExcludedSection('other')
     expect(excluded.getByText('dynforest')).toBeTruthy()
     expect(excluded.getAllByText('needs 3 or more draws').length).toBeGreaterThan(0)
     expect(excluded.getByText('ki67-two-week-four-group')).toBeTruthy()
     expect(excluded.getByText('needs Ki-67, not in your file')).toBeTruthy()
+    openExcludedSection('disease')
+    openExcludedSection('treatment')
+    openExcludedSection('outcome')
+    expect(excluded.getByText('disease-not-matched-method')).toBeTruthy()
+    expect(excluded.getByText('Made for melanoma, not your disease')).toBeTruthy()
+    expect(excluded.getByText('treatment-not-matched-method')).toBeTruthy()
+    expect(excluded.getByText('Made for Chemotherapy, not your treatments')).toBeTruthy()
+    expect(excluded.getByText('outcome-not-matched-method')).toBeTruthy()
+    expect(excluded.getByText('Predicts risk over time, not what you chose')).toBeTruthy()
   })
 
   it('an answer change re-runs the eligibility (debounced) and writes the store', async () => {
@@ -295,12 +399,15 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
     api.eligibility.mockClear()
 
-    // A quick burst: three answer changes inside one debounce window.
+    // A quick burst: three answer changes inside one debounce window. The
+    // outcome pills run the registered `intake.setStudyAnswers` action
+    // (step2-filters), so their store write settles after a microtask — the
+    // waitFor absorbs it with the same assertions.
     fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
     fireEvent.click(screen.getByTestId('txr-intake-study-outcome-progression-by-day'))
     fireEvent.click(screen.getByTestId('txr-intake-study-outcome-binary-response'))
     expect(store().study.markerGroups?.ctdna).toBe(true)
-    expect(store().study.outcome).toBe('binary-response')
+    await waitFor(() => expect(store().study.outcome).toBe('binary-response'))
 
     await waitFor(() => {
       expect(api.eligibility).toHaveBeenCalledTimes(1)
@@ -608,20 +715,84 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(screen.queryByText('Use example')).toBeNull()
   })
 
-  it('clips the excluded list at the board limit with the truthful Show all N', async () => {
+  it('groups the left-out list by reason code: ordered sections, counts and singular wording', async () => {
+    renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
+    await waitFor(() => {
+      expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
+    })
+    const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
+    // The numbered sections, in the fixed order (disease, treatment,
+    // outcome, then every other code), each with its count; the three
+    // answer-caused ones are singular (one row each).
+    const headings = excluded
+      .getAllByTestId(/txr-intake-excluded-section-/)
+      .map(node => node.textContent)
+    expect(headings).toEqual([
+      '1 made for another disease',
+      '1 made for other treatments',
+      '1 predicts something else',
+      `${CANNOT - 3} do not fit your files or answers`,
+    ])
+    // Collapsed by default: opening the "other" section shows its rows; the
+    // short sections' rows appear with their own section.
+    openExcludedSection('other')
+    expect(excluded.getByText('dynforest')).toBeTruthy()
+    expect(excluded.getByText('ki67-two-week-four-group')).toBeTruthy()
+    openExcludedSection('disease')
+    expect(excluded.getByText('disease-not-matched-method')).toBeTruthy()
+  })
+
+  it('the one method of an "other" bucket reads singular "does not fit" (1 does not fit)', async () => {
+    const response = eligibilityResponse()
+    // A two-row response (one other-coded row, one disease-coded row) so the
+    // singular words are the ones on screen.
+    const single = {
+      methods: [
+        response.methods.find(m => m.id === 'dynforest')!,
+        response.methods.find(m => m.id === 'disease-not-matched-method')!,
+      ],
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: 2,
+      total_no_env: 0,
+    } as EligibilityResponse
+    api.eligibility.mockResolvedValue(single)
+    renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
+    await waitFor(() => {
+      expect(screen.getByText('2 methods are left out')).toBeTruthy()
+    })
+    const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
+    const headings = excluded
+      .getAllByTestId(/txr-intake-excluded-section-/)
+      .map(node => node.textContent)
+    expect(headings).toEqual([
+      '1 made for another disease',
+      '1 does not fit your files or answers',
+    ])
+  })
+
+  it('a long section keeps the Show all N inside it, at the board clip', async () => {
     renderStudy()
     await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
       expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
     })
     const panel = () => screen.getByTestId('txr-intake-panel-excluded')
+    // All sections start collapsed: no rows on screen, no Show all yet.
+    expect(panel().querySelectorAll('li').length).toBe(0)
+    expect(screen.queryByTestId('txr-intake-excluded-show-all-other')).toBeNull()
+    // The "other" section is long (10 > the 6-board clip): opening it shows
+    // the clip and the section's own truthful "Show all 10".
+    openExcludedSection('other')
     expect(panel().querySelectorAll('li').length).toBe(EXCLUDED_LIST_LIMIT)
-    expect(screen.getByText(`Show all ${CANNOT}`)).toBeTruthy()
-
-    fireEvent.click(screen.getByTestId('txr-intake-excluded-show-all'))
-    expect(panel().querySelectorAll('li').length).toBe(CANNOT)
+    const showAll = screen.getByTestId('txr-intake-excluded-show-all-other')
+    expect(showAll.textContent).toBe(`Show all ${CANNOT - 3}`)
+    fireEvent.click(showAll)
+    expect(panel().querySelectorAll('li').length).toBe(CANNOT - 3)
     expect(screen.getByText('Show fewer')).toBeTruthy()
-    fireEvent.click(screen.getByTestId('txr-intake-excluded-show-all'))
+    fireEvent.click(screen.getByTestId('txr-intake-excluded-show-all-other'))
     expect(panel().querySelectorAll('li').length).toBe(EXCLUDED_LIST_LIMIT)
   })
 
@@ -647,6 +818,231 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     api.markers.mockRejectedValueOnce(new Error('markers down'))
     renderStudy()
     expect(await screen.findByText('markers down')).toBeTruthy()
+  })
+
+  it('a failing filter-options fetch shows ONE plain line, never the raw error under both controls (5a3)', async () => {
+    api.filterOptions.mockRejectedValueOnce(new Error('catalogue down'))
+    renderStudy()
+    const alert = await screen.findByTestId('txr-intake-filter-options-error')
+    // Exactly ONE alert for the failed vocabulary; the raw fetch message is
+    // never rendered (neither under Disease nor under Treatment).
+    expect(screen.getAllByTestId('txr-intake-filter-options-error')).toHaveLength(1)
+    expect(alert.textContent).toBe(
+      'The disease and treatment lists could not be loaded. The methods are not filtered by them.',
+    )
+    expect(screen.queryByText('catalogue down')).toBeNull()
+  })
+})
+
+describe('step2-filters brief 5b — the disease picker and the treatment multi-tick', () => {
+  /** Open the disease picker popup the way a user does, and wait for its rows. */
+  async function openDiseasePicker(): Promise<void> {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-disease'))
+      await Promise.resolve()
+    })
+    await screen.findByTestId('txr-intake-study-disease-search')
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  /** Type into the picker's search field (the searchable arm's filter). */
+  async function searchDiseases(query: string): Promise<void> {
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-intake-study-disease-search'), {
+        target: { value: query },
+      })
+      await Promise.resolve()
+    })
+  }
+
+  /** Pick one offered row (closes the popup and commits the value). */
+  async function pickDisease(testid: string): Promise<void> {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testid))
+      await Promise.resolve()
+    })
+  }
+
+  it('searching finds a disease and its sub-groups, with the parent beside each sub-group', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    await openDiseasePicker()
+    // The group headings + every row are offered before the filter. Searching
+    // "melanoma" finds the disease row and its sub-group row (a sub-group's
+    // label carries its parent in parentheses).
+    expect(screen.getByTestId('txr-intake-study-disease-opt-melanoma')).toBeTruthy()
+    await searchDiseases('melanoma')
+    expect(screen.getByTestId('txr-intake-study-disease-opt-melanoma')).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-study-disease-opt-uveal melanoma')).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-study-disease-opt-uveal melanoma').textContent).toBe(
+      'Uveal melanoma (Melanoma)',
+    )
+    // Searching "lung" finds the lung disease row AND its sub-group (the
+    // blank 5b2 review point: the fixture now carries lung's child — the
+    // guard-clean stand-in spelling `lung adenocarcinoma`, see
+    // `fixtures.ts`), with the parent beside the sub-group; a non-matching
+    // disease is filtered out, and the "Another disease in Solid tumours"
+    // row does not carry the query either.
+    await searchDiseases('lung')
+    expect(screen.getByTestId('txr-intake-study-disease-opt-lung cancer')).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-study-disease-opt-lung adenocarcinoma')).toBeTruthy()
+    expect(
+      screen.getByTestId('txr-intake-study-disease-opt-lung adenocarcinoma').textContent,
+    ).toBe('Lung adenocarcinoma (Lung cancer)')
+    expect(screen.queryByTestId('txr-intake-study-disease-opt-COVID-19')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-study-disease-opt-breast cancer')).toBeNull()
+  })
+
+  it('a query matching only a category heading never lists the whole category (5b2)', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    await openDiseasePicker()
+    // "solid" matches ONLY the "Solid tumours" category heading; the picker
+    // filters by option names, so the whole category must not appear — the
+    // only row whose own text carries the word is the category's
+    // "(not listed)" option.
+    await searchDiseases('solid')
+    expect(screen.getByTestId('txr-intake-study-disease-opt-Solid tumours')).toBeTruthy()
+    expect(screen.queryByTestId('txr-intake-study-disease-opt-colorectal cancer')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-study-disease-opt-lung cancer')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-study-disease-opt-melanoma')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-study-disease-opt-COVID-19')).toBeNull()
+  })
+
+  it('picking a sub-group sends that id; the "not listed" option sends the category id', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    await openDiseasePicker()
+    await searchDiseases('uveal')
+    await pickDisease('txr-intake-study-disease-opt-uveal melanoma')
+    expect(store().study.disease).toBe('uveal melanoma')
+
+    await openDiseasePicker()
+    await searchDiseases('not listed')
+    // The "Another disease in <category> (not listed)" row carries the
+    // category id as its value — the server's category-scope answer.
+    expect(
+      screen.getByTestId('txr-intake-study-disease-opt-Solid tumours').textContent,
+    ).toBe('Another disease in Solid tumours (not listed)')
+    await pickDisease('txr-intake-study-disease-opt-Solid tumours')
+    expect(store().study.disease).toBe('Solid tumours')
+  })
+
+  it('Clear sends null — the disease returns to unanswered', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    await openDiseasePicker()
+    await searchDiseases('lung')
+    await pickDisease('txr-intake-study-disease-opt-lung cancer')
+    expect(store().study.disease).toBe('lung cancer')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-disease-clear'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.disease).toBeNull())
+  })
+
+  it('a stored disease id BEFORE the vocabulary loads shows as text, never a blank trigger (5b2)', async () => {
+    // Hold the vocabulary fetch open for the whole test: the picker mounts
+    // with no options but with a stored answer.
+    api.filterOptions.mockReturnValue(new Promise(() => undefined))
+    act(() => {
+      store().patchStudy({ disease: 'made-up cancer' })
+    })
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    // The stored id is the trigger's text (the display rule), never the
+    // empty-state prompt — with no option for it, the old render showed a
+    // blank trigger beside the clear button. (The base-ui arm appends its
+    // chevron glyph, so read the value span, not the whole button's text.)
+    const trigger = screen.getByTestId('txr-intake-study-disease')
+    expect(within(trigger).getByText('Made-up cancer')).toBeTruthy()
+    // The clear affordance is still there (the answer is cleared — once the
+    // vocabulary is reachable; the validating action refuses before it).
+    expect(screen.getByTestId('txr-intake-study-disease-clear')).toBeTruthy()
+  })
+
+  it('once the vocabulary loads, an unknown stored id is reconciled to unanswered (5b2)', async () => {
+    act(() => {
+      store().patchStudy({ disease: 'made-up cancer' })
+    })
+    renderStudy()
+    // The vocabulary's fetch-success + settled-cache branches both reconcile
+    // the answers (useFilterOptions): an id the catalogue does not know is
+    // dropped to unanswered, so the trigger returns to the empty-state
+    // prompt.
+    await waitFor(() => expect(store().study.disease).toBeNull())
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    expect(screen.getByTestId('txr-intake-study-disease').textContent).toBe('Choose a disease…')
+    expect(screen.queryByTestId('txr-intake-study-disease-clear')).toBeNull()
+  })
+
+  it('ticking two treatments writes both in vocabulary order; unticking all returns to unanswered', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Immune checkpoint inhibitor' })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-treatment-chemotherapy'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.treatments).toEqual(['chemotherapy']))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-treatment-immune checkpoint inhibitor'))
+      await Promise.resolve()
+    })
+    // The whole list is rewritten in vocabulary order (imm. checkpoint
+    // inhibitor first — the classes' list order, NOT the click order).
+    await waitFor(() =>
+      expect(store().study.treatments).toEqual([
+        'immune checkpoint inhibitor',
+        'chemotherapy',
+      ]),
+    )
+    // Untick both: the empty list is the action's "unanswered" spelling.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-treatment-immune checkpoint inhibitor'))
+      fireEvent.click(screen.getByTestId('txr-intake-study-treatment-chemotherapy'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.treatments).toBeNull())
+  })
+
+  it('two ticks in ONE act both stay ticked (the async write never overwrites the first tick)', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Immune checkpoint inhibitor' })
+    // Both clicks land before the async `intake.setStudyAnswers` write does:
+    // the second click must build from the first click's intended tick, not
+    // from the pre-click store value (brief 5b2 ITEM-2 — the old code lost
+    // the first tick exactly here).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-treatment-immune checkpoint inhibitor'))
+      fireEvent.click(screen.getByTestId('txr-intake-study-treatment-chemotherapy'))
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(store().study.treatments).toEqual([
+        'immune checkpoint inhibitor',
+        'chemotherapy',
+      ]),
+    )
+  })
+
+  it('a persisted two-item treatment answer shows both ticks (no collapse to one)', async () => {
+    act(() => {
+      store().patchStudy({ treatments: ['immune checkpoint inhibitor', 'chemotherapy'] })
+    })
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Immune checkpoint inhibitor' })
+    expect(
+      screen.getByRole('checkbox', { name: 'Immune checkpoint inhibitor' }).getAttribute('aria-checked'),
+    ).toBe('true')
+    expect(screen.getByRole('checkbox', { name: 'Chemotherapy' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
+    expect(screen.getByRole('checkbox', { name: 'Radiotherapy' }).getAttribute('aria-checked')).toBe(
+      'false',
+    )
   })
 })
 
@@ -686,6 +1082,8 @@ describe('ITEM-6 S1/S2/S4 — the panel spacing, the id wrapping, the flush Show
     await waitFor(() => {
       expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
     })
+    // The row lives in the "other" section; open it to read the id's bytes.
+    openExcludedSection('other')
     const id = screen.getByText('ki67-two-week-four-group')
     expect(id.style.wordBreak).toBe('normal')
     expect(id.style.overflowWrap).toBe('anywhere')
@@ -696,9 +1094,11 @@ describe('ITEM-6 S1/S2/S4 — the panel spacing, the id wrapping, the flush Show
     renderStudy()
     await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
-      expect(screen.getByText(`Show all ${CANNOT}`)).toBeTruthy()
+      expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
     })
-    const showAll = screen.getByTestId('txr-intake-excluded-show-all') as HTMLElement
+    openExcludedSection('other')
+    const showAll = screen.getByTestId('txr-intake-excluded-show-all-other') as HTMLElement
+    expect(showAll.textContent).toBe(`Show all ${CANNOT - 3}`)
     expect(showAll.style.padding).toBe('0px')
   })
 })
@@ -766,6 +1166,9 @@ describe('R2-1 — the environment fact separated from the answer causes', () =>
     // cause is the env line).
     expect(screen.getByText(`${CANNOT + 1} methods are left out`)).toBeTruthy()
     const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
+    // The rows wait inside their sections; the mixed env method's answer
+    // cause (a marker group) buckets it into "other".
+    openExcludedSection('other')
     expect(excluded.getByText('asm-best-change-rule')).toBeTruthy()
     expect(excluded.getByText('needs markers from: Methylation')).toBeTruthy()
     expect(excluded.queryByText('env-only-method')).toBeNull()

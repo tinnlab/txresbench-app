@@ -737,6 +737,8 @@ function fixtureMethodSummary(
     needs_detection_call: false,
     min_draws: 1,
     covariates: 'none',
+    disease: { scope: 'any-solid-tumour', groups: [] },
+    treatment: { classes: ['chemotherapy'], confidence: 'stated' },
     language: 'python',
     journal: 'Fixture Journal',
     year: 2024,

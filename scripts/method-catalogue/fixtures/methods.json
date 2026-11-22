@@ -1,0 +1,7 @@
+{
+  "methods": [
+    {"id": "fx-asm-methylation-panel", "biomarkers": {"defined_for": ["non-small cell lung cancer"]}},
+    {"id": "fx-baseline-cox", "biomarkers": {"defined_for": ["any solid tumour"]}},
+    {"id": "fx-response-signature", "biomarkers": {"defined_for": ["breast cancer"]}}
+  ]
+}

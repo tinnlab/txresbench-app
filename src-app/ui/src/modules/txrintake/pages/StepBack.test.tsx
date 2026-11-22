@@ -28,6 +28,7 @@ import { TxrStepBack, useStepBack } from '../components/TxrStepBack'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { useStepTrailStore, type TxrStepId } from '../lib/stepTrail'
 import { __resetFetchCacheForTests } from '../data/fetchCache'
+import { TXR_INTAKE_FILTER_OPTIONS } from '../fixtures'
 import type { LoadedFile } from '../types'
 
 // jsdom has no working PointerEvent constructor (the kit controls build one).
@@ -46,6 +47,7 @@ const api = vi.hoisted(() => ({
   list: vi.fn(),
   eligibility: vi.fn(),
   markers: vi.fn(),
+  filterOptions: vi.fn(),
   inspect: vi.fn(),
   validate: vi.fn(),
   template: vi.fn(),
@@ -58,6 +60,7 @@ vi.mock('@/api-client', () => ({
       list: api.list,
       eligibility: api.eligibility,
       markers: api.markers,
+      filterOptions: api.filterOptions,
     },
     FileValidation: {
       inspect: api.inspect,
@@ -206,6 +209,10 @@ beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset()
   api.list.mockResolvedValue({ methods: [], total: 3 })
   api.markers.mockResolvedValue({ groups: GROUPS, markers: [] })
+  // The study page reads the method filter-options vocabulary (step2-filters):
+  // the shared module fixture supplies it, so the page's disease/treatment
+  // selects and the answers-action vocabulary gate behave as before.
+  api.filterOptions.mockResolvedValue(TXR_INTAKE_FILTER_OPTIONS)
   api.eligibility.mockResolvedValue({
     methods: [],
     total_fit: 0,

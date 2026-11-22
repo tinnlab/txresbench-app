@@ -51,6 +51,8 @@ function summary(
   return {
     container: true,
     covariates: 'none',
+    disease: { scope: 'any-solid-tumour', groups: [] },
+    treatment: { classes: ['chemotherapy'], confidence: 'stated' },
     embeds_training_data: false,
     frozen_model: false,
     group: 'response-probability',
@@ -286,5 +288,35 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
     const before = JSON.stringify([m, eligibilityResponse])
     void buildMethodCards([m], eligibilityResponse)
     expect(JSON.stringify([m, eligibilityResponse])).toBe(before)
+  })
+
+  it('threads the vocabulary labels into the reason lines (the adapter contract, 5a3)', () => {
+    const m = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('alpha', {
+          status: 'cannot_run',
+          reasons: [
+            {
+              code: 'TREATMENT_NOT_MATCHED',
+              params: { made_for: 'immune checkpoint inhibitor', answer: 'chemotherapy' },
+            },
+          ],
+        }),
+      ]),
+      {
+        treatmentClasses: [
+          { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+          { id: 'chemotherapy', label: 'Chemotherapy' },
+        ],
+      },
+    )
+    expect(cards[0].run.reasonLine).toBe(
+      'Made for Immune checkpoint inhibitor, not your treatments',
+    )
+    expect(cards[0].run.reasonLines).toEqual([
+      'Made for Immune checkpoint inhibitor, not your treatments',
+    ])
   })
 })

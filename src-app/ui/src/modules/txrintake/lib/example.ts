@@ -12,9 +12,11 @@
  * Facts, never design examples:
  *
  * - The example family is SYNTHETIC (generator README's provenance table):
- *   no disease, no named drug — the honest B answers are "Other or not
- *   listed" / "Other or mixed" (the board's own catch-all options), not a
- *   cancer the data does not carry.
+ *   no disease, no named drug — the honest B answers for the disease and
+ *   the treatment questions are UNANSWERED (step2-filters: the old
+ *   catch-all answers "Other or not listed" / "Other or mixed" are no
+ *   longer filter vocabulary; an unanswered question is omitted from the
+ *   requests, never a guessed id).
  * - The markers have NO vocabulary match (M1/M2/M3 in a.u. are the
  *   simulator's own), so the example validation produces no join offer and
  *   no ladder match; none of the seven marker groups is "measured" by the
@@ -54,10 +56,18 @@ const DECODE_KIND: Record<ExampleTableKind, FileTableKind> = {
   'predict-measurements': 'measurements',
 }
 
-/** The B answers the example family factually has (see the module header). */
+/**
+ * The B answers the example family factually has (see the module header).
+ * The disease and the treatment questions are UNANSWERED (step2-filters):
+ * the example family is synthetic — no real disease, no named drug — and
+ * the old catch-all answers ("Other or not listed" / "Other or mixed") are
+ * no longer values the method filters know; an honest unanswered question
+ * is OMITTED from the requests (the provider reads it as "any"), never a
+ * guessed id. The outcome + schedule answers stay the family's facts.
+ */
 export const EXAMPLE_STUDY: StudyAnswers = {
-  disease: 'other',
-  treatment: 'other-mixed',
+  disease: null,
+  treatments: null,
   outcome: 'progression-by-day',
   markerGroups: null,
   beforeTreatment: 'always',
@@ -72,7 +82,7 @@ export const EXAMPLE_STUDY: StudyAnswers = {
 export function isExampleStudy(study: StudyAnswers): boolean {
   return (
     study.disease === EXAMPLE_STUDY.disease &&
-    study.treatment === EXAMPLE_STUDY.treatment &&
+    study.treatments === EXAMPLE_STUDY.treatments &&
     study.outcome === EXAMPLE_STUDY.outcome &&
     (study.markerGroups ?? null) === null &&
     study.beforeTreatment === EXAMPLE_STUDY.beforeTreatment &&

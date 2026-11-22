@@ -86,9 +86,9 @@ describe('the path tables and the example study answers', () => {
     expect(exampleKindsFor('reuse')).toEqual(['predict-measurements'])
   })
 
-  it('the answers are the example family facts (synthetic disease/drug, survival task, day 56)', () => {
-    expect(EXAMPLE_STUDY.disease).toBe('other')
-    expect(EXAMPLE_STUDY.treatment).toBe('other-mixed')
+  it('the answers are the example family facts (no real disease/drug — both unanswered, survival task, day 56)', () => {
+    expect(EXAMPLE_STUDY.disease).toBeNull()
+    expect(EXAMPLE_STUDY.treatments).toBeNull()
     expect(EXAMPLE_STUDY.outcome).toBe('progression-by-day')
     expect(EXAMPLE_STUDY.beforeTreatment).toBe('always')
     expect(EXAMPLE_STUDY.drawsDuringTreatment).toBe(4)
@@ -184,7 +184,8 @@ describe('isExampleStudy (demo-mode ITEM-6)', () => {
   })
 
   it('one answer leaving the setup is no longer the example study', () => {
-    expect(isExampleStudy({ ...EXAMPLE_STUDY, disease: 'colorectal' })).toBe(false)
+    expect(isExampleStudy({ ...EXAMPLE_STUDY, disease: 'colorectal cancer' })).toBe(false)
+    expect(isExampleStudy({ ...EXAMPLE_STUDY, treatments: ['chemotherapy'] })).toBe(false)
     expect(isExampleStudy({ ...EXAMPLE_STUDY, lastDrawDay: 84 })).toBe(false)
     expect(isExampleStudy({ ...EXAMPLE_STUDY, markerGroups: { kinetics: true } })).toBe(false)
   })

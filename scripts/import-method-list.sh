@@ -3,7 +3,7 @@
 # import-method-list.sh — make the published method list this app release's built-in copy.
 #
 # Run at an app release (no token, no key): anonymously pull
-# ghcr.io/tinnlab/txresbench-method-list:v1 (or :v1-seq-<N> with --sequence N), verify it with
+# ghcr.io/tinnlab/txresbench-method-list:v2 (or :v2-seq-<N> with --sequence N), verify it with
 # the app's own verifier and trusted keys (`txresbench check-method-list`), refuse a sequence
 # below the current built-in copy or a list that drops a row of it (or changes a fact at the
 # same version; before the first import, of the app's current two documents), then write
@@ -35,7 +35,7 @@ set -euo pipefail
 
 REPO=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 PACKAGE="ghcr.io/tinnlab/txresbench-method-list"
-LINE="v1"
+LINE="v2"
 
 APP_DIR="$REPO"
 SEQUENCE=""

@@ -1,0 +1,15 @@
+# The closed list of treatment base classes the method filters offer, in display order.
+# Reviewed in the PR. Columns: id<TAB>label.
+id	label
+immune checkpoint inhibitor	Immune checkpoint inhibitor
+chemotherapy	Chemotherapy
+targeted therapy	Targeted therapy
+hormone therapy	Hormone therapy
+radiotherapy	Radiotherapy
+cell therapy	Cell therapy
+anti-infective	Anti-infective (antiviral, antibacterial, antifungal or anti-TB)
+biologic immunomodulator	Biologic immunomodulator
+small-molecule immunomodulator or immunosuppressant	Small-molecule immunomodulator or immunosuppressant
+corticosteroid	Corticosteroid
+vaccine	Vaccine
+other drug	Other drug

@@ -1,0 +1,7 @@
+disease_group,category,basis
+lung cancer,Solid tumours,fixture
+non-small cell lung cancer,Solid tumours,fixture: a child of lung cancer (listed as a group too; like the benchmark's CSV)
+small cell lung cancer,Solid tumours,fixture: a child of lung cancer (listed as a group too; like the benchmark's CSV)
+breast cancer,Solid tumours,fixture
+lymphoma,Haematological,fixture
+diffuse large B-cell lymphoma,Haematological,fixture: a child of lymphoma (listed as a group too; like the benchmark's CSV)

@@ -779,6 +779,7 @@ mod tests {
             markers,
             covariates: Vec::new(),
             outcomes,
+            filters: None,
         }
     }
 

@@ -139,7 +139,7 @@ async fn live_list_from_loopback_registry_verified_and_served() {
     assert!(pull.contains("txresbench-method-list@sha256:"), "{pull}");
     assert!(pull.contains("--plain-http"), "a loopback registry: {pull}");
     // Stored for the next start.
-    let stored = server.data_dir().join("method-list/v1/method-list.json");
+    let stored = server.data_dir().join("method-list/v2/method-list.json");
     assert_eq!(std::fs::read(stored).expect("the last good copy"), list);
 
     // A list signed by nobody the app trusts is refused, the list in use stays.
@@ -160,8 +160,8 @@ async fn restart_offline_uses_disk_copy() {
     let server = TestServer::spawn_with(TestOptions {
         method_list_test_key: Some(fixture_pub()),
         prestage_data_files: vec![
-            ("method-list/v1/method-list.json".to_string(), list, false),
-            ("method-list/v1/method-list.json.minisig".to_string(), sig, false),
+            ("method-list/v2/method-list.json".to_string(), list, false),
+            ("method-list/v2/method-list.json.minisig".to_string(), sig, false),
         ],
         ..Default::default()
     })
@@ -180,8 +180,8 @@ async fn restart_offline_uses_disk_copy() {
     let server = TestServer::spawn_with(TestOptions {
         method_list_test_key: Some(fixture_pub()),
         prestage_data_files: vec![
-            ("method-list/v1/method-list.json".to_string(), list, false),
-            ("method-list/v1/method-list.json.minisig".to_string(), sig, false),
+            ("method-list/v2/method-list.json".to_string(), list, false),
+            ("method-list/v2/method-list.json.minisig".to_string(), sig, false),
         ],
         ..Default::default()
     })

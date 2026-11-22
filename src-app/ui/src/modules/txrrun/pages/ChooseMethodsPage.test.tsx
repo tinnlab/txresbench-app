@@ -55,6 +55,7 @@ import {
   useStepTrailStore,
   useTxrIntakeStore,
 } from '@/modules/txrintake'
+import { __resetFetchCacheForTests } from '@/modules/txrintake/data/fetchCache'
 import { RESEARCH_NOTICE } from '../lib/format'
 import { METHOD_LIST_CHANGED_NOTICE, RUN_METHODS_GONE_LINE } from '../lib/runErrors'
 import { __resetMethodListRevisionForTests } from '@/lib/txr-method-list/revision'
@@ -94,6 +95,7 @@ const api = vi.hoisted(() => ({
   listRuns: vi.fn(),
   getPrefs: vi.fn(),
   listUpdates: vi.fn(),
+  filterOptions: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -108,6 +110,7 @@ vi.mock('@/api-client', () => ({
       eligibility: api.eligibility,
       estimate: api.estimate,
       detail: api.detail,
+      filterOptions: api.filterOptions,
     },
     History: {
       getPreferences: api.getPrefs,
@@ -220,6 +223,8 @@ function catalogue(): MethodSummary[] {
       journal: 'Example Journal',
       runnable: true,
       spec_status: 'final',
+      disease: { scope: 'any-solid-tumour', groups: [] },
+      treatment: { classes: ['chemotherapy'], confidence: 'stated' },
       container: true,
       covariates: 'optional',
       embeds_training_data: false,
@@ -246,6 +251,8 @@ function catalogue(): MethodSummary[] {
       journal: 'Example Journal',
       runnable: true,
       spec_status: 'final',
+      disease: { scope: 'any-solid-tumour', groups: [] },
+      treatment: { classes: ['chemotherapy'], confidence: 'stated' },
       container: true,
       covariates: 'optional',
       embeds_training_data: false,
@@ -271,6 +278,8 @@ function catalogue(): MethodSummary[] {
       journal: 'Example Journal',
       runnable: true,
       spec_status: 'final',
+      disease: { scope: 'any-solid-tumour', groups: [] },
+      treatment: { classes: ['chemotherapy'], confidence: 'stated' },
       container: true,
       covariates: 'none',
       embeds_training_data: false,
@@ -396,6 +405,24 @@ function seedStore(overrides: Partial<TxrIntakeState> = {}) {
   })
 }
 
+/** The filter-options vocabulary the page's study answers are valid
+ *  against (step2-filters / 5a3): the catalogue's ids. */
+const FILTER_OPTIONS = {
+  disease_categories: [
+    {
+      id: 'Solid tumours',
+      diseases: [
+        { id: 'colorectal cancer', children: [] },
+        { id: 'breast cancer', children: [] },
+      ],
+    },
+  ],
+  treatment_classes: [
+    { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+    { id: 'chemotherapy', label: 'Chemotherapy' },
+  ],
+}
+
 const store = () => useTxrIntakeStore.getState()
 
 function LocationProbe() {
@@ -494,8 +521,11 @@ beforeEach(() => {
   api.getPrefs.mockResolvedValue({ keep_file_copies: true })
   api.listUpdates.mockReset()
   api.listUpdates.mockRejectedValue(new Error('no status in this suite'))
+  api.filterOptions.mockReset()
+  api.filterOptions.mockResolvedValue(FILTER_OPTIONS)
   actionMock.rejectSetDay = false
   __resetMethodListRevisionForTests()
+  __resetFetchCacheForTests()
   window.localStorage.clear()
   store().reset()
   statedLayout()
@@ -1284,6 +1314,40 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(screen.queryByTestId('txr-method-refreshing')).toBeNull()
     const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
     expect(lastCall.inventory.decision_day).toBe(28)
+  })
+
+  it('a persisted unknown disease is never sent on E — the filters block is sanitized by the vocabulary (5a3)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({
+      study: {
+        ...useTxrIntakeStore.getState().study,
+        disease: 'dead-cancer',
+        treatments: ['chemotherapy', 'obsolete-drug'],
+        outcome: 'progression-by-day',
+      },
+    })
+    renderPage()
+    await settle()
+    // The vocabulary lands after the mount's first inventory answer: the
+    // eligibility is re-issued with the sanitized filters block.
+    for (let i = 0; i < 20 && api.eligibility.mock.calls.length < 2; i += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10)
+      })
+    }
+    expect(api.eligibility.mock.calls.length).toBeGreaterThanOrEqual(2)
+    const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
+    // The stale disease is never sent; the known treatment class rides, the
+    // unknown one is dropped; the outcome is independent of the vocabulary.
+    expect(lastCall.inventory.filters).toEqual({
+      treatment_classes: ['chemotherapy'],
+      method_group: 'static-risk',
+    })
+    // The reconcile reaches the store too: the unknown disease is cleared
+    // once the vocabulary is known.
+    expect(store().study.disease).toBeNull()
+    expect(store().study.treatments).toEqual(['chemotherapy'])
+    expect(store().study.outcome).toBe('progression-by-day')
   })
 
   it('a re-check that changes nothing still answers: "Checked again: the same 2 methods can run." (step-4 fix)', async () => {

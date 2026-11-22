@@ -285,12 +285,19 @@ fn schema_refuses_per_patient_and_per_dataset_fields() {
     use txresbench::modules::method_catalogue::catalogue::parse_catalogue;
 
     let base = r#"{{
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_from": {{"registry_name":"r","methods_commit":"m",
             "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"}},
         "methods": [{method}],
         "markers": [],
-        "groups": []
+        "groups": [],
+        "filter_options": {{"disease_categories": [
+            {{"id": "Solid tumours", "diseases": [
+                {{"id": "lung cancer", "children": ["lung adenocarcinoma"]}}
+            ]}}
+        ], "treatment_classes": [
+            {{"id": "immune checkpoint inhibitor", "label": "Immune checkpoint inhibitor"}}
+        ]}}
     }}"#;
 
     let method_entry = r#"{
@@ -306,7 +313,10 @@ fn schema_refuses_per_patient_and_per_dataset_fields() {
         "min_draws": 1, "needs_baseline": false, "uses_history": "landmark",
         "fitted": false, "saves_model": false, "own_outputs": [], "tasks": [],
         "required_markers": null, "needs_detection_call": false,
-        "marker_groups_required": [], "description": "d",
+        "marker_groups_required": [],
+        "disease": {"scope": "group", "groups": ["lung cancer"]},
+        "treatment": {"classes": ["immune checkpoint inhibitor"], "confidence": "stated"},
+        "description": "d",
         "timing": {"base_seconds_per_fold": 1.0, "benchmarked_units": 0, "quality": "estimate"},
         "performance": null, "embeds_training_data": false,
         "software": {"language": "R 4.4.2", "packages": {}},

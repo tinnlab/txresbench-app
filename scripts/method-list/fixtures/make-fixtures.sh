@@ -2,10 +2,12 @@
 # make-fixtures.sh — rebuild the method list's test fixtures (not run by the gate).
 #
 # Output (all committed):
-#   list-dir/catalogue.json          = scripts/method-catalogue/fixtures/expected-catalogue.json
+#   list-dir/catalogue.json          the catalogue generator's own fixture output
+#                                    (schema 2: 3 synthetic methods with their disease/
+#                                    treatment facts and the filter_options block)
 #   list-dir/method-env-images.json  synthetic schema 2 list: two of its methods on amd64, both bases
 #   list-dir/method-list.json        assembled with --first at SOURCE_DATE_EPOCH 1767225600
-#   list-dir/method-list.json.minisig        good signature, "txresbench-method-list format=1 sequence=1"
+#   list-dir/method-list.json.minisig        good signature, "txresbench-method-list format=2 sequence=1"
 #   signatures/legacy.minisig        the same comment, legacy (not prehashed) signature
 #   signatures/wrong-purpose.minisig a minisign-style comment that is not the list's
 #   signatures/sequence-2.minisig    "... sequence=2" over the sequence 1 body
@@ -25,7 +27,11 @@ REPO=$(CDPATH='' cd -- "$FIX/../../.." && pwd)
 export PYTHONDONTWRITEBYTECODE=1
 
 mkdir -p "$FIX/list-dir" "$FIX/signatures"
-cp "$REPO/scripts/method-catalogue/fixtures/expected-catalogue.json" "$FIX/list-dir/catalogue.json"
+# The catalogue fixture: the generator's own fixture output (schema 2 — the disease/
+# treatment facts and the filter_options block come from the generator's fixture tables,
+# the same tables that produce fixtures/expected-catalogue.json).
+SOURCE_DATE_EPOCH=1767225600 python3 "$REPO/scripts/method-catalogue/gen_method_catalogue.py" \
+  --fixtures --out "$FIX/list-dir/catalogue.json"
 
 python3 - "$REPO" "$FIX/list-dir/method-env-images.json" <<'PY'
 import hashlib, importlib.util, sys
@@ -65,7 +71,7 @@ PY
 SOURCE_DATE_EPOCH=1767225600 python3 "$REPO/scripts/assemble-method-list.py" \
   --list-dir "$FIX/list-dir" --first >/dev/null
 
-COMMENT_OK='txresbench-method-list format=1 sequence=1'
+COMMENT_OK='txresbench-method-list format=2 sequence=1'
 SIGN_SCRIPT=$(cat <<EOF
 set -eu
 cd "\$1"
@@ -74,7 +80,7 @@ sign() { out=\$1; shift; minisign -S -s test-key.key -m list-dir/method-list.jso
 sign list-dir/method-list.json.minisig -t '$COMMENT_OK'
 sign signatures/legacy.minisig -l -t '$COMMENT_OK'
 sign signatures/wrong-purpose.minisig -t 'timestamp:1767225600 file:method-list.json'
-sign signatures/sequence-2.minisig -t 'txresbench-method-list format=1 sequence=2'
+sign signatures/sequence-2.minisig -t 'txresbench-method-list format=2 sequence=2'
 EOF
 )
 if command -v minisign >/dev/null 2>&1; then

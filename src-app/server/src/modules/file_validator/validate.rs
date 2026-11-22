@@ -789,6 +789,9 @@ fn build_inventory(resolved: &ResolvedRequest) -> InventoryEligibilityRequest {
         markers: inv_markers,
         covariates,
         outcomes,
+        // The validator does not see the method filters (they belong to the
+        // screens' filters form); the consumer adds the `filters` block on top.
+        filters: None,
     }
 }
 

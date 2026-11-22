@@ -960,6 +960,7 @@ mod tests {
                 has_event: true,
                 has_survival_day: true,
             }),
+            filters: None,
         }
     }
 

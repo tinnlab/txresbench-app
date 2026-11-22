@@ -1,13 +1,20 @@
 /**
  * txrintake board copy + label tables — the ITEM-8 home (`lib/format.ts`),
  * created at ITEM-5 with the Screen-B surface the panel needs: the option
- * labels of the six question groups, the panel count copy, the short
+ * labels of the question groups, the panel count copy, the short
  * marker-group names for the descriptive sentence, and the fallback reason
  * line (CONS-UI-INTAKE-9's fallback). ITEM-8 completes the file with the
  * row-label builders (`pluralize` / `rowLabel`) and the remaining
  * TEST-INT-13 rows — the "151 patients" / "1,102 rows" count phrasing the
  * C/N status boxes render (the download helper lives in `lib/download.ts`,
  * its ITEM-6 home).
+ *
+ * The disease and treatment OPTION text is NOT a static table any more
+ * (step2-filters): the answers are the method catalogue's `filter_options`
+ * node ids, so the screen builds its options from the loaded vocabulary
+ * (`data/useFilterOptions.ts`) — disease ids are the readable names, and
+ * treatment labels come from `treatment_classes[].label`; before the
+ * vocabulary loads, the id is the fallback.
  *
  * Copy rule DEC-13: every label is the board's own text (Criteria.dc.html,
  * Files.dc.html, PredictFiles.dc.html) VERBATIM, and every NUMBER the
@@ -22,25 +29,7 @@
  * group ids (the closed 7-group board set, CONS-UI-INTAKE-1); an id outside
  * the map renders as itself — never a guessed label.
  */
-import type { DiseaseId, OutcomeId, StudyAnswers, TreatmentId } from '../types'
-
-/** Screen B, "Which disease" — board option text (Criteria.dc.html). */
-export const DISEASE_OPTIONS: ReadonlyArray<{ value: DiseaseId; label: string }> = [
-  { value: 'colorectal', label: 'Colorectal cancer' },
-  { value: 'lung', label: 'Lung cancer' },
-  { value: 'breast', label: 'Breast cancer' },
-  { value: 'prostate', label: 'Prostate cancer' },
-  { value: 'other', label: 'Other or not listed' },
-]
-
-/** Screen B, "Which treatment" — board option text. */
-export const TREATMENT_OPTIONS: ReadonlyArray<{ value: TreatmentId; label: string }> = [
-  { value: 'immunotherapy', label: 'Immunotherapy' },
-  { value: 'chemotherapy', label: 'Chemotherapy' },
-  { value: 'targeted', label: 'Targeted therapy' },
-  { value: 'radiotherapy', label: 'Radiotherapy' },
-  { value: 'other-mixed', label: 'Other or mixed' },
-]
+import type { OutcomeId } from '../types'
 
 /** Screen B, "What you want to predict" — the four board pills, verbatim. */
 export const OUTCOME_OPTIONS: ReadonlyArray<{ value: OutcomeId; label: string }> = [
@@ -64,20 +53,16 @@ export const DRAWS_OPTIONS: ReadonlyArray<{ value: 1 | 2 | 4; label: string }> =
   { value: 4, label: '4 or more' },
 ]
 
-/** The panel sentence's short disease clause (lower-case, board phrasing). */
-export function diseaseClause(disease: DiseaseId): string {
-  switch (disease) {
-    case 'colorectal':
-      return 'colorectal cancer'
-    case 'lung':
-      return 'lung cancer'
-    case 'breast':
-      return 'breast cancer'
-    case 'prostate':
-      return 'prostate cancer'
-    case 'other':
-      return 'another disease'
-  }
+/**
+ * The panel sentence's disease clause. The disease answer IS a
+ * `filter_options` node id, and those ids are already the readable names
+ * ("colorectal cancer", "melanoma", "Solid tumours"), so the clause is the id
+ * itself — the label table the board once carried is gone with the old
+ * option set. Before the vocabulary loads (or for an id outside it), the id
+ * is the fallback too: never a guessed label, never a blank clause.
+ */
+export function diseaseClause(disease: string): string {
+  return disease
 }
 
 /** The panel sentence's short outcome clause (the four task phrasings). */
@@ -154,8 +139,48 @@ export function someFitLine(fit: Readonly<{ some: number }>): string {
  */
 export const PREVIEW_REASON_FALLBACK = "doesn't fit with these answers"
 
+/** The one honest line when the filter-options vocabulary cannot be loaded
+ *  (step2-filters, brief 5a3): the disease/treatment lists are gone, so the
+ *  methods are not filtered by them. Plain words, NO raw error string, and
+ *  shown ONCE — the old page repeated the same raw fetch message under
+ *  both the Disease and the Treatment control. */
+export const FILTER_OPTIONS_UNAVAILABLE_LINE =
+  'The disease and treatment lists could not be loaded. The methods are not filtered by them.'
+
 /** The B panel's MAXIMUM directly-visible excluded rows (the board's 250px clip ≈ 6 rows). */
 export const EXCLUDED_LIST_LIMIT = 6
+
+/**
+ * The treatment question's hint (step2-filters, brief 5b): the ONE line under
+ * the multi-tick list — the board's own plain words, never a design promise
+ * about combo counts.
+ */
+export const TREATMENT_MULTI_HINT =
+  'A combination is several ticks. Tick none to keep every treatment.'
+
+/**
+ * One grouped left-out section's heading (step2-filters, brief 5b): the
+ * excluded methods are grouped by their first reason's code — the three
+ * answer-caused codes get their own section, every other code one section
+ * with "do not fit" — the count is live, and the singular forms are the
+ * section's own ("1 made for another disease", "1 predicts something else",
+ * "1 does not fit your files or answers"). `code` is the raw reason code
+ * (or the grouping key's `'other'`); the mapping is the board's own words.
+ */
+export function excludedSectionHeading(code: string, count: number): string {
+  switch (code) {
+    case 'DISEASE_NOT_MATCHED':
+      return count === 1 ? '1 made for another disease' : `${count} made for another disease`
+    case 'TREATMENT_NOT_MATCHED':
+      return `${count} made for other treatments`
+    case 'OUTCOME_NOT_MATCHED':
+      return count === 1 ? '1 predicts something else' : `${count} predict something else`
+    default:
+      return count === 1
+        ? '1 does not fit your files or answers'
+        : `${count} do not fit your files or answers`
+  }
+}
 
 /**
  * The board's thousands grouping — "1,102 rows" (PredictFiles.dc.html).

@@ -13,11 +13,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   BEFORE_TREATMENT_OPTIONS,
-  DISEASE_OPTIONS,
   DRAWS_OPTIONS,
   OUTCOME_OPTIONS,
   PREVIEW_REASON_FALLBACK,
-  TREATMENT_OPTIONS,
+  TREATMENT_MULTI_HINT,
+  excludedSectionHeading,
   fitHeading,
   groupNumber,
   leftOutHeading,
@@ -27,33 +27,6 @@ import {
 } from './format'
 
 describe('option labels (TEST-INT-13)', () => {
-  it('disease options are the board text verbatim', () => {
-    expect(DISEASE_OPTIONS.map(o => o.label)).toEqual([
-      'Colorectal cancer',
-      'Lung cancer',
-      'Breast cancer',
-      'Prostate cancer',
-      'Other or not listed',
-    ])
-    expect(DISEASE_OPTIONS.map(o => o.value)).toEqual([
-      'colorectal',
-      'lung',
-      'breast',
-      'prostate',
-      'other',
-    ])
-  })
-
-  it('treatment options are the board text verbatim', () => {
-    expect(TREATMENT_OPTIONS.map(o => o.label)).toEqual([
-      'Immunotherapy',
-      'Chemotherapy',
-      'Targeted therapy',
-      'Radiotherapy',
-      'Other or mixed',
-    ])
-  })
-
   it('outcome pills are the board text verbatim', () => {
     expect(OUTCOME_OPTIONS.map(o => o.label)).toEqual([
       'Will the treatment work? (yes or no)',
@@ -110,5 +83,26 @@ describe('row labels (TEST-INT-13, ITEM-8)', () => {
     expect(groupNumber(1102)).toBe('1,102')
     expect(groupNumber(999)).toBe('999')
     expect(groupNumber(1234567)).toBe('1,234,567')
+  })
+})
+
+describe('brief 5b — the treatment hint and the grouped left-out headings', () => {
+  it('the treatment multi-tick hint is the board line', () => {
+    expect(TREATMENT_MULTI_HINT).toBe(
+      'A combination is several ticks. Tick none to keep every treatment.',
+    )
+  })
+
+  it('each section heading is the count + plain words, with the singular forms', () => {
+    // Disease / outcome / do-not-fit take the section's own singular; the
+    // treatment wording stays "made for other treatments" at one too.
+    expect(excludedSectionHeading('DISEASE_NOT_MATCHED', 1)).toBe('1 made for another disease')
+    expect(excludedSectionHeading('DISEASE_NOT_MATCHED', 3)).toBe('3 made for another disease')
+    expect(excludedSectionHeading('TREATMENT_NOT_MATCHED', 1)).toBe('1 made for other treatments')
+    expect(excludedSectionHeading('TREATMENT_NOT_MATCHED', 2)).toBe('2 made for other treatments')
+    expect(excludedSectionHeading('OUTCOME_NOT_MATCHED', 1)).toBe('1 predicts something else')
+    expect(excludedSectionHeading('OUTCOME_NOT_MATCHED', 4)).toBe('4 predict something else')
+    expect(excludedSectionHeading('other', 1)).toBe('1 does not fit your files or answers')
+    expect(excludedSectionHeading('other', 7)).toBe('7 do not fit your files or answers')
   })
 })

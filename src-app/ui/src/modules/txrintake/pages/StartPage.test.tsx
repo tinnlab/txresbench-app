@@ -212,9 +212,12 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     expect(api.example).toHaveBeenCalledWith({ kind: 'measurements' })
     expect(store().intent).toBe('train')
     expect(store().mode).toBe('study')
-    // Every study answer is filled consistently with the example family.
-    expect(store().study.disease).toBe('other')
-    expect(store().study.treatment).toBe('other-mixed')
+    // Every study answer is filled consistently with the example family —
+    // the disease and the treatment questions stay UNANSWERED (the example
+    // has no real disease or drug; an unanswered filter question is omitted
+    // from the requests, never a guessed id).
+    expect(store().study.disease).toBeNull()
+    expect(store().study.treatments).toBeNull()
     expect(store().study.lastDrawDay).toBe(56)
     expect(store().parameters.decision_day).toBe(56)
 

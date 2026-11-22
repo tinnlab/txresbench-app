@@ -1,0 +1,3 @@
+# disease_group<TAB>category<TAB>basis — rows the benchmark CSV lacks (fixture)
+disease_group	category	basis
+prostate cancer	Solid tumours	fixture: extra-table row

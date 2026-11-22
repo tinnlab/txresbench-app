@@ -14,7 +14,7 @@
 # constant passed to `oras`), so it is listed here as the approved host rather
 # than extracted. Two uses: the method environment downloads (pinned layers and
 # bases, by digest) and the method list check (`method_list::fetch`: resolve
-# `ghcr.io/tinnlab/txresbench-method-list:v1`, pull a new list by digest).
+# `ghcr.io/tinnlab/txresbench-method-list:v2`, pull a new list by digest).
 ghcr.io
 # GHCR's blob host: GHCR answers every blob GET with a redirect (307) here
 # (verified 2026-11-16), so the env downloads and the method list pull both

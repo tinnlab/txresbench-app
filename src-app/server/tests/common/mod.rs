@@ -136,7 +136,7 @@ pub struct TestOptions {
     /// Files written under the spawned server's `<data_dir>` BEFORE it boots:
     /// `(relative path, bytes, executable)`. A stand-in `bin/oras` (the tool
     /// lookup's `<app_data>/bin`) or a stored method list
-    /// (`method-list/v1/…`) must exist before the boot reads them.
+    /// (`method-list/v2/…`) must exist before the boot reads them.
     pub prestage_data_files: Vec<(String, Vec<u8>, bool)>,
 
     /// Point the spawned server's pretrained bundled-models dir at this
@@ -479,7 +479,7 @@ jwt:
                     "TXR_METHOD_LIST_REF".to_string(),
                     opts.method_list_ref
                         .clone()
-                        .unwrap_or_else(|| "127.0.0.1:9/tinnlab/txresbench-method-list:v1".to_string()),
+                        .unwrap_or_else(|| "127.0.0.1:9/tinnlab/txresbench-method-list:v2".to_string()),
                 ));
                 if let Some(key) = &opts.method_list_test_key {
                     env.push((

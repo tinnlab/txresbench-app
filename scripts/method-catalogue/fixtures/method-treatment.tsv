@@ -1,0 +1,6 @@
+# method_id<TAB>treatment_class<TAB>confidence<TAB>source_phrase<TAB>source — fixture.
+# fx-baseline-cox has NO row on purpose: it exercises the missing-row rule
+# (classes [], confidence not-stated, plus a warning).
+method_id	treatment_class	confidence	source_phrase	source
+fx-asm-methylation-panel	immune checkpoint inhibitor	stated	fixture: the panel's application section states it	fixture
+fx-response-signature	chemotherapy	inferred	fixture: inferred from the signature's training cohort	fixture

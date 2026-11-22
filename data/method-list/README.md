@@ -62,7 +62,7 @@ good list in the meantime.
 
 The app embeds `method-list.json` (+ `.minisig`) and nothing else of the method facts. At
 start it uses the newest valid list among that built-in copy and the last good list it
-stored (`<app data>/method-list/v1/`), then asks the registry for a newer one in the
+stored (`<app data>/method-list/v2/`), then asks the registry for a newer one in the
 background; it asks again before each run (short budgets) and from the Settings button,
 never on a timer. A list is verified before it is parsed, and the highest valid sequence
 wins (a lower one is a rollback, the same one with other bytes a conflict: both refused).

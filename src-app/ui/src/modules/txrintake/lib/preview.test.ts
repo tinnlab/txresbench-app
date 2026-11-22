@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   EligibilityResponse,
   EligibilityStatus,
+  FilterOptions,
   MethodEligibility,
   Reason,
   ReasonCode,
@@ -35,11 +36,14 @@ import {
 import {
   buildStudyPreviewRequest,
   descriptiveSentence,
+  excludedGroupCode,
   excludedMethods,
   excludedReasonLine,
   fitCounts,
+  groupExcludedMethods,
   hasStudyAnswers,
   PREVIEW_ANSWER_INVITE,
+  type ExcludedMethod,
   type FitCounts,
   type TxrPreviewFormatters,
 } from './preview'
@@ -60,7 +64,7 @@ const GROUPS = GROUP_IDS.map(id => ({ id, display_name: id }))
 
 const EMPTY_ANSWERS: StudyAnswers = {
   disease: null,
-  treatment: null,
+  treatments: null,
   outcome: null,
   markerGroups: null,
   beforeTreatment: null,
@@ -69,13 +73,31 @@ const EMPTY_ANSWERS: StudyAnswers = {
 }
 
 const FULL_ANSWERS: StudyAnswers = {
-  disease: 'colorectal',
-  treatment: 'immunotherapy',
+  disease: 'colorectal cancer',
+  treatments: ['immune checkpoint inhibitor'],
   outcome: 'progression-by-day',
   markerGroups: { ctdna: true, counts: true, ldh: true },
   beforeTreatment: 'always',
   drawsDuringTreatment: 2,
   lastDrawDay: 56,
+}
+
+/** The filtered answers' vocabulary: every id the fixtures use. */
+const VOCABULARY: FilterOptions = {
+  disease_categories: [
+    {
+      id: 'Solid tumours',
+      diseases: [
+        { id: 'colorectal cancer', children: [] },
+        { id: 'melanoma', children: [] },
+      ],
+    },
+  ],
+  treatment_classes: [
+    { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+    { id: 'chemotherapy', label: 'Chemotherapy' },
+    { id: 'radiotherapy', label: 'Radiotherapy' },
+  ],
 }
 
 /** The shared formatter surface the hook binds (the real txrlist function). */
@@ -120,7 +142,7 @@ function response(
 
 describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
   it('carries the schedule answers verbatim, answered ones only (R3-intake-2)', () => {
-    const req = buildStudyPreviewRequest(FULL_ANSWERS, GROUPS)
+    const req = buildStudyPreviewRequest(FULL_ANSWERS, GROUPS, VOCABULARY)
     expect(Object.keys(req.marker_groups as Record<string, boolean>).sort()).toEqual(
       [...GROUP_IDS].sort(),
     )
@@ -138,11 +160,27 @@ describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
     expect(req.last_draw_day).toBe(56)
   })
 
+  it('sends the three method-filter facts flattened at the top level, answered ones only (step2-filters)', () => {
+    const req = buildStudyPreviewRequest(
+      {
+        ...EMPTY_ANSWERS,
+        disease: 'colorectal cancer',
+        treatments: ['immune checkpoint inhibitor', 'radiotherapy'],
+        outcome: 'progression-by-day',
+      },
+      GROUPS,
+      VOCABULARY,
+    )
+    expect(req.disease_group).toBe('colorectal cancer')
+    expect(req.treatment_classes).toEqual(['immune checkpoint inhibitor', 'radiotherapy'])
+    expect(req.method_group).toBe('static-risk')
+  })
+
   it('omits an unanswered schedule question — the provider reads it as "any" (R3-intake-2)', () => {
     // The old body carried the board's first options when unanswered, so an
     // untouched draw question narrowed the fit count; an unanswered question
     // is ABSENT, never an assumed value.
-    const req = buildStudyPreviewRequest(EMPTY_ANSWERS, GROUPS)
+    const req = buildStudyPreviewRequest(EMPTY_ANSWERS, GROUPS, VOCABULARY)
     expect(req).toEqual({
       marker_groups: {
         ctdna: false,
@@ -157,12 +195,54 @@ describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
     expect(req.before_treatment).toBeUndefined()
     expect(req.draws_during_treatment).toBeUndefined()
     expect(req.last_draw_day).toBeUndefined()
+    expect(req.disease_group).toBeUndefined()
+    expect(req.treatment_classes).toBeUndefined()
+    expect(req.method_group).toBeUndefined()
+  })
+
+  it('sends exactly the answered filter facts (a partial answer — never null, never an empty list)', () => {
+    const req = buildStudyPreviewRequest(
+      { ...EMPTY_ANSWERS, treatments: [], outcome: 'dynamic-risk', disease: null },
+      GROUPS,
+      VOCABULARY,
+    )
+    expect(req.disease_group).toBeUndefined()
+    expect(req.treatment_classes).toBeUndefined()
+    expect(req.method_group).toBe('dynamic-risk')
+  })
+
+  it('a persisted id the vocabulary does not know is never sent (5a3 — the server 422 guard)', () => {
+    const req = buildStudyPreviewRequest(
+      {
+        ...EMPTY_ANSWERS,
+        disease: 'dead-cancer',
+        treatments: ['radiotherapy', 'obsolete-drug'],
+        outcome: 'dynamic-risk',
+      },
+      GROUPS,
+      VOCABULARY,
+    )
+    expect(req.disease_group).toBeUndefined()
+    expect(req.treatment_classes).toEqual(['radiotherapy'])
+    expect(req.method_group).toBe('dynamic-risk')
+  })
+
+  it('while the vocabulary is not loaded the disease/treatment facts are omitted; the outcome still rides', () => {
+    const req = buildStudyPreviewRequest(
+      { ...EMPTY_ANSWERS, disease: 'colorectal cancer', treatments: ['chemotherapy'], outcome: 'dynamic-risk' },
+      GROUPS,
+      null,
+    )
+    expect(req.disease_group).toBeUndefined()
+    expect(req.treatment_classes).toBeUndefined()
+    expect(req.method_group).toBe('dynamic-risk')
   })
 
   it('sends exactly the answered schedule fields (a partial answer)', () => {
     const req = buildStudyPreviewRequest(
       { ...EMPTY_ANSWERS, drawsDuringTreatment: 1 },
       GROUPS,
+      VOCABULARY,
     )
     expect(req.draws_during_treatment).toBe(1)
     expect(req.before_treatment).toBeUndefined()
@@ -275,7 +355,7 @@ describe('descriptiveSentence (TEST-INT-2/examples)', () => {
     expect(
       descriptiveSentence({
         ...EMPTY_ANSWERS,
-        disease: 'breast',
+        disease: 'breast cancer',
         outcome: 'dynamic-risk',
         markerGroups: { counts: true, ctdna: true },
       }),
@@ -313,8 +393,13 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     expect(excludedMethods(r, FORMATTERS)[0]).toEqual({
       id: 'm-b',
       reasonText: 'needs markers from: Tumour DNA in blood (ctDNA)',
+      reasonCode: 'MARKER_GROUP_MISSING',
     })
-    expect(excludedMethods(r, FORMATTERS)[1]).toEqual({ id: 'm-c', reasonText: 'needs 3 or more draws' })
+    expect(excludedMethods(r, FORMATTERS)[1]).toEqual({
+      id: 'm-c',
+      reasonText: 'needs 3 or more draws',
+      reasonCode: 'MIN_DRAWS_UNMET',
+    })
   })
 
   it('leaves the env-ONLY verdicts to the panel env line; a mixed verdict lists its ANSWER cause (R3-intake-1)', () => {
@@ -335,6 +420,9 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     expect(excludedMethods(r, FORMATTERS)[0]).toEqual({
       id: 'env-ans',
       reasonText: 'needs markers from: Methylation',
+      // The grouping code is the FIRST NON-ENVIRONMENT reason — the env fact
+      // has its own line, so a mixed verdict groups as its answer cause.
+      reasonCode: 'MARKER_GROUP_MISSING',
     })
     // The direct line of an env-only method stays the shared E-vocabulary
     // sentence (the safety net: the panel never lists these rows, the reason
@@ -384,12 +472,110 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
 })
 
 describe('label helpers (TEST-INT-13 rows for this item)', () => {
-  it('option text is board verbatim', () => {
-    expect(diseaseClause('colorectal')).toBe('colorectal cancer')
+  it('option text is board verbatim and the disease clause is the vocabulary id', () => {
+    expect(diseaseClause('colorectal cancer')).toBe('colorectal cancer')
+    expect(diseaseClause('Solid tumours')).toBe('Solid tumours')
     expect(outcomeClause('progression-by-day')).toBe('risk by a day')
     expect(groupShortName('ctdna')).toBe('ctDNA')
     expect(groupShortName('counts')).toBe('blood counts')
     expect(groupShortName('ldh')).toBe('LDH')
     expect(groupShortName('unknown-group')).toBe('unknown-group')
+  })
+
+  it('the answer-caused reason lines of the new codes render on B through the shared formatter', () => {
+    const r = response([
+      method('disease-m', 'cannot_run', [
+        {
+          code: 'DISEASE_NOT_MATCHED',
+          params: { made_for: 'melanoma', answer: 'colorectal cancer' },
+        },
+      ]),
+      method('treatment-m', 'cannot_run', [
+        {
+          code: 'TREATMENT_NOT_MATCHED',
+          params: { made_for: 'chemotherapy, radiotherapy', answer: 'targeted therapy' },
+        },
+      ]),
+      method('outcome-m', 'cannot_run', [
+        {
+          code: 'OUTCOME_NOT_MATCHED',
+          params: { predicts: 'dynamic-risk', answer: 'static-risk' },
+        },
+      ]),
+    ])
+    expect(excludedMethods(r, FORMATTERS).map(m => m.reasonText)).toEqual([
+      'Made for melanoma, not your disease',
+      'Made for chemotherapy and radiotherapy, not your treatments',
+      'Predicts risk over time, not what you chose',
+    ])
+  })
+
+  it('the production wrapper threads the vocabulary labels into the reason lines (5a3)', () => {
+    // The treated class ids arrive as `made_for`; B renders the vocabulary's
+    // display labels ("Immune checkpoint inhibitor"), exactly as E does.
+    const r = response([
+      method('treatment-m', 'cannot_run', [
+        {
+          code: 'TREATMENT_NOT_MATCHED',
+          params: { made_for: 'immune checkpoint inhibitor', answer: 'chemotherapy' },
+        },
+      ]),
+    ])
+    const withLabels: TxrPreviewFormatters = {
+      formatReasonLine,
+      labels: { treatmentClasses: VOCABULARY.treatment_classes },
+    }
+    expect(excludedMethods(r, withLabels)[0].reasonText).toBe(
+      'Made for Immune checkpoint inhibitor, not your treatments',
+    )
+    // Without the labels the id is the fallback (never a guess).
+    expect(excludedMethods(r, FORMATTERS)[0].reasonText).toBe(
+      'Made for immune checkpoint inhibitor, not your treatments',
+    )
+  })
+})
+
+describe('groupExcludedMethods (brief 5b — the grouped left-out list)', () => {
+  /** One excluded row (the code is the row's grouping id). */
+  function row(id: string, code: ReasonCode): ExcludedMethod {
+    return { id, reasonText: id, reasonCode: code }
+  }
+
+  it('buckets the answer-caused codes first (disease, treatment, outcome), every other code together', () => {
+    const rows = [
+      row('m-marker', 'REQUIRED_MARKER_MISSING'),
+      row('m-disease', 'DISEASE_NOT_MATCHED'),
+      row('m-outcome', 'OUTCOME_NOT_MATCHED'),
+      row('m-draws', 'MIN_DRAWS_UNMET'),
+      row('m-treatment', 'TREATMENT_NOT_MATCHED'),
+    ]
+    expect(groupExcludedMethods(rows).map(g => g.code)).toEqual([
+      'DISEASE_NOT_MATCHED',
+      'TREATMENT_NOT_MATCHED',
+      'OUTCOME_NOT_MATCHED',
+      'other',
+    ])
+    // The rows keep the list's own order inside each bucket.
+    expect(groupExcludedMethods(rows).map(g => g.methods.map(m => m.id))).toEqual([
+      ['m-disease'],
+      ['m-treatment'],
+      ['m-outcome'],
+      ['m-marker', 'm-draws'],
+    ])
+  })
+
+  it('omits empty sections and maps every foreign code to the do-not-fit bucket', () => {
+    const rows = [
+      row('m-a', 'MARKER_GROUP_MISSING'),
+      row('m-b', 'SURVIVAL_OUTCOME_MISSING'),
+    ]
+    expect(groupExcludedMethods(rows)).toEqual([
+      { code: 'other', methods: rows },
+    ])
+    expect(excludedGroupCode('DISEASE_NOT_MATCHED')).toBe('DISEASE_NOT_MATCHED')
+    expect(excludedGroupCode('TREATMENT_NOT_MATCHED')).toBe('TREATMENT_NOT_MATCHED')
+    expect(excludedGroupCode('OUTCOME_NOT_MATCHED')).toBe('OUTCOME_NOT_MATCHED')
+    expect(excludedGroupCode('MIN_DRAWS_UNMET')).toBe('other')
+    expect(excludedGroupCode('ENV_IMAGE_MISSING')).toBe('other')
   })
 })

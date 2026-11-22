@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
@@ -9,14 +9,14 @@ import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { useMarkers } from '../data/useMarkers'
+import { useFilterOptions } from '../data/useFilterOptions'
 import { useStudyPreview } from '../data/useStudyPreview'
 import {
   BEFORE_TREATMENT_OPTIONS,
-  DISEASE_OPTIONS,
   DRAWS_OPTIONS,
   EXCLUDED_LIST_LIMIT,
+  FILTER_OPTIONS_UNAVAILABLE_LINE,
   OUTCOME_OPTIONS,
-  TREATMENT_OPTIONS,
   leftOutHeading,
   someFitLine,
 } from '../lib/format'
@@ -24,6 +24,9 @@ import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
 import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
 import { TxrDayField } from '../components/TxrDayField'
+import { TxrDiseasePicker } from '../components/TxrDiseasePicker'
+import { TxrTreatmentTicks } from '../components/TxrTreatmentTicks'
+import { TxrExcludedSections } from '../components/TxrExcludedSections'
 import { useRecheck } from '../data/useRecheck'
 import { drawCoverageLine, drawDayError, drawDayWarning, suggestDrawDays } from '../lib/dayChoices'
 import { runAction } from '@/core/actions/defineAction'
@@ -31,7 +34,7 @@ import { FLOW_ROUTES, previousLearnRoute } from '@/modules/txrshell/lib/flowStep
 import { isExampleStudy } from '../lib/example'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
-import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
+import type { OutcomeId } from '../types'
 
 /**
  * Screen B — Your study (board Criteria.dc.html, ITEM-5): the six question
@@ -48,10 +51,12 @@ import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
  * Continue goes on to the methods.
  *
  * INV-1: every answer change re-runs the fit computation — the page writes
- * each answer straight to the `TxrIntake` store (`patchStudy`), and the
- * panel hook keys its request on the answers' CONTENT with a 200 ms debounce
- * (a burst costs one eligibility call; the stale-response guard keeps the
- * panel honest).
+ * the disease, treatment and outcome answers through the registered
+ * `intake.setStudyAnswers` action (the same validating path the AI drives,
+ * brief 5b), the marker-group and schedule answers through the store, and
+ * the panel hook keys its request on the answers' CONTENT with a 200 ms
+ * debounce (a burst costs one eligibility call; the stale-response guard
+ * keeps the panel honest).
  *
  * Board-copy rule (DEC-13): every label is board-verbatim; the panel's
  * numbers are COMPUTED from the provider response (fit count, left-out
@@ -239,48 +244,10 @@ const PANEL_NO_ENV: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--t
  *  setup — the note names it, and the eligible set does not move). */
 const DEMO_NOTE: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-muted)' }
 
-// qa-fixes ITEM-6 S4: the "Show all N" button carried the kit link's own
-// horizontal padding, so it sat ~11 px right of the list above it (the L1
-// indent class). Link buttons render flush; the list is their guide.
-const LINK: CSSProperties = {
-  padding: 0,
-  fontSize: 13.5,
-  color: 'var(--txr-brand)',
-  fontWeight: 600,
-}
-
 /** The re-check note beside Continue. */
 const RECHECK_NOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 const EXCLUDED_HEADING: CSSProperties = { fontWeight: 700, marginBottom: 4 }
-
-const EXCLUDED_LIST: CSSProperties = {
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
-}
-
-const EXCLUDED_LI: CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  padding: '5px 0',
-  borderBottom: '1px solid var(--txr-surface-raised)',
-}
-
-const EXCLUDED_ID: CSSProperties = {
-  fontFamily: "'Source Code Pro', monospace",
-  fontSize: 12.5,
-  minWidth: 210,
-  // qa-fixes ITEM-6 S2: `wordBreak: 'break-all'` broke ids MID-WORD at the
-  // hyphens' worst place ("ca125-confirmed-50pct-res / ponse").
-  // `overflowWrap: 'anywhere'` (with the break rule back to normal) prefers
-  // the hyphen break points and only breaks anywhere when a single word is
-  // longer than the column — the ids stay whole.
-  wordBreak: 'normal',
-  overflowWrap: 'anywhere',
-}
-
-const EXCLUDED_REASON: CSSProperties = { color: 'var(--txr-muted)', fontSize: 13.5 }
 
 export function StudyPage() {
   const navigate = useNavigate()
@@ -297,6 +264,11 @@ export function StudyPage() {
   )
   const recheck = useRecheck()
   const { groups, loading: groupsLoading, error: groupsError } = useMarkers()
+  const {
+    categories,
+    treatmentClasses,
+    error: filterOptionsError,
+  } = useFilterOptions()
   const panel = useStudyPreview(study, groups)
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
@@ -307,14 +279,33 @@ export function StudyPage() {
     step: 'study',
     fallback: mode === 'predict' ? FLOW_ROUTES.predictFiles : previousLearnRoute('study'),
   })
-  const [showAllExcluded, setShowAllExcluded] = useState(false)
-
   /** One checkbox toggle: the answer map grows/shrinks explicitly (DEC-5). */
   const setGroup = useCallback(
     (groupId: string, checked: boolean) => {
       patchStudy({ markerGroups: { ...(study.markerGroups ?? {}), [groupId]: checked } })
     },
     [patchStudy, study.markerGroups],
+  )
+
+  /**
+   * The registered study-answers action (step2-filters): the disease,
+   * treatment and outcome answers are the method filters, so the SAME
+   * validates-the-vocabulary path the AI drives is the human controls' path —
+   * never a parallel store write. A refusal is shown, never silent.
+   */
+  const applyAnswer = useCallback(
+    async (patch: {
+      disease_group?: string | null
+      treatment_classes?: string[]
+      outcome?: OutcomeId | null
+    }) => {
+      try {
+        await runAction('intake.setStudyAnswers', patch)
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : 'Could not set the answer.')
+      }
+    },
+    [],
   )
 
   /** The last-draw answer is the engine's decision day (one value): the
@@ -370,8 +361,6 @@ export function StudyPage() {
         : 'Continue to the files'
 
   const excluded = panel.excluded
-  const shownExcluded = showAllExcluded ? excluded : excluded.slice(0, EXCLUDED_LIST_LIMIT)
-  const hasMoreExcluded = excluded.length > EXCLUDED_LIST_LIMIT
   // R2-1: with NOTHING answered the panel says what to do, not a count — the
   // old page reported "N of M methods fit" from a request the user never
   // composed (all groups false + the default schedule); the count answers
@@ -405,29 +394,29 @@ export function StudyPage() {
                   <div style={FIELD_ROW}>
                     <div style={FIELD}>
                       <span style={FIELD_LABEL}>Disease</span>
-                      <Select
-                        id="txr-intake-study-disease"
-                        data-testid="txr-intake-study-disease"
-                        aria-label="Disease"
-                        value={study.disease ?? undefined}
-                        onChange={v => patchStudy({ disease: v as DiseaseId })}
-                        placeholder="Choose a disease…"
-                        options={DISEASE_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+                      <TxrDiseasePicker
+                        value={study.disease}
+                        categories={categories}
+                        onChange={disease => applyAnswer({ disease_group: disease })}
                       />
                     </div>
                     <div style={FIELD}>
                       <span style={FIELD_LABEL}>Treatment</span>
-                      <Select
-                        id="txr-intake-study-treatment"
-                        data-testid="txr-intake-study-treatment"
-                        aria-label="Treatment"
-                        value={study.treatment ?? undefined}
-                        onChange={v => patchStudy({ treatment: v as TreatmentId })}
-                        placeholder="Choose a treatment…"
-                        options={TREATMENT_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+                      <TxrTreatmentTicks
+                        value={study.treatments}
+                        treatments={treatmentClasses}
+                        onChange={treatments => applyAnswer({ treatment_classes: treatments })}
                       />
                     </div>
                   </div>
+                  {/* 5a3: ONE line, plain words, no raw fetch error — the
+                      old page repeated the raw message under both the
+                      Disease and the Treatment control. */}
+                  {filterOptionsError !== null ? (
+                    <div role="alert" data-testid="txr-intake-filter-options-error" style={PANEL_ERROR}>
+                      {FILTER_OPTIONS_UNAVAILABLE_LINE}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={QUESTION_GROUP}>
@@ -442,9 +431,7 @@ export function StudyPage() {
                           variant="outline"
                           aria-pressed={selected}
                           style={selected ? PILL_SELECTED : PILL}
-                          onClick={() =>
-                            patchStudy({ outcome: selected ? null : (option.value as OutcomeId) })
-                          }
+                          onClick={() => applyAnswer({ outcome: selected ? null : option.value })}
                         >
                           {option.label}
                         </Button>
@@ -597,31 +584,14 @@ export function StudyPage() {
                   {!answered ? (
                     <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
                   ) : panel.fit !== null ? (
-                    shownExcluded.length > 0 ? (
-                      <ul style={EXCLUDED_LIST}>
-                        {shownExcluded.map(method => (
-                          <li key={method.id} style={EXCLUDED_LI} className="txr-intake-excluded-row">
-                            <span style={EXCLUDED_ID}>{method.id}</span>
-                            <span style={EXCLUDED_REASON}>{method.reasonText}</span>
-                          </li>
-                        ))}
-                      </ul>
+                    excluded.length > 0 ? (
+                      <TxrExcludedSections excluded={excluded} limit={EXCLUDED_LIST_LIMIT} />
                     ) : (
                       <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>None</div>
                     )
                   ) : (
                     <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
                   )}
-                  {hasMoreExcluded ? (
-                    <Button
-                      data-testid="txr-intake-excluded-show-all"
-                      variant="link"
-                      style={LINK}
-                      onClick={() => setShowAllExcluded(show => !show)}
-                    >
-                      {showAllExcluded ? 'Show fewer' : `Show all ${excluded.length}`}
-                    </Button>
-                  ) : null}
                 </div>
               </div>
             </ScrollRegion>

@@ -32,7 +32,7 @@ const SIG = fs.readFileSync(path.join(LIST_DIR, 'method-list.json.minisig'));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'import-method-list-'));
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 
-/** A registry holding `files` at :v1 (and at :v1-seq-<n>), and an app tree: its current two
+/** A registry holding `files` at :v2 (and at :v2-seq-<n>), and an app tree: its current two
  * documents (`current`: the fixture's, or with one extra row, or not documents at all) and
  * optionally a built-in list at sequence `builtin`. */
 function world({ files = { 'method-list.json': LIST, 'method-list.json.minisig': SIG }, builtin = null,
@@ -41,8 +41,8 @@ function world({ files = { 'method-list.json': LIST, 'method-list.json.minisig':
   const bin = path.join(base, 'bin');
   writeStubs(bin);
   const cli = process.env.TXR_CLI || writeVerifyingCli(bin);
-  seedArtifact(bin, PACKAGE, 'v1', files, `sha256:${'b'.repeat(64)}`);
-  seedArtifact(bin, PACKAGE, 'v1-seq-000001', files, `sha256:${'b'.repeat(64)}`);
+  seedArtifact(bin, PACKAGE, 'v2', files, `sha256:${'b'.repeat(64)}`);
+  seedArtifact(bin, PACKAGE, 'v2-seq-000001', files, `sha256:${'b'.repeat(64)}`);
   const app = path.join(base, 'app');
   for (const d of ['data/method-list', 'data/method-catalogue', 'src-app/server/data', 'scripts/method-list/fixtures']) {
     fs.mkdirSync(path.join(app, d), { recursive: true });
@@ -240,11 +240,11 @@ test('pulls_with_empty_registry_config', () => {
   assert.equal(calls[0].sub, 'pull');
   assert.equal(calls[0].configText, '{}');
   assert.ok(!calls[0].plain);
-  assert.ok(calls[0].argv.includes(`${PACKAGE}:v1`));
+  assert.ok(calls[0].argv.includes(`${PACKAGE}:v2`));
   const w2 = world();
   assert.equal(run(w2, ['--sequence', '1']).status, 0);
   calls = readLog(w2.bin, 'oras');
-  assert.ok(calls[0].argv.includes(`${PACKAGE}:v1-seq-000001`));
+  assert.ok(calls[0].argv.includes(`${PACKAGE}:v2-seq-000001`));
 });
 
 test('refuses an artifact with other files, and --keys into this checkout', () => {

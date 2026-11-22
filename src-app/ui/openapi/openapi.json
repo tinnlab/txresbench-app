@@ -2753,6 +2753,58 @@
         ]
       }
     },
+    "/api/methods/filter-options": {
+      "get": {
+        "tags": [
+          "method-catalogue"
+        ],
+        "description": "The catalogue's filter_options vocabulary: the disease categories (each with its diseases and their children, the ids the disease answer names) and the treatment classes (the ids the treatment answer names).",
+        "operationId": "MethodCatalogue.filterOptions",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`filter_options` — the fixed `filter_options` vocabulary at the catalogue's top\n level: the disease categories (disease + child levels) and the treatment\n classes every method row references.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilterOptions"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
     "/api/methods/{method_id}": {
       "get": {
         "tags": [
@@ -2865,7 +2917,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).",
+        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule + method filters) or `inventory` (the file validator's inventory, with the optional `filters` block). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).",
         "operationId": "MethodCatalogue.eligibility",
         "requestBody": {
           "description": "The eligibility request body — a tagged union carrying exactly one of the two\n request kinds (`{\"preview\": …}` or `{\"inventory\": …}`).",
@@ -2916,7 +2968,7 @@
             "description": "Malformed JSON body"
           },
           "422": {
-            "description": "JSON body that does not match the request schema"
+            "description": "JSON body that does not match the request schema, or a method filter id outside the catalogue (UNKNOWN_DISEASE_GROUP / UNKNOWN_TREATMENT_CLASS)"
           }
         },
         "security": [
@@ -8555,6 +8607,72 @@
           "models"
         ]
       },
+      "DiseaseCategory": {
+        "description": "The disease categories `filter_options.disease_categories[]` — each category\n lists the diseases under it, and each disease lists its child disease names\n (the strings a method's `disease.groups` may name directly).",
+        "type": "object",
+        "properties": {
+          "diseases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiseaseEntry"
+            }
+          },
+          "id": {
+            "description": "The category id (e.g. `Solid tumours`).",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "diseases"
+        ]
+      },
+      "DiseaseEntry": {
+        "description": "One disease of a category: its id and the child disease names under it\n (`children` empty when the disease has none).",
+        "type": "object",
+        "properties": {
+          "children": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "children"
+        ]
+      },
+      "DiseaseScope": {
+        "description": "The scope of a method's disease fact. `group` names specific diseases\n ([`MethodDisease::groups`]); the coarser scopes stand for every disease.",
+        "oneOf": [
+          {
+            "description": "Specific diseases, named in [`MethodDisease::groups`].",
+            "type": "string",
+            "const": "group"
+          },
+          {
+            "description": "Any disease of any type.",
+            "type": "string",
+            "const": "any"
+          },
+          {
+            "description": "Any solid tumour.",
+            "type": "string",
+            "const": "any-solid-tumour"
+          },
+          {
+            "description": "Any cancer.",
+            "type": "string",
+            "const": "any-cancer"
+          }
+        ]
+      },
       "DownloadCancelQuery": {
         "description": "The cancel/prune query (`?prune=true` removes the cached file for the\n entry's digest — DEC-17's explicit prune).",
         "type": "object",
@@ -9396,6 +9514,29 @@
           "created_at"
         ]
       },
+      "FilterOptions": {
+        "description": "`filter_options` — the fixed `filter_options` vocabulary at the catalogue's top\n level: the disease categories (disease + child levels) and the treatment\n classes every method row references.",
+        "type": "object",
+        "properties": {
+          "disease_categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiseaseCategory"
+            }
+          },
+          "treatment_classes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TreatmentClass"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "disease_categories",
+          "treatment_classes"
+        ]
+      },
       "FrontendActionEntry": {
         "description": "One frontend action. Field names match CONTRACT.md's `frontend-actions.json`\n schema exactly — the SAME shape whether the entry came from the committed\n app-owned manifest or was REPORTED by the controlled browser session\n (`modules/mcp/capabilities.rs`), so `handlers.rs` has ONE code path.\n\n This is ALSO the wire shape a session reports (`AgentCapabilitiesBody`). One\n shape, one type: a parallel wire struct would be a second definition of the\n same thing, which is the defect class this module's history is made of. What\n the wire direction adds is not a type but a GATE — the report is untrusted\n input, filtered and bounded by `capabilities::sanitize` before it can reach\n the catalog.",
         "type": "object",
@@ -9588,6 +9729,17 @@
           "decision_day": {
             "type": "number",
             "format": "double"
+          },
+          "filters": {
+            "description": "The method filters (see [`MethodFilters`]). Absent = no method filter —\n exactly the verdicts a request without the block gives; an unknown\n answer id is a 422 (`UNKNOWN_DISEASE_GROUP` /\n `UNKNOWN_TREATMENT_CLASS`), never a silent \"any\".",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MethodFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "markers": {
             "type": "array",
@@ -9801,7 +9953,7 @@
             "const": "builtin"
           },
           {
-            "description": "The last good list a previous session fetched (`<data_root>/method-list/v1/`).",
+            "description": "The last good list a previous session fetched (`<data_root>/method-list/v2/`).",
             "type": "string",
             "const": "disk"
           },
@@ -10290,6 +10442,14 @@
           "covariates": {
             "$ref": "#/components/schemas/CovariateMode"
           },
+          "disease": {
+            "description": "The disease(s) the method applies to (schema 2): a scope, or the named\n diseases/children under [`Catalogue::filter_options`].",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MethodDisease"
+              }
+            ]
+          },
           "embeds_training_data": {
             "type": "boolean"
           },
@@ -10415,6 +10575,14 @@
           "timing": {
             "$ref": "#/components/schemas/Timing"
           },
+          "treatment": {
+            "description": "The treatment classes the method applies to, and how that was stated\n (schema 2; class ids are ids of\n [`Catalogue::filter_options`]'s treatment classes).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MethodTreatment"
+              }
+            ]
+          },
           "uses_history": {
             "$ref": "#/components/schemas/UsesHistory"
           },
@@ -10457,6 +10625,8 @@
           "tasks",
           "needs_detection_call",
           "marker_groups_required",
+          "disease",
+          "treatment",
           "description",
           "timing",
           "embeds_training_data",
@@ -10464,6 +10634,26 @@
           "licence",
           "references",
           "params"
+        ]
+      },
+      "MethodDisease": {
+        "description": "A method's `disease` fact: a scope and, exactly when the scope is `group`,\n the disease/child names it applies to (non-empty; empty for the coarser\n scopes).",
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "$ref": "#/components/schemas/DiseaseScope"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "groups"
         ]
       },
       "MethodEligibility": {
@@ -10617,6 +10807,40 @@
           "estimated_seconds",
           "estimate_quality"
         ]
+      },
+      "MethodFilters": {
+        "description": "The filters block of an eligibility request: what the user's filters are\n (the disease, the treatment classes, what to predict). Every field is\n OPTIONAL — an absent answer (or an empty treatment class list) means \"any\":\n no filter, exactly the verdicts a request without the block gives. The\n inventory request carries this block as its `filters` object; the preview\n request carries the SAME three fields flattened (top-level), so one struct\n is the shape of both.",
+        "type": "object",
+        "properties": {
+          "disease_group": {
+            "description": "The answered disease node id: a disease, one of its children (a\n sub-group), or a CATEGORY id (\"another <category> disease, not listed\"),\n as named by [`Catalogue::filter_options`]. Absent = any disease. An id\n outside the catalogue is an error (`UNKNOWN_DISEASE_GROUP`), never a\n silent \"any\".",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method_group": {
+            "description": "What the filters' run should predict (`response-call |\n response-probability | static-risk | dynamic-risk` — the\n [`MethodGroup`] wire spelling of the method rows' `group`). Absent =\n any method group.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MethodGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "treatment_classes": {
+            "description": "The ticked base treatment-class ids (the filters' treatment classes, the\n ids of `filter_options.treatment_classes`). Absent OR empty = any\n treatment. An id outside the catalogue is an error\n (`UNKNOWN_TREATMENT_CLASS`), never a silent \"any\".",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "MethodGroup": {
         "description": "The four benchmark method groups (the group chips on the list screen).",
@@ -10961,6 +11185,14 @@
           "covariates": {
             "$ref": "#/components/schemas/CovariateMode"
           },
+          "disease": {
+            "description": "The disease(s) the method applies to — the same fact as the full row's,\n so the list row and the detail never disagree.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MethodDisease"
+              }
+            ]
+          },
           "embeds_training_data": {
             "type": "boolean"
           },
@@ -11049,6 +11281,14 @@
           "timing": {
             "$ref": "#/components/schemas/Timing"
           },
+          "treatment": {
+            "description": "The treatment classes the method applies to — the same fact as the full\n row's.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MethodTreatment"
+              }
+            ]
+          },
           "uses_history": {
             "$ref": "#/components/schemas/UsesHistory"
           },
@@ -11080,8 +11320,30 @@
           "tasks",
           "marker_groups_required",
           "needs_baseline",
+          "disease",
+          "treatment",
           "embeds_training_data",
           "timing"
+        ]
+      },
+      "MethodTreatment": {
+        "description": "A method's `treatment` fact: the base-class ids it applies to (empty when\n nothing is stated) and how that was established.",
+        "type": "object",
+        "properties": {
+          "classes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/TreatmentConfidence"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "classes",
+          "confidence"
         ]
       },
       "MinDraws": {
@@ -11609,23 +11871,34 @@
       },
       "ModelReasonCode": {
         "description": "The model eligibility reason-code vocabulary: PROV-MC-5's [`ReasonCode`]\n set (the SAME wire strings — a per-code renderer in the UI never meets an\n undocumented code) plus the store's own `MODEL_REQUIREMENTS_UNRECORDED`\n (DEC-6: a container that carried no requirements is `cannot_run` with that\n reason — the store never invents requirements). The `from_catalogue` mapper\n is exhaustive: a new provider code fails to compile here instead of\n silently passing through.",
-        "type": "string",
-        "enum": [
-          "REQUIRED_MARKER_MISSING",
-          "MARKER_GROUP_MISSING",
-          "DETECTION_CALL_MISSING",
-          "MIN_DRAWS_UNMET",
-          "COVARIATE_MISSING",
-          "COVARIATE_REQUIRED_UNMET",
-          "UNIT_MISMATCH",
-          "DECISION_DAY_UNMET",
-          "NOT_RUNNABLE",
-          "ENV_IMAGE_MISSING",
-          "TASK_INCOMPATIBLE",
-          "RESPONSE_LABEL_MISSING",
-          "SURVIVAL_OUTCOME_MISSING",
-          "MARKER_COUNT_UNMET",
-          "MODEL_REQUIREMENTS_UNRECORDED"
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "REQUIRED_MARKER_MISSING",
+              "MARKER_GROUP_MISSING",
+              "DETECTION_CALL_MISSING",
+              "MIN_DRAWS_UNMET",
+              "COVARIATE_MISSING",
+              "COVARIATE_REQUIRED_UNMET",
+              "UNIT_MISMATCH",
+              "DECISION_DAY_UNMET",
+              "NOT_RUNNABLE",
+              "ENV_IMAGE_MISSING",
+              "TASK_INCOMPATIBLE",
+              "RESPONSE_LABEL_MISSING",
+              "SURVIVAL_OUTCOME_MISSING",
+              "MARKER_COUNT_UNMET",
+              "TREATMENT_NOT_MATCHED",
+              "OUTCOME_NOT_MATCHED",
+              "MODEL_REQUIREMENTS_UNRECORDED"
+            ]
+          },
+          {
+            "description": "The provider's filter reasons (the store's saved models never\n receive method filters, but the wire language is the provider's — the\n 1:1 mapper below keeps the two vocabularies drift-proof).",
+            "type": "string",
+            "const": "DISEASE_NOT_MATCHED"
+          }
         ]
       },
       "ModelSaveResponse": {
@@ -13033,23 +13306,34 @@
       },
       "PretrainedReasonCode": {
         "description": "The pretrained eligibility reason-code vocabulary: PROV-MC-5's\n [`ReasonCode`] set (the SAME wire strings — a per-code renderer in the UI\n never meets an undocumented code) plus the catalogue's own\n `ASSET_NOT_AVAILABLE` (an entry whose asset is neither bundled nor\n downloadable — never emitted by the generator, defensive in the runtime\n verdict). The `from_catalogue` mapper is exhaustive: a new provider code\n fails to compile here instead of silently passing through.",
-        "type": "string",
-        "enum": [
-          "REQUIRED_MARKER_MISSING",
-          "MARKER_GROUP_MISSING",
-          "DETECTION_CALL_MISSING",
-          "MIN_DRAWS_UNMET",
-          "COVARIATE_MISSING",
-          "COVARIATE_REQUIRED_UNMET",
-          "UNIT_MISMATCH",
-          "DECISION_DAY_UNMET",
-          "NOT_RUNNABLE",
-          "ENV_IMAGE_MISSING",
-          "TASK_INCOMPATIBLE",
-          "RESPONSE_LABEL_MISSING",
-          "SURVIVAL_OUTCOME_MISSING",
-          "MARKER_COUNT_UNMET",
-          "ASSET_NOT_AVAILABLE"
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "REQUIRED_MARKER_MISSING",
+              "MARKER_GROUP_MISSING",
+              "DETECTION_CALL_MISSING",
+              "MIN_DRAWS_UNMET",
+              "COVARIATE_MISSING",
+              "COVARIATE_REQUIRED_UNMET",
+              "UNIT_MISMATCH",
+              "DECISION_DAY_UNMET",
+              "NOT_RUNNABLE",
+              "ENV_IMAGE_MISSING",
+              "TASK_INCOMPATIBLE",
+              "RESPONSE_LABEL_MISSING",
+              "SURVIVAL_OUTCOME_MISSING",
+              "MARKER_COUNT_UNMET",
+              "TREATMENT_NOT_MATCHED",
+              "OUTCOME_NOT_MATCHED",
+              "ASSET_NOT_AVAILABLE"
+            ]
+          },
+          {
+            "description": "The provider's filter reasons (pretrained entries never receive\n method filters, but the wire language is the provider's — the 1:1\n mapper below keeps the two vocabularies drift-proof).",
+            "type": "string",
+            "const": "DISEASE_NOT_MATCHED"
+          }
         ]
       },
       "PretrainedRefreshResponse": {
@@ -13275,11 +13559,18 @@
         ]
       },
       "PreviewEligibilityRequest": {
-        "description": "Screen B's preview body: which marker groups the user picked, and the\n draw-schedule answers (before-treatment values, draws during treatment, last\n draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered\n question is absent, and the preview treats an absent answer as \"any\" —\n it never assumes a value the user did not give (the old client sent the\n board's first options when unanswered, so an untouched question narrowed\n the fit count).",
+        "description": "Screen B's preview body: which marker groups the user picked, the\n draw-schedule answers (before-treatment values, draws during treatment, last\n draw day) and the method filters (disease, treatment classes, what to\n predict). Every schedule and filter field is OPTIONAL (R3-intake-2): an\n unanswered question is absent, and the preview treats an absent answer as\n \"any\" — it never assumes a value the user did not give (the old client sent\n the board's first options when unanswered, so an untouched question narrowed\n the fit count). The method filters are the THREE top-level fields of\n [`MethodFilters`], flattened into this body (`disease_group`,\n `treatment_classes`, `method_group`).",
         "type": "object",
         "properties": {
           "before_treatment": {
             "description": "`always` | `sometimes` (whether the treating clinician always has a\n before-treatment sample). Absent = not answered = no constraint.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disease_group": {
+            "description": "The answered disease node id: a disease, one of its children (a\n sub-group), or a CATEGORY id (\"another <category> disease, not listed\"),\n as named by [`Catalogue::filter_options`]. Absent = any disease. An id\n outside the catalogue is an error (`UNKNOWN_DISEASE_GROUP`), never a\n silent \"any\".",
             "type": [
               "string",
               "null"
@@ -13307,6 +13598,27 @@
             "type": "object",
             "additionalProperties": {
               "type": "boolean"
+            }
+          },
+          "method_group": {
+            "description": "What the filters' run should predict (`response-call |\n response-probability | static-risk | dynamic-risk` — the\n [`MethodGroup`] wire spelling of the method rows' `group`). Absent =\n any method group.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MethodGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "treatment_classes": {
+            "description": "The ticked base treatment-class ids (the filters' treatment classes, the\n ids of `filter_options.treatment_classes`). Absent OR empty = any\n treatment. An id outside the catalogue is an error\n (`UNKNOWN_TREATMENT_CLASS`), never a silent \"any\".",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
             }
           }
         },
@@ -13426,7 +13738,7 @@
         ]
       },
       "ReasonCode": {
-        "description": "The eligibility reason-code vocabulary — the FIXED, structured set of 12\n codes a method verdict can carry. Display text is the consumer's; a renderer\n switches on the code, so the set is closed and documented here (PROV-MC-5's\n acceptance: every emitted code is one of these — consumers can never meet an\n undocumented code).",
+        "description": "The eligibility reason-code vocabulary — the FIXED, structured set of 17\n codes a method verdict can carry. Display text is the consumer's; a renderer\n switches on the code, so the set is closed and documented here (PROV-MC-5's\n acceptance: every emitted code is one of these — consumers can never meet an\n undocumented code).",
         "oneOf": [
           {
             "description": "A required standard-id marker is absent from the inventory.",
@@ -13497,6 +13809,21 @@
             "description": "The method takes an exact number of markers (one, or its panel's\n count) and the file gives it a different number: the run engine's\n marker rule (`bundle::method_marker_set`) would refuse the run with\n `BUNDLE_MARKER_COUNT_UNMET`, so the verdict hides the method instead.\n Params: `expected`, `found`, `markers` (the file markers it would get).",
             "type": "string",
             "const": "MARKER_COUNT_UNMET"
+          },
+          {
+            "description": "The method's disease fact excludes the filters' answered disease node\n (the filter-answer filter; a HARD reason — the verdict is `cannot_run`).\n Params: `made_for` (the method's disease groups joined, or its scope\n when the scope is coarser than `group`), `answer` (the answered node id).",
+            "type": "string",
+            "const": "DISEASE_NOT_MATCHED"
+          },
+          {
+            "description": "The method's stated or inferred treatment classes share NO class with\n the filters' ticked classes (the filter-answer filter; a HARD reason).\n A `not-stated` method never gets this reason. Params: `made_for` (the\n method's classes joined), `answer` (the ticked classes joined).",
+            "type": "string",
+            "const": "TREATMENT_NOT_MATCHED"
+          },
+          {
+            "description": "The method's group differs from the filters' answered group (the\n filter-answer filter; a HARD reason). Params: `predicts` (the method's\n group), `answer` (the answered group).",
+            "type": "string",
+            "const": "OUTCOME_NOT_MATCHED"
           }
         ]
       },
@@ -14624,6 +14951,32 @@
           "refresh_token",
           "token_type",
           "expires_in"
+        ]
+      },
+      "TreatmentClass": {
+        "description": "One treatment class (`filter_options.treatment_classes[]`): the base id a\n method's `treatment.classes` names plus the display label.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label"
+        ]
+      },
+      "TreatmentConfidence": {
+        "description": "The confidence a method's treatment classes were stated with. `not-stated`\n carries an empty [`MethodTreatment::classes`]; `stated`/`inferred` carry the\n classes.",
+        "type": "string",
+        "enum": [
+          "stated",
+          "inferred",
+          "not-stated"
         ]
       },
       "TxrAppConfig": {

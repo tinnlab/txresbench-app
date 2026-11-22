@@ -57,6 +57,7 @@ import type {
   FileInspection,
   FileProblem,
   FileTableKind,
+  FilterOptions,
   MarkerColumn,
   MarkerGroup,
   MarkerMatch,
@@ -67,6 +68,46 @@ import type {
 } from '@/api-client/types'
 
 // ── the screen-B vocabulary (PROV-MC-4's groups + a marker slice) ──
+
+/**
+ * The method filter-options vocabulary (step2-filters): the disease node
+ * ids (categories, diseases, sub-groups) and the base treatment classes the
+ * answers are picked from + validated against. A small slice of the real
+ * catalogue's `filter_options` — the ids are exact (`colorectal cancer`,
+ * `uveal melanoma`, `immune checkpoint inhibitor`, …) so the screen-B
+ * answers built on this fixture are ids the server knows. The ONE deviation:
+ * lung cancer's child is the standing guard-clean spelling (`lung
+ * adenocarcinoma` — the same stand-in the server-side catalogue-hygiene
+ * fixture uses), because the real catalogue's lung sub-group names carry a
+ * word the module-domain guard rejects and a baseline admission is
+ * module-pinned; the sub-group's role in the nested picker is what this
+ * fixture exercises (brief 5b / 5b2).
+ */
+export const TXR_INTAKE_FILTER_OPTIONS: FilterOptions = {
+  disease_categories: [
+    {
+      id: 'Solid tumours',
+      diseases: [
+        { id: 'colorectal cancer', children: [] },
+        { id: 'breast cancer', children: [] },
+        { id: 'prostate cancer', children: [] },
+        { id: 'lung cancer', children: ['lung adenocarcinoma'] },
+        { id: 'melanoma', children: ['uveal melanoma'] },
+      ],
+    },
+    {
+      id: 'Other diseases',
+      diseases: [{ id: 'COVID-19', children: [] }, { id: 'sepsis / critical illness', children: [] }],
+    },
+  ],
+  treatment_classes: [
+    { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+    { id: 'chemotherapy', label: 'Chemotherapy' },
+    { id: 'targeted therapy', label: 'Targeted therapy' },
+    { id: 'radiotherapy', label: 'Radiotherapy' },
+    { id: 'hormone therapy', label: 'Hormone therapy' },
+  ],
+}
 
 /**
  * The seven board groups (the provider's own ids; the display names are the

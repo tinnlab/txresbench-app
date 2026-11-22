@@ -11,16 +11,19 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import type { EligibilityResponse, MarkerGroup } from '@/api-client/types'
+import type { EligibilityResponse, FilterOptions, MarkerGroup } from '@/api-client/types'
 import { useStudyPreview, STUDY_PREVIEW_DEBOUNCE_MS } from './useStudyPreview'
 import { buildStudyPreviewRequest } from '../lib/preview'
+import { __resetFetchCacheForTests } from './fetchCache'
+import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import type { StudyAnswers } from '../types'
 
-const api = vi.hoisted(() => ({ eligibility: vi.fn() }))
+const api = vi.hoisted(() => ({ eligibility: vi.fn(), filterOptions: vi.fn() }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
     MethodCatalogue: {
       eligibility: api.eligibility,
+      filterOptions: api.filterOptions,
     },
   },
 }))
@@ -33,7 +36,7 @@ const GROUPS: MarkerGroup[] = [
 
 const EMPTY_ANSWERS: StudyAnswers = {
   disease: null,
-  treatment: null,
+  treatments: null,
   outcome: null,
   markerGroups: null,
   beforeTreatment: null,
@@ -42,13 +45,31 @@ const EMPTY_ANSWERS: StudyAnswers = {
 }
 
 const ANSWERED: StudyAnswers = {
-  disease: 'colorectal',
-  treatment: null,
+  disease: 'colorectal cancer',
+  treatments: null,
   outcome: 'progression-by-day',
   markerGroups: { ctdna: true, counts: true },
   beforeTreatment: 'always',
   drawsDuringTreatment: 2,
   lastDrawDay: 56,
+}
+
+/** The filter-options vocabulary the answers were picked from (5a3: the
+ *  request body's disease/treatment facts are valid only against it). */
+const VOCABULARY: FilterOptions = {
+  disease_categories: [
+    {
+      id: 'Solid tumours',
+      diseases: [
+        { id: 'colorectal cancer', children: [] },
+        { id: 'lung cancer', children: [] },
+      ],
+    },
+  ],
+  treatment_classes: [
+    { id: 'chemotherapy', label: 'Chemotherapy' },
+    { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+  ],
 }
 
 function response(overrides: Partial<EligibilityResponse> = {}): EligibilityResponse {
@@ -88,6 +109,11 @@ function response(overrides: Partial<EligibilityResponse> = {}): EligibilityResp
 beforeEach(() => {
   api.eligibility.mockReset()
   api.eligibility.mockResolvedValue(response())
+  api.filterOptions.mockReset()
+  api.filterOptions.mockResolvedValue(VOCABULARY)
+  __resetFetchCacheForTests()
+  window.localStorage.clear()
+  useTxrIntakeStore.getState().reset()
   vi.useFakeTimers()
 })
 
@@ -97,6 +123,12 @@ afterEach(() => {
 })
 
 async function settle() {
+  // First let the filter-options vocabulary land (5a3: the request body is a
+  // function of it) — its state flush schedules the debounce timer with the
+  // loaded key, so a vocabulary-less request is never fired on the clean path.
+  await act(async () => {
+    await Promise.resolve()
+  })
   await act(async () => {
     await vi.advanceTimersByTimeAsync(STUDY_PREVIEW_DEBOUNCE_MS)
   })
@@ -125,7 +157,7 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
 
     expect(api.eligibility).toHaveBeenCalledTimes(1)
     expect(api.eligibility).toHaveBeenCalledWith({
-      preview: buildStudyPreviewRequest(ANSWERED, GROUPS),
+      preview: buildStudyPreviewRequest(ANSWERED, GROUPS, VOCABULARY),
     })
   })
 
@@ -134,7 +166,9 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     expect(result.current.loading).toBe(true)
     await settle()
     expect(result.current.fit).toEqual({ total: 2, fit: 1, some: 0, leftOut: 1, noEnvFit: 0 })
-    expect(result.current.excluded).toEqual([{ id: 'm-b', reasonText: 'needs 4 or more draws' }])
+    expect(result.current.excluded).toEqual([
+      { id: 'm-b', reasonText: 'needs 4 or more draws', reasonCode: 'MIN_DRAWS_UNMET' },
+    ])
     expect(result.current.methods.get('m-b')?.status).toBe('cannot_run')
     expect(result.current.error).toBeNull()
   })
@@ -202,12 +236,14 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     expect(result.current.fit).toBeNull()
 
     // The first answer flips the gate; the unanswered schedule fields stay
-    // ABSENT (R3-intake-2), and the panel is answering a REAL question now.
-    rerender({ answers: { ...EMPTY_ANSWERS, disease: 'lung' } })
+    // ABSENT (R3-intake-2), the answered disease rides as the filter fact,
+    // and the panel is answering a REAL question now.
+    rerender({ answers: { ...EMPTY_ANSWERS, disease: 'lung cancer' } })
     await settle()
     expect(api.eligibility).toHaveBeenCalledTimes(1)
     expect(api.eligibility).toHaveBeenCalledWith({
       preview: {
+        disease_group: 'lung cancer',
         marker_groups: { ctdna: false, counts: false, ldh: false },
       },
     })
@@ -230,5 +266,58 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     })
     await settle()
     expect(api.eligibility).toHaveBeenCalledTimes(2)
+  })
+
+  it('a persisted id the vocabulary does not know is never sent (5a3 — the server 422 guard)', async () => {
+    const stale: StudyAnswers = {
+      ...ANSWERED,
+      disease: 'dead-cancer',
+      treatments: ['chemotherapy', 'obsolete-drug'],
+    }
+    renderHook(() => useStudyPreview(stale, GROUPS))
+    await settle()
+    expect(api.eligibility).toHaveBeenCalledTimes(1)
+    const body = api.eligibility.mock.calls[0][0].preview as Record<string, unknown>
+    expect(body.disease_group).toBeUndefined()
+    // The known treatment class rides; the unknown one is dropped.
+    expect(body.treatment_classes).toEqual(['chemotherapy'])
+    expect(body.method_group).toBe('static-risk')
+  })
+
+  it('before the vocabulary loads the disease/treatment facts are omitted; once it lands the request is re-issued (5a3)', async () => {
+    let resolveVocab!: (value: FilterOptions) => void
+    api.filterOptions.mockImplementationOnce(
+      () => new Promise<FilterOptions>(resolve => (resolveVocab = resolve)),
+    )
+    renderHook(() => useStudyPreview(ANSWERED, GROUPS))
+    // The debounce fires while the vocabulary is still in flight: the body
+    // omits the disease/treatment facts (never a stale id), outcome rides.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STUDY_PREVIEW_DEBOUNCE_MS)
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.eligibility).toHaveBeenCalledTimes(1)
+    const first = api.eligibility.mock.calls[0][0].preview as Record<string, unknown>
+    expect(first.disease_group).toBeUndefined()
+    expect(first.treatment_classes).toBeUndefined()
+    expect(first.method_group).toBe('static-risk')
+    // The vocabulary lands: the answer facts are now valid and the request
+    // is re-issued with them.
+    await act(async () => {
+      resolveVocab(VOCABULARY)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STUDY_PREVIEW_DEBOUNCE_MS)
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.eligibility).toHaveBeenCalledTimes(2)
+    const second = api.eligibility.mock.calls[1][0].preview as Record<string, unknown>
+    expect(second.disease_group).toBe('colorectal cancer')
+    expect(second.method_group).toBe('static-risk')
   })
 })

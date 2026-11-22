@@ -48,15 +48,19 @@
 
 import type {
   EligibilityResponse,
+  FilterOptions,
   MarkerGroup,
   MethodEligibility,
   PreviewEligibilityRequest,
+  ReasonCode,
 } from '@/api-client/types'
 import type { TxrRunStatus } from '@/modules/txrlist/types'
 import type {
   TxrCoverageFacts,
   TxrMinDrawsFacts,
   TxrReasonCode,
+  TxrReasonLabels,
+  TxrReasonParams,
 } from '@/modules/txrlist/lib/format'
 import {
   PREVIEW_REASON_FALLBACK,
@@ -64,6 +68,7 @@ import {
   groupShortName,
   outcomeClause,
 } from './format'
+import { buildMethodFilters } from './filters'
 import type { StudyAnswers } from '../types'
 
 /** The schedule answers the preview request carries — each is OPTIONAL:
@@ -76,16 +81,28 @@ export interface PreviewSchedule {
   last_draw_day?: number
 }
 
-/** Build the exact PROV-MC-5 preview body (DEC-5: all group ids explicit). */
+/** Build the exact PROV-MC-5 preview body (DEC-5: all group ids explicit).
+ *  The three method-filter facts ride the SAME body the inventory `filters`
+ *  block carries, flattened to the top level (`disease_group`,
+ *  `treatment_classes`, `method_group`); an unanswered question is OMITTED
+ *  (never `null`, never an empty list — the same rule as the schedule
+ *  answers, and the same builder the E screen's `filters` block uses).
+ *  The vocabulary is the same builder's answer-validity gate (step2-filters,
+ *  brief 5a3): only ids it knows are sent, and while it is not loaded the
+ *  disease/treatment fields are omitted (the outcome is still sent). */
 export function buildStudyPreviewRequest(
   answers: StudyAnswers,
   groups: ReadonlyArray<MarkerGroup>,
+  vocabulary: FilterOptions | null,
 ): PreviewEligibilityRequest {
   const marker_groups: Record<string, boolean> = {}
   for (const group of groups) {
     marker_groups[group.id] = answers.markerGroups?.[group.id] ?? false
   }
-  const request: PreviewEligibilityRequest = { marker_groups }
+  const request: PreviewEligibilityRequest = {
+    marker_groups,
+    ...buildMethodFilters(answers, vocabulary),
+  }
   if (answers.beforeTreatment !== null) request.before_treatment = answers.beforeTreatment
   if (answers.drawsDuringTreatment !== null) request.draws_during_treatment = answers.drawsDuringTreatment
   if (answers.lastDrawDay !== null) request.last_draw_day = answers.lastDrawDay
@@ -163,10 +180,80 @@ function hasAnswerCause(method: MethodEligibility): boolean {
   return method.reasons.some(reason => reason.code !== 'ENV_IMAGE_MISSING')
 }
 
+/**
+ * The code one excluded row is grouped by (step2-filters, brief 5b): the
+ * row's FIRST non-environment reason — the same code the row's reason line
+ * renders (the environment fact has its own line, R3-intake-1; the runtime
+ * stage pushes it FIRST, so a mixed method's grouping reads its answer
+ * cause, never the env fact). `null` only for a method whose EVERY reason
+ * is the environment — that method is never listed in the first place.
+ */
+export function excludedReasonCode(method: MethodEligibility): ReasonCode | null {
+  return method.reasons.find(reason => reason.code !== 'ENV_IMAGE_MISSING')?.code ?? null
+}
+
 /** One excluded-method row (the id + the one reason line the list shows). */
 export interface ExcludedMethod {
   id: string
   reasonText: string
+  /** The code the grouped list buckets the row under (see `excludedReasonCode`). */
+  reasonCode: ReasonCode
+}
+
+/**
+ * The grouped left-out list's bucket codes (step2-filters, brief 5b): the
+ * answer-caused three each get their own collapsible section — in this
+ * order — and every other reason code shares one section.
+ */
+export type ExcludedGroupCode =
+  | 'DISEASE_NOT_MATCHED'
+  | 'TREATMENT_NOT_MATCHED'
+  | 'OUTCOME_NOT_MATCHED'
+  | 'other'
+
+/** One grouped left-out section: the bucket code + its rows in list order. */
+export interface ExcludedGroup {
+  code: ExcludedGroupCode
+  methods: ExcludedMethod[]
+}
+
+/** The fixed section order (disease, treatment, outcome, everything else). */
+const EXCLUDED_GROUP_ORDER: readonly ExcludedGroupCode[] = [
+  'DISEASE_NOT_MATCHED',
+  'TREATMENT_NOT_MATCHED',
+  'OUTCOME_NOT_MATCHED',
+  'other',
+]
+
+/** The bucket of one reason code: the three answer codes keep their names,
+ *  everything else (a missing marker, too few draws, a task mismatch …) is
+ *  the section's "do not fit" bucket. */
+export function excludedGroupCode(code: ReasonCode): ExcludedGroupCode {
+  return code === 'DISEASE_NOT_MATCHED' ||
+    code === 'TREATMENT_NOT_MATCHED' ||
+    code === 'OUTCOME_NOT_MATCHED'
+    ? code
+    : 'other'
+}
+
+/**
+ * The excluded list as the grouped sections the panel renders: the
+ * answer-caused three first (disease, treatment, outcome), then the
+ * one "do not fit" bucket with every other code, each section's rows in
+ * the list's own order, empty sections omitted.
+ */
+export function groupExcludedMethods(methods: ReadonlyArray<ExcludedMethod>): ExcludedGroup[] {
+  const byCode = new Map<ExcludedGroupCode, ExcludedMethod[]>()
+  for (const method of methods) {
+    const code = excludedGroupCode(method.reasonCode)
+    const bucket = byCode.get(code)
+    if (bucket === undefined) byCode.set(code, [method])
+    else bucket.push(method)
+  }
+  return EXCLUDED_GROUP_ORDER.filter(code => byCode.has(code)).map(code => ({
+    code,
+    methods: byCode.get(code) ?? [],
+  }))
 }
 
 /**
@@ -228,7 +315,7 @@ export function toRunStatus(status: EligibilityResponse['methods'][number]['stat
 export function hasStudyAnswers(answers: StudyAnswers): boolean {
   return (
     answers.disease !== null ||
-    answers.treatment !== null ||
+    (answers.treatments !== null && answers.treatments.length > 0) ||
     answers.outcome !== null ||
     answers.markerGroups !== null ||
     answers.beforeTreatment !== null ||
@@ -246,16 +333,23 @@ export const PREVIEW_ANSWER_INVITE =
  * real txrlist functions, injected so the pure lib stays testable with the
  * same bytes the page binds. The fallback for B lives HERE (`PREVIEW_REASON_FALLBACK`),
  * not in the formatter: the E-row fallback is file-phrased.
+ * `labels` is the vocabulary's label table (step2-filters, brief 5a3): the
+ * treatment-class display names the reason lines read — the production
+ * binding (the preview hook) threads the loaded vocabulary's
+ * `treatment_classes` here, so B and E render the same names.
  */
 export interface TxrPreviewFormatters {
   formatReasonLine(
     status: TxrRunStatus,
-    reasons: ReadonlyArray<{ code: TxrReasonCode }>,
+    reasons: ReadonlyArray<{ code: TxrReasonCode; params?: unknown }>,
     coverage: TxrCoverageFacts,
     minDraws: TxrMinDrawsFacts,
     missingMarkers: ReadonlyArray<{ display_name?: string }>,
     missingGroups?: ReadonlyArray<{ display_name?: string }>,
+    labels?: TxrReasonLabels,
   ): string
+  /** The vocabulary's treatment-class labels for the reason lines. */
+  labels?: TxrReasonLabels
 }
 
 /**
@@ -280,6 +374,12 @@ const PREVIEW_SHARED_CODES: ReadonlySet<string> = new Set([
   'TASK_INCOMPATIBLE',
   'RESPONSE_LABEL_MISSING',
   'SURVIVAL_OUTCOME_MISSING',
+  // step2-filters: the answers' own three verdict causes (disease /
+  // treatment / outcome mismatch) — the shared E-vocabulary templates read
+  // only the verdict's structured params, so B renders them too.
+  'DISEASE_NOT_MATCHED',
+  'TREATMENT_NOT_MATCHED',
+  'OUTCOME_NOT_MATCHED',
 ])
 
 /**
@@ -299,8 +399,8 @@ export function excludedReasonLine(
   method: MethodEligibility,
   formatters: TxrPreviewFormatters,
 ): string {
-  const code = method.reasons.find(reason => reason.code !== 'ENV_IMAGE_MISSING')?.code
-  if (code === undefined) {
+  const code = excludedReasonCode(method)
+  if (code === null) {
     // A method whose ONLY cause is the environment never reaches the list
     // (the env line is its fact); the direct line still tells its truth —
     // the shared E-vocabulary sentence, never a blank.
@@ -311,6 +411,7 @@ export function excludedReasonLine(
       method.min_draws,
       method.missing_markers,
       method.missing_groups,
+      formatters.labels,
     )
   }
   if (code === 'MIN_DRAWS_UNMET') return `needs ${method.min_draws.required} or more draws`
@@ -322,6 +423,7 @@ export function excludedReasonLine(
     method.min_draws,
     method.missing_markers,
     method.missing_groups,
+    formatters.labels,
   )
 }
 
@@ -346,5 +448,19 @@ export function excludedMethods(
 ): ExcludedMethod[] {
   return response.methods
     .filter(method => method.status === 'cannot_run' && hasAnswerCause(method))
-    .map(method => ({ id: method.id, reasonText: excludedReasonLine(method, formatters) }))
+    .map(method => {
+      // The grouping code is the FIRST reason the row's line shows — the first
+      // non-environment reason (a mixed env+answer method reads its answer
+      // cause; the env fact has its own line, R3-intake-1). The `hasAnswerCause`
+      // filter above guarantees such a reason exists, so the old
+      // `?? 'ENV_IMAGE_MISSING'` fallback was unreachable — and worse, naming
+      // the env fact as the grouping code would make the section heading
+      // contradict the row it holds (brief 5b2 ITEM-2/5).
+      const reasonCode = excludedReasonCode(method)!
+      return {
+        id: method.id,
+        reasonText: excludedReasonLine(method, formatters),
+        reasonCode,
+      }
+    })
 }

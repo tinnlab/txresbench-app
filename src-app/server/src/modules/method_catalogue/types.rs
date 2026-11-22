@@ -4,7 +4,7 @@
 //! the estimate request/response).
 //!
 //! The catalogue data model mirrors `data/method-catalogue/catalogue.json` (schema
-//! version 1, emitted by `scripts/method-catalogue/gen_method_catalogue.py`)
+//! version 2, emitted by `scripts/method-catalogue/gen_method_catalogue.py`)
 //! EXACTLY: a field the generator emits is a field here, and the whole model is
 //! `deny_unknown_fields` so a catalogue that disagrees with the code is a boot
 //! failure (first-party data posture, `catalogue.rs`), never a silent mismatch.
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 /// The catalogue schema version this module understands. A different value at
 /// boot is a named refusal (see `catalogue::CatalogueLoadError`).
-pub const CATALOGUE_SCHEMA_VERSION: u32 = 1;
+pub const CATALOGUE_SCHEMA_VERSION: u32 = 2;
 
 /// The default per-job CPU count assumed when an estimate request omits `cpus`
 /// (the app's standard per-job cap; DEC-7).
@@ -42,7 +42,7 @@ pub const MAX_METHOD_SUMMARY_CHARS: usize = 170;
 // Catalogue data model (PROV-MC-1)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The root of `data/method-catalogue/catalogue.json` (schema version 1).
+/// The root of `data/method-catalogue/catalogue.json` (schema version 2).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalogue {
@@ -59,6 +59,10 @@ pub struct Catalogue {
     pub markers: Vec<VocabularyMarker>,
     /// The 7 board marker groups (screen B checkboxes).
     pub groups: Vec<MarkerGroup>,
+    /// The `filter_options` vocabulary the filters read: the disease categories
+    /// (with the diseases and their children a method's `disease.groups` may
+    /// name) and the treatment classes.
+    pub filter_options: FilterOptions,
 }
 
 impl Catalogue {
@@ -356,6 +360,13 @@ pub struct Method {
     pub required_markers: Option<RequiredMarkers>,
     pub needs_detection_call: bool,
     pub marker_groups_required: Vec<String>,
+    /// The disease(s) the method applies to (schema 2): a scope, or the named
+    /// diseases/children under [`Catalogue::filter_options`].
+    pub disease: MethodDisease,
+    /// The treatment classes the method applies to, and how that was stated
+    /// (schema 2; class ids are ids of
+    /// [`Catalogue::filter_options`]'s treatment classes).
+    pub treatment: MethodTreatment,
     pub description: String,
     pub timing: Timing,
     pub performance: Option<Performance>,
@@ -393,6 +404,119 @@ pub struct MarkerGroup {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The `filter_options` vocabulary + the per-method disease/treatment facts
+// (schema version 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The disease categories `filter_options.disease_categories[]` — each category
+/// lists the diseases under it, and each disease lists its child disease names
+/// (the strings a method's `disease.groups` may name directly).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DiseaseCategory {
+    /// The category id (e.g. `Solid tumours`).
+    pub id: String,
+    pub diseases: Vec<DiseaseEntry>,
+}
+
+/// One disease of a category: its id and the child disease names under it
+/// (`children` empty when the disease has none).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DiseaseEntry {
+    pub id: String,
+    pub children: Vec<String>,
+}
+
+/// One treatment class (`filter_options.treatment_classes[]`): the base id a
+/// method's `treatment.classes` names plus the display label.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TreatmentClass {
+    pub id: String,
+    pub label: String,
+}
+
+/// `filter_options` — the fixed `filter_options` vocabulary at the catalogue's top
+/// level: the disease categories (disease + child levels) and the treatment
+/// classes every method row references.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FilterOptions {
+    pub disease_categories: Vec<DiseaseCategory>,
+    pub treatment_classes: Vec<TreatmentClass>,
+}
+
+/// The scope of a method's disease fact. `group` names specific diseases
+/// ([`MethodDisease::groups`]); the coarser scopes stand for every disease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiseaseScope {
+    /// Specific diseases, named in [`MethodDisease::groups`].
+    Group,
+    /// Any disease of any type.
+    Any,
+    /// Any solid tumour.
+    AnySolidTumour,
+    /// Any cancer.
+    AnyCancer,
+}
+
+impl DiseaseScope {
+    /// The wire form of the scope (the serde derive's kebab-case), for the
+    /// loader's named refusals.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DiseaseScope::Group => "group",
+            DiseaseScope::Any => "any",
+            DiseaseScope::AnySolidTumour => "any-solid-tumour",
+            DiseaseScope::AnyCancer => "any-cancer",
+        }
+    }
+}
+
+/// A method's `disease` fact: a scope and, exactly when the scope is `group`,
+/// the disease/child names it applies to (non-empty; empty for the coarser
+/// scopes).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MethodDisease {
+    pub scope: DiseaseScope,
+    pub groups: Vec<String>,
+}
+
+/// The confidence a method's treatment classes were stated with. `not-stated`
+/// carries an empty [`MethodTreatment::classes`]; `stated`/`inferred` carry the
+/// classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum TreatmentConfidence {
+    Stated,
+    Inferred,
+    NotStated,
+}
+
+impl TreatmentConfidence {
+    /// The wire form of the confidence, for the loader's named refusals.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TreatmentConfidence::Stated => "stated",
+            TreatmentConfidence::Inferred => "inferred",
+            TreatmentConfidence::NotStated => "not-stated",
+        }
+    }
+}
+
+/// A method's `treatment` fact: the base-class ids it applies to (empty when
+/// nothing is stated) and how that was established.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MethodTreatment {
+    pub classes: Vec<String>,
+    pub confidence: TreatmentConfidence,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROV-MC-2 — GET /api/methods
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -426,6 +550,12 @@ pub struct MethodSummary {
     pub marker_groups_required: Vec<String>,
     pub required_markers: Option<RequiredMarkers>,
     pub needs_baseline: bool,
+    /// The disease(s) the method applies to — the same fact as the full row's,
+    /// so the list row and the detail never disagree.
+    pub disease: MethodDisease,
+    /// The treatment classes the method applies to — the same fact as the full
+    /// row's.
+    pub treatment: MethodTreatment,
     pub embeds_training_data: bool,
     pub timing: Timing,
     pub performance: Option<Performance>,
@@ -458,6 +588,8 @@ impl MethodSummary {
             marker_groups_required: m.marker_groups_required.clone(),
             required_markers: m.required_markers.clone(),
             needs_baseline: m.needs_baseline,
+            disease: m.disease.clone(),
+            treatment: m.treatment.clone(),
             embeds_training_data: m.embeds_training_data,
             timing: m.timing,
             performance: m.performance,
@@ -501,13 +633,46 @@ pub struct MarkerVocabularyResponse {
 // PROV-MC-5 — POST /api/methods/eligibility
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Screen B's preview body: which marker groups the user picked, and the
+/// The filters block of an eligibility request: what the user's filters are
+/// (the disease, the treatment classes, what to predict). Every field is
+/// OPTIONAL — an absent answer (or an empty treatment class list) means "any":
+/// no filter, exactly the verdicts a request without the block gives. The
+/// inventory request carries this block as its `filters` object; the preview
+/// request carries the SAME three fields flattened (top-level), so one struct
+/// is the shape of both.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MethodFilters {
+    /// The answered disease node id: a disease, one of its children (a
+    /// sub-group), or a CATEGORY id ("another <category> disease, not listed"),
+    /// as named by [`Catalogue::filter_options`]. Absent = any disease. An id
+    /// outside the catalogue is an error (`UNKNOWN_DISEASE_GROUP`), never a
+    /// silent "any".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disease_group: Option<String>,
+    /// The ticked base treatment-class ids (the filters' treatment classes, the
+    /// ids of `filter_options.treatment_classes`). Absent OR empty = any
+    /// treatment. An id outside the catalogue is an error
+    /// (`UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub treatment_classes: Option<Vec<String>>,
+    /// What the filters' run should predict (`response-call |
+    /// response-probability | static-risk | dynamic-risk` — the
+    /// [`MethodGroup`] wire spelling of the method rows' `group`). Absent =
+    /// any method group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_group: Option<MethodGroup>,
+}
+
+/// Screen B's preview body: which marker groups the user picked, the
 /// draw-schedule answers (before-treatment values, draws during treatment, last
-/// draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered
-/// question is absent, and the preview treats an absent answer as "any" —
-/// it never assumes a value the user did not give (the old client sent the
-/// board's first options when unanswered, so an untouched question narrowed
-/// the fit count).
+/// draw day) and the method filters (disease, treatment classes, what to
+/// predict). Every schedule and filter field is OPTIONAL (R3-intake-2): an
+/// unanswered question is absent, and the preview treats an absent answer as
+/// "any" — it never assumes a value the user did not give (the old client sent
+/// the board's first options when unanswered, so an untouched question narrowed
+/// the fit count). The method filters are the THREE top-level fields of
+/// [`MethodFilters`], flattened into this body (`disease_group`,
+/// `treatment_classes`, `method_group`).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PreviewEligibilityRequest {
     /// group id → checked. Absent groups count as unchecked.
@@ -521,6 +686,10 @@ pub struct PreviewEligibilityRequest {
     pub draws_during_treatment: Option<u32>,
     /// The last draw day the schedule reaches (28|42|56|84).
     pub last_draw_day: Option<f64>,
+    /// The method filters (see [`MethodFilters`]) — flattened, so the three
+    /// fields are top-level in the preview JSON.
+    #[serde(flatten)]
+    pub filters: MethodFilters,
 }
 
 /// A standard identifier of a file marker column (`(system, id)`).
@@ -604,6 +773,12 @@ pub struct InventoryEligibilityRequest {
     /// is not misclassified by the engine).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcomes: Option<FileOutcomes>,
+    /// The method filters (see [`MethodFilters`]). Absent = no method filter —
+    /// exactly the verdicts a request without the block gives; an unknown
+    /// answer id is a 422 (`UNKNOWN_DISEASE_GROUP` /
+    /// `UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filters: Option<MethodFilters>,
 }
 
 /// The eligibility request body — a tagged union carrying exactly one of the two
@@ -629,7 +804,7 @@ pub enum EligibilityStatus {
     CannotRun,
 }
 
-/// The eligibility reason-code vocabulary — the FIXED, structured set of 12
+/// The eligibility reason-code vocabulary — the FIXED, structured set of 17
 /// codes a method verdict can carry. Display text is the consumer's; a renderer
 /// switches on the code, so the set is closed and documented here (PROV-MC-5's
 /// acceptance: every emitted code is one of these — consumers can never meet an
@@ -686,12 +861,29 @@ pub enum ReasonCode {
     /// Params: `expected`, `found`, `markers` (the file markers it would get).
     #[serde(rename = "MARKER_COUNT_UNMET")]
     MarkerCountUnmet,
+    /// The method's disease fact excludes the filters' answered disease node
+    /// (the filter-answer filter; a HARD reason — the verdict is `cannot_run`).
+    /// Params: `made_for` (the method's disease groups joined, or its scope
+    /// when the scope is coarser than `group`), `answer` (the answered node id).
+    #[serde(rename = "DISEASE_NOT_MATCHED")]
+    DiseaseNotMatched,
+    /// The method's stated or inferred treatment classes share NO class with
+    /// the filters' ticked classes (the filter-answer filter; a HARD reason).
+    /// A `not-stated` method never gets this reason. Params: `made_for` (the
+    /// method's classes joined), `answer` (the ticked classes joined).
+    #[serde(rename = "TREATMENT_NOT_MATCHED")]
+    TreatmentNotMatched,
+    /// The method's group differs from the filters' answered group (the
+    /// filter-answer filter; a HARD reason). Params: `predicts` (the method's
+    /// group), `answer` (the answered group).
+    #[serde(rename = "OUTCOME_NOT_MATCHED")]
+    OutcomeNotMatched,
 }
 
 impl ReasonCode {
     /// The closed code vocabulary, in documentation order — the compile-time
     /// constant the vocabulary test pins (TEST-MC-27).
-    pub const ALL: [ReasonCode; 14] = [
+    pub const ALL: [ReasonCode; 17] = [
         ReasonCode::RequiredMarkerMissing,
         ReasonCode::MarkerGroupMissing,
         ReasonCode::DetectionCallMissing,
@@ -706,6 +898,9 @@ impl ReasonCode {
         ReasonCode::ResponseLabelMissing,
         ReasonCode::SurvivalOutcomeMissing,
         ReasonCode::MarkerCountUnmet,
+        ReasonCode::DiseaseNotMatched,
+        ReasonCode::TreatmentNotMatched,
+        ReasonCode::OutcomeNotMatched,
     ];
 
     /// The code's wire string.
@@ -725,6 +920,9 @@ impl ReasonCode {
             ReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
             ReasonCode::MarkerCountUnmet => "MARKER_COUNT_UNMET",
+            ReasonCode::DiseaseNotMatched => "DISEASE_NOT_MATCHED",
+            ReasonCode::TreatmentNotMatched => "TREATMENT_NOT_MATCHED",
+            ReasonCode::OutcomeNotMatched => "OUTCOME_NOT_MATCHED",
         }
     }
 }
@@ -876,6 +1074,9 @@ mod tests {
         let _ = schemars::schema_for!(MethodListResponse);
         let _ = schemars::schema_for!(MethodDetail);
         let _ = schemars::schema_for!(MarkerVocabularyResponse);
+        let _ = schemars::schema_for!(PreviewEligibilityRequest);
+        let _ = schemars::schema_for!(InventoryEligibilityRequest);
+        let _ = schemars::schema_for!(MethodFilters);
         let _ = schemars::schema_for!(EligibilityRequest);
         let _ = schemars::schema_for!(EligibilityResponse);
         let _ = schemars::schema_for!(EstimateResponse);
@@ -883,16 +1084,16 @@ mod tests {
     }
 
     /// TEST-MC-27 (unit half): the reason-code vocabulary is a CLOSED compile-
-    /// time set — exactly the 14 documented codes, each with a distinct wire
+    /// time set — exactly the 17 documented codes, each with a distinct wire
     /// string, so a consumer's per-code renderer can never meet an
     /// undocumented code and the serde side can never emit duplicates.
     #[test]
     fn reason_code_vocabulary_is_closed_and_distinct() {
-        assert_eq!(ReasonCode::ALL.len(), 14, "the 14 documented codes");
+        assert_eq!(ReasonCode::ALL.len(), 17, "the 17 documented codes");
         let mut wires: Vec<&str> = ReasonCode::ALL.iter().map(|c| c.as_str()).collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 14, "wire strings are distinct");
+        assert_eq!(wires.len(), 17, "wire strings are distinct");
         for code in ReasonCode::ALL {
             // The round-trip: serialize → deserialize must yield the same code
             // (the serde renames are the wire strings the engine emits).
@@ -930,5 +1131,108 @@ mod tests {
         let s = serde_json::to_value(schemars::schema_for!(MethodGroup)).expect("serializable");
         let s = format!("{s}");
         assert!(s.contains("\"dynamic-risk\"") && s.contains("\"response-call\""));
+    }
+
+    /// The schema-2 `filter_options` enums are the closed kebab-case wire
+    /// vocabulary (the strings the catalogue data and the filter client use).
+    #[test]
+    fn filter_option_wires_are_the_documented_kebab_case_strings() {
+        let disease_cases: &[(DiseaseScope, &str)] = &[
+            (DiseaseScope::Group, "group"),
+            (DiseaseScope::Any, "any"),
+            (DiseaseScope::AnySolidTumour, "any-solid-tumour"),
+            (DiseaseScope::AnyCancer, "any-cancer"),
+        ];
+        for (value, wire) in disease_cases {
+            assert_eq!(serde_json::to_value(*value).unwrap(), serde_json::json!(wire));
+            let back: DiseaseScope = serde_json::from_value(serde_json::json!(wire)).expect(wire);
+            assert_eq!(back, *value, "{wire}");
+        }
+        let treatment_cases: &[(TreatmentConfidence, &str)] = &[
+            (TreatmentConfidence::Stated, "stated"),
+            (TreatmentConfidence::Inferred, "inferred"),
+            (TreatmentConfidence::NotStated, "not-stated"),
+        ];
+        for (value, wire) in treatment_cases {
+            assert_eq!(serde_json::to_value(*value).unwrap(), serde_json::json!(wire));
+            let back: TreatmentConfidence = serde_json::from_value(serde_json::json!(wire)).expect(wire);
+            assert_eq!(back, *value, "{wire}");
+        }
+    }
+
+    /// The preview carries the method filters as THREE TOP-LEVEL fields (the
+    /// flattening of [`MethodFilters`]); absent answers are skipped and parse
+    /// back to `None`.
+    #[test]
+    fn preview_filters_are_three_top_level_fields() {
+        let preview = PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: None,
+            last_draw_day: None,
+            filters: MethodFilters {
+                disease_group: Some("lung cancer".to_string()),
+                treatment_classes: Some(vec!["chemotherapy".to_string()]),
+                method_group: Some(MethodGroup::ResponseCall),
+            },
+        };
+        let json = serde_json::to_value(&preview).expect("serialize");
+        assert_eq!(json["disease_group"], "lung cancer");
+        assert_eq!(json["treatment_classes"], serde_json::json!(["chemotherapy"]));
+        assert_eq!(json["method_group"], "response-call");
+        let back: PreviewEligibilityRequest = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back.filters, preview.filters);
+
+        // An unanswered filters block is ABSENT (never an assumed value), and
+        // deserializes back to all-None.
+        let empty = PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: None,
+            last_draw_day: None,
+            filters: MethodFilters::default(),
+        };
+        let json = serde_json::to_value(&empty).expect("serialize");
+        assert!(json.get("disease_group").is_none());
+        assert!(json.get("treatment_classes").is_none());
+        assert!(json.get("method_group").is_none());
+    }
+
+    /// The inventory carries the method filters as ONE `filters` object,
+    /// skipped when absent — an absent answer means "any".
+    #[test]
+    fn inventory_filters_block_round_trips_and_is_skipped_when_absent() {
+        let inv = InventoryEligibilityRequest {
+            patients: 1,
+            decision_day: 56.0,
+            baseline_max_day: 0.0,
+            markers: vec![],
+            covariates: vec![],
+            outcomes: None,
+            filters: Some(MethodFilters {
+                disease_group: Some("lung cancer".to_string()),
+                ..Default::default()
+            }),
+        };
+        let json = serde_json::to_value(&inv).expect("serialize");
+        assert_eq!(json["filters"]["disease_group"], "lung cancer");
+        let back: InventoryEligibilityRequest = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back.filters, inv.filters);
+
+        let without = InventoryEligibilityRequest {
+            filters: None,
+            ..inv
+        };
+        let json = serde_json::to_value(&without).expect("serialize");
+        assert!(json.get("filters").is_none(), "an absent filters block is skipped");
+
+        // A body WITHOUT the `filters` key parses to `filters: None` — the wire
+        // contract is "absent = any", not a hard default.
+        let json = serde_json::json!({
+            "patients": 1, "decision_day": 56.0, "baseline_max_day": 0.0,
+            "markers": [], "covariates": []
+        });
+        let back: InventoryEligibilityRequest = serde_json::from_value(json).expect("parse");
+        assert_eq!(back.filters, None);
     }
 }

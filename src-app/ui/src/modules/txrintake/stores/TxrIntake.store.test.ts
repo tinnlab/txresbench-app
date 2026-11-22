@@ -14,6 +14,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   FileInspection,
+  FilterOptions,
   MarkerMatch,
   ValidationResponse,
 } from '@/api-client/types'
@@ -21,7 +22,7 @@ import type { ParsedTable } from '@/lib/txr-files/types'
 import type { IntakeSnapshot, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 const storeModule = await import('./TxrIntake.store')
-const { TxrIntake, useTxrIntakeStore, buildTxrRunInput } = storeModule
+const { TxrIntake, useTxrIntakeStore, buildTxrRunInput, normalizePersistedStudy } = storeModule
 
 /** The store's data fields (snapshot + recalls). */
 const state = () => useTxrIntakeStore.getState()
@@ -330,7 +331,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
 
   it('the persist partialize keeps the small fields and never the payloads', () => {
     TxrIntake.setIntent('train')
-    TxrIntake.patchStudy({ disease: 'colorectal', lastDrawDay: 84 })
+    TxrIntake.patchStudy({ disease: 'colorectal cancer', lastDrawDay: 84 })
     TxrIntake.adoptFile('measurements', { ...loadedFile(), prepared: true })
     TxrIntake.acceptJoin(joinOffer)
     TxrIntake.acceptVocab(vocabOffer)
@@ -343,7 +344,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     const persisted = (JSON.parse(raw ?? '{}') as { state: Record<string, unknown> }).state
     expect(persisted.intent).toBe('train')
     expect(persisted.mode).toBe('study')
-    expect((persisted.study as { disease: string }).disease).toBe('colorectal')
+    expect((persisted.study as { disease: string }).disease).toBe('colorectal cancer')
     expect(persisted.fileRecalls).toEqual({
       patients: null,
       measurements: { name: 'm.csv', prepared: true },
@@ -364,7 +365,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
   it('a reload hydrates answers + file names and leaves the slots and validation null', async () => {
     TxrIntake.reset()
     TxrIntake.setIntent('train')
-    TxrIntake.patchStudy({ disease: 'breast', drawsDuringTreatment: 4 })
+    TxrIntake.patchStudy({ disease: 'breast cancer', drawsDuringTreatment: 4 })
     TxrIntake.adoptFile('measurements', { ...loadedFile(), table: table('m.csv', [['P0001', '0', 'ldh', '210', 'U/L']]) })
     TxrIntake.patchFile('measurements', { prepared: true })
     TxrIntake.acceptJoin(joinOffer)
@@ -376,7 +377,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     const rehydrated = fresh.useTxrIntakeStore.getState()
     expect(rehydrated.intent).toBe('train')
     expect(rehydrated.mode).toBe('study')
-    expect(rehydrated.study.disease).toBe('breast')
+    expect(rehydrated.study.disease).toBe('breast cancer')
     expect(rehydrated.study.drawsDuringTreatment).toBe(4)
     expect(rehydrated.fileRecalls.measurements).toEqual({ name: 'm.csv', prepared: true })
     expect(rehydrated.measurements).toBeNull()
@@ -690,5 +691,171 @@ describe('qa-fixes3 ITEM-4 — the per-slot example fact, the clear action and t
     expect(raw).not.toContain('direct-on')
     TxrIntake.reset()
     expect(state().methodPicks).toBeNull()
+  })
+})
+
+describe('step2-filters — the persisted answer migration and the vocabulary reconcile', () => {
+  const vocab: FilterOptions = {
+    disease_categories: [
+      {
+        id: 'Solid tumours',
+        diseases: [
+          { id: 'colorectal cancer', children: [] },
+          {
+            id: 'kidney transplant',
+            children: ['kidney transplant rejection', 'kidney transplant graft failure'],
+          },
+        ],
+      },
+    ],
+    treatment_classes: [
+      { id: 'immune checkpoint inhibitor', label: 'Immune checkpoint inhibitor' },
+      { id: 'chemotherapy', label: 'Chemotherapy' },
+    ],
+  }
+
+  it('maps the OLD disease and treatment ids once, at rehydrate (never a crash, unknown → unanswered)', () => {
+    const oldStudy = {
+      disease: 'colorectal',
+      treatment: 'immunotherapy',
+      outcome: 'progression-by-day',
+      markerGroups: { ctdna: true },
+      beforeTreatment: 'always',
+      drawsDuringTreatment: 2,
+      lastDrawDay: 84,
+    }
+    const merged = normalizePersistedStudy(oldStudy)
+    expect(merged.disease).toBe('colorectal cancer')
+    expect(merged.treatments).toEqual(['immune checkpoint inhibitor'])
+    expect(merged.outcome).toBe('progression-by-day')
+    expect(merged.markerGroups).toEqual({ ctdna: true })
+    expect(merged.beforeTreatment).toBe('always')
+    expect(merged.drawsDuringTreatment).toBe(2)
+    expect(merged.lastDrawDay).toBe(84)
+
+    const other = normalizePersistedStudy({ disease: 'other', treatment: 'other-mixed' })
+    expect(other.disease).toBeNull()
+    expect(other.treatments).toBeNull()
+    // A wrong-type value is unanswered, never a crash.
+    const wrong = normalizePersistedStudy({ disease: 42, treatment: ['chemotherapy'] })
+    expect(wrong.disease).toBeNull()
+    expect(wrong.treatments).toBeNull()
+    // An empty persisted object is the birth state.
+    expect(normalizePersistedStudy({})).toEqual({
+      disease: null,
+      treatments: null,
+      outcome: null,
+      markerGroups: null,
+      beforeTreatment: null,
+      drawsDuringTreatment: null,
+      lastDrawDay: null,
+    })
+  })
+
+  it('reads the OLD-id map with hasOwn — prototype names never match an old id (5a3)', () => {
+    // `in` on a plain object matches the prototype, so the old code mapped
+    // "constructor"/"toString"/"__proto__": a disease held the prototype
+    // down as the answer, a treatment held Object.prototype as its list.
+    // hasOwn: an unknown OLD-shape value is unanswered; a NEW-shape string
+    // (the current ids are the catalogue's names) passes through as itself.
+    const ctor = normalizePersistedStudy({ disease: 'constructor', treatment: 'constructor' })
+    expect(ctor.disease).toBe('constructor')
+    expect(ctor.treatments).toBeNull()
+    const proto = normalizePersistedStudy({ disease: '__proto__', treatment: '__proto__' })
+    expect(proto.disease).toBe('__proto__')
+    expect(proto.treatments).toBeNull()
+    const str = normalizePersistedStudy({ disease: 'toString', treatment: 'toString' })
+    expect(str.disease).toBe('toString')
+    expect(str.treatments).toBeNull()
+    // The real old ids still map.
+    expect(normalizePersistedStudy({ disease: 'lung', treatment: 'targeted' }).disease).toBe(
+      'lung cancer',
+    )
+    expect(
+      normalizePersistedStudy({ disease: 'lung', treatment: 'targeted' }).treatments,
+    ).toEqual(['targeted therapy'])
+  })
+
+  it('a persisted treatments list that is empty or has a non-string entry is unanswered (5a3)', () => {
+    // An empty list is the store's "no filter" spelling — the example
+    // family's `isExampleStudy` reads `treatments === null`, so an
+    // unanswered list must be null, never [].
+    expect(normalizePersistedStudy({ treatments: [] }).treatments).toBeNull()
+    expect(normalizePersistedStudy({ treatments: [1] }).treatments).toBeNull()
+    expect(
+      normalizePersistedStudy({ treatments: ['chemotherapy', 2] }).treatments,
+    ).toBeNull()
+    // The well-formed list is kept, in order.
+    expect(
+      normalizePersistedStudy({ treatments: ['chemotherapy', 'radiotherapy'] }).treatments,
+    ).toEqual(['chemotherapy', 'radiotherapy'])
+  })
+
+  it('passes the NEW shape through the merge untouched (the id list keeps order)', () => {
+    const merged = normalizePersistedStudy({
+      disease: 'melanoma',
+      treatments: ['chemotherapy', 'radiotherapy'],
+      outcome: null,
+      markerGroups: null,
+      beforeTreatment: null,
+      drawsDuringTreatment: null,
+      lastDrawDay: null,
+    })
+    expect(merged.disease).toBe('melanoma')
+    expect(merged.treatments).toEqual(['chemotherapy', 'radiotherapy'])
+  })
+
+  it('the persisted old shape hydrates through the REAL persist store (merge runs the map)', async () => {
+    TxrIntake.reset()
+    // Write a PRE-migration persisted envelope directly into localStorage.
+    window.localStorage.setItem(
+      'txr-intake-storage',
+      JSON.stringify({
+        state: {
+          intent: 'train',
+          mode: 'study',
+          study: { disease: 'lung', treatment: 'targeted', outcome: 'dynamic-risk' },
+          fileRecalls: { patients: null, measurements: null, predictMeasurements: null },
+          joins: [],
+          mapping: [],
+          parameters: { decision_day: 56, baseline_max_day: 0 },
+        },
+        version: 0,
+      }),
+    )
+    vi.resetModules()
+    const fresh = await import('./TxrIntake.store')
+    const study = fresh.useTxrIntakeStore.getState().study
+    expect(study.disease).toBe('lung cancer')
+    expect(study.treatments).toEqual(['targeted therapy'])
+    expect(study.outcome).toBe('dynamic-risk')
+  })
+
+  it('reconcileStudyWithVocabulary drops an unknown disease/treatment id to unanswered (the 422 guard)', () => {
+    TxrIntake.reset()
+    TxrIntake.patchStudy({
+      disease: 'not-a-vocabulary-id',
+      treatments: ['immune checkpoint inhibitor', 'gone-away'],
+    })
+    TxrIntake.reconcileStudyWithVocabulary(vocab)
+    const s = state()
+    expect(s.study.disease).toBeNull()
+    // Known ids stay, unknown ones are dropped; all-unknown → unanswered.
+    expect(s.study.treatments).toEqual(['immune checkpoint inhibitor'])
+    TxrIntake.patchStudy({ treatments: ['gone-away'] })
+    TxrIntake.reconcileStudyWithVocabulary(vocab)
+    expect(state().study.treatments).toBeNull()
+  })
+
+  it('reconcileStudyWithVocabulary is idempotent: an all-known state changes nothing', () => {
+    TxrIntake.reset()
+    TxrIntake.patchStudy({
+      disease: 'colorectal cancer',
+      treatments: ['chemotherapy'],
+      outcome: 'dynamic-risk',
+    })
+    const before = state().study
+    TxrIntake.reconcileStudyWithVocabulary(vocab)
+    expect(state().study).toEqual(before)
   })
 })

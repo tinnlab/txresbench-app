@@ -135,7 +135,7 @@ pub fn dev_manifest_active() -> bool {
 pub enum ListOrigin {
     /// The copy built into this app release.
     Builtin,
-    /// The last good list a previous session fetched (`<data_root>/method-list/v1/`).
+    /// The last good list a previous session fetched (`<data_root>/method-list/v2/`).
     Disk,
     /// Fetched and verified in this session.
     Live,
@@ -216,7 +216,7 @@ pub const COALESCE_WINDOW: Duration = Duration::from_secs(60);
 
 /// What the runtime is built with (production: [`production_seams`]; tests: their own).
 pub struct RuntimeSeams {
-    /// `<data_root>`: the last good list lives under `method-list/v1/`.
+    /// `<data_root>`: the last good list lives under `method-list/v2/`.
     pub data_root: PathBuf,
     /// Where lists come from; `None` turns updates off.
     pub source: Option<Arc<dyn ListSource>>,
@@ -1467,10 +1467,20 @@ mod tests {
 
     #[tokio::test]
     async fn a_newer_format_needs_a_newer_app() {
-        let root = scratch("format-2");
-        let newer = signed_doc(2, 0, |d| d["format_version"] = 2.into());
+        let root = scratch("format-3");
+        let newer = signed_doc(2, 0, |d| d["format_version"] = 3.into());
         let source = Arc::new(FakeSource::default());
         source.publish(&digest(2), Ok(newer));
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
+        let status = rt.check(CheckBudget::BACKGROUND).await;
+        assert_eq!(status.last_check, CheckResult::NeedsNewerApp);
+        assert_eq!(rt.current().sequence, 1);
+        // A published format-1 list takes the same "needs a newer app" path
+        // (this app reads format 2; the old line is refused, never crashed on).
+        let root = scratch("format-1");
+        let older = signed_doc(2, 0, |d| d["format_version"] = 1.into());
+        let source = Arc::new(FakeSource::default());
+        source.publish(&digest(2), Ok(older));
         let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
         let status = rt.check(CheckBudget::BACKGROUND).await;
         assert_eq!(status.last_check, CheckResult::NeedsNewerApp);
