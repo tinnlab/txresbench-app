@@ -1103,6 +1103,7 @@ pub async fn resolve_assets(
             contract: row.contract,
             conversions,
             method_facts,
+            decision_day: Some(row.decision_day),
         });
     }
     Ok(assets)

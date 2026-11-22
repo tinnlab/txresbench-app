@@ -65,7 +65,7 @@ use uuid::Uuid;
 
 use txresbench_core::AppError;
 
-use crate::modules::execution_engine::bundle::{BundleError, BundleSettings};
+use crate::modules::execution_engine::bundle::BundleError;
 use crate::modules::execution_engine::orchestrator::{
     self, detect_cpus, EnvProvider, MethodExecutor,
 };
@@ -130,11 +130,12 @@ pub struct ExampleRunInputs {
     pub train: Arc<CanonicalBundle>,
     pub predict: Option<Arc<CanonicalBundle>>,
     pub config: RunConfig,
-    /// The bundle settings the run's method calls build with
-    /// ([`orchestrator::method_bundle_settings`] over the run config and the
-    /// CPU count the run detects at start) — computed once with the inputs,
-    /// so a pick derives them once, not per candidate.
-    pub(crate) settings: BundleSettings,
+    /// The CPU count the run detects at start
+    /// ([`orchestrator::detect_cpus`]) — the count every method's call
+    /// settings are derived with, so a pick derives each method's settings
+    /// with the SAME count as the run ([`ExampleRunInputs::preflight`], bug
+    /// 2: the per-method covariates rule replaces the run-wide flag).
+    pub(crate) cpus: u32,
 }
 
 impl ExampleRunInputs {
@@ -147,15 +148,25 @@ impl ExampleRunInputs {
 
     /// The pick's bundle filter for one method: every bundle the run's train
     /// call builds for it on these inputs ([`orchestrator::train_bundle_preflight`]
-    /// — marker set, train/test, cross-fit), with the run's settings and the
-    /// method's `min_draws`. `Ok` means the run never refuses the method with
-    /// a `BUNDLE_*` code.
+    /// — marker set, train/test, cross-fit), with the method's OWN call
+    /// settings ([`orchestrator::train_call_bundle_settings`] — the same
+    /// per-method rule as the run, so e.g. a `none`-mode method is never
+    /// refused for the run's covariates checkbox, bug 2) and the method's
+    /// `min_draws`. `Ok` means the run never refuses the method with a
+    /// `BUNDLE_*` code.
     pub fn preflight(&self, method: &Method) -> Result<(), BundleError> {
+        let settings = orchestrator::train_call_bundle_settings(
+            &self.config,
+            self.cpus,
+            method,
+            &self.train,
+            self.predict.as_deref(),
+        );
         orchestrator::train_bundle_preflight(
             &self.train,
             self.predict.as_deref(),
             method,
-            &self.settings,
+            &settings,
             method.min_draws,
         )
     }
@@ -225,13 +236,13 @@ fn run_inputs_of(list: &MethodList, request: CreateRunRequest) -> Result<Example
             .map_err(not_valid)?;
     let validation = error_free(canonical.validated)?;
     let train = canonical.train.ok_or_else(no_training_side)?;
-    let settings = orchestrator::method_bundle_settings(&request.config, detect_cpus());
+    let cpus = detect_cpus();
     Ok(ExampleRunInputs {
         validation,
         train,
         predict: canonical.predict,
         config: request.config,
-        settings,
+        cpus,
     })
 }
 
@@ -978,14 +989,14 @@ mod tests {
     /// Every method the pick returns — on the host arch and on the committed
     /// amd64 env set — gets its train and test bundles built exactly as
     /// `execute_train` builds them ([`orchestrator::method_bundles`], the
-    /// function it calls, with the run's settings and the method's
-    /// `min_draws`), and passes the full bundle preflight (the cross-fit or
-    /// cohort bundles too). The amd64 pick is not empty, so this is never
-    /// vacuous.
+    /// function it calls, with the method's OWN call settings —
+    /// [`orchestrator::train_call_bundle_settings`], the same rule the
+    /// executor applies — and the method's `min_draws`), and passes the full
+    /// bundle preflight (the cross-fit or cohort bundles too). The amd64 pick
+    /// is not empty, so this is never vacuous.
     #[test]
     fn every_picked_method_builds_every_run_bundle_on_the_example() {
         let inputs = inputs();
-        let settings = inputs.settings.clone();
         let host = pick_fast_methods(&inputs);
         let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         assert!(
@@ -1001,6 +1012,13 @@ mod tests {
         let cat = catalogue();
         for id in host.iter().chain(amd64.iter()) {
             let method = cat.method(id).expect("a picked id is a catalogue method");
+            let settings = orchestrator::train_call_bundle_settings(
+                &inputs.config,
+                inputs.cpus,
+                method,
+                &inputs.train,
+                inputs.predict.as_deref(),
+            );
             let built = orchestrator::method_bundles(
                 &inputs.train,
                 inputs.predict.as_deref(),
@@ -1127,7 +1145,6 @@ mod tests {
     #[test]
     fn a_single_marker_method_without_a_fixed_list_is_not_picked_on_the_three_marker_example() {
         let inputs = inputs();
-        let settings = inputs.settings.clone();
         assert_eq!(
             MarkerSelection::all(&inputs.train).mains(),
             ["M1", "M2", "M3"],
@@ -1173,13 +1190,7 @@ mod tests {
                 verdict.reasons
             );
             let method = cat.method(id).expect("catalogue method");
-            match orchestrator::train_bundle_preflight(
-                &inputs.train,
-                inputs.predict.as_deref(),
-                method,
-                &settings,
-                method.min_draws,
-            ) {
+            match inputs.preflight(method) {
                 Err(BundleError::MarkerCountUnmet { expected: 1, names }) => {
                     assert_eq!(names, ["M1", "M2", "M3"], "{id}");
                 }
@@ -1205,10 +1216,16 @@ mod tests {
     #[test]
     fn the_pick_preflight_refuses_the_bundle_stage_beyond_the_marker_rule() {
         let inputs = inputs();
-        let settings = inputs.settings.clone();
         let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         let id = amd64.first().expect("the amd64 pick is not empty");
         let mut method = catalogue().method(id).expect("catalogue method").clone();
+        let settings = orchestrator::train_call_bundle_settings(
+            &inputs.config,
+            inputs.cpus,
+            &method,
+            &inputs.train,
+            inputs.predict.as_deref(),
+        );
         assert!(
             bundle::method_marker_set(
                 &inputs.train,
@@ -1235,7 +1252,7 @@ mod tests {
         // Covariates on over a copy of the example rows whose patients carry
         // no covariate column (the example itself has age/sex/stage).
         let method = catalogue().method(id).expect("catalogue method");
-        let covariate_settings = BundleSettings {
+        let covariate_settings = bundle::BundleSettings {
             covariates: true,
             ..settings.clone()
         };
@@ -1253,6 +1270,111 @@ mod tests {
             ),
             Err(BundleError::CovariatesWithoutColumns),
             "{id} with covariates on and no covariate column"
+        );
+    }
+
+    /// Bug 2's example half: the pick applies the run's per-method covariates
+    /// rule, so a `none`-mode method is never refused by the example preflight
+    /// just because the run's covariates checkbox is ON. With the checkbox ON
+    /// and a patients table WITHOUT a cov_* column (the case the run-wide
+    /// settings refused with `BUNDLE_COVARIATES_MISSING`), a searched
+    /// `none`-mode method the pick would run still passes `preflight` —
+    /// while a `required`-mode method on the same table is refused, exactly as
+    /// the run would refuse it.
+    #[test]
+    fn a_none_mode_method_is_not_refused_by_the_example_preflight_with_covariates_on() {
+        use crate::modules::method_catalogue::types::CovariateMode;
+
+        // The run's covariates checkbox ON (the bug-2 example inputs carry the
+        // run's default checkbox OFF; turning it on is the case that split the
+        // old run-wide settings from the per-method rule).
+        let mut request = example_run_request(&[]);
+        request.config.covariates = true;
+        let inputs = run_inputs_of(crate::modules::method_list::builtin(), request)
+            .expect("the covariates-on example canonicalizes");
+        assert!(
+            inputs.train.patients.iter().any(|p| !p.covariates.is_empty()),
+            "the example patients carry the cov_* columns"
+        );
+
+        // A `none`-mode method the example preflight accepts (the marker rule
+        // and draw minimum hold) — the run would run it.
+        let none = catalogue()
+            .methods
+            .iter()
+            .find(|m| {
+                m.covariates == CovariateMode::None
+                    && m.saves_model
+                    && inputs.preflight(m).is_ok()
+            })
+            .expect("the catalogue has a none-mode method the example preflight accepts");
+        let none_id = none.id.clone();
+
+        // Strip the cov_* columns: the per-method rule keeps the method's
+        // call settings covariates OFF, so the example preflight still
+        // accepts it — the run-wide-flag era refused it
+        // `BUNDLE_COVARIATES_MISSING` here.
+        let mut bare = (*inputs.train).clone();
+        for patient in &mut bare.patients {
+            patient.covariates.clear();
+        }
+        let bare_inputs = ExampleRunInputs {
+            train: Arc::new(bare),
+            ..inputs
+        };
+        let none = catalogue().method(&none_id).expect("the catalogue method");
+        assert!(
+            bare_inputs.preflight(none).is_ok(),
+            "{none_id}: a none-mode method is not refused with covariates on"
+        );
+
+        // The run-wide base settings WOULD have refused it — the exact
+        // verdict the fix removes from the pick (the same base settings the
+        // per-method derivation starts from, covariates forced on).
+        let run_wide = bundle::BundleSettings {
+            covariates: true,
+            ..orchestrator::train_call_bundle_settings(
+                &bare_inputs.config,
+                bare_inputs.cpus,
+                none,
+                &bare_inputs.train,
+                bare_inputs.predict.as_deref(),
+            )
+        };
+        assert_eq!(
+            orchestrator::train_bundle_preflight(
+                &bare_inputs.train,
+                bare_inputs.predict.as_deref(),
+                none,
+                &run_wide,
+                none.min_draws,
+            ),
+            Err(BundleError::CovariatesWithoutColumns),
+            "{none_id}: the run-wide covariates flag refused it"
+        );
+
+        // The per-method rule still refuses what the run would refuse: a
+        // required-mode method on the same bare table (the marker rule first —
+        // a required method the run could run at all).
+        let required = catalogue()
+            .methods
+            .iter()
+            .find(|m| {
+                m.covariates == CovariateMode::Required
+                    && m.saves_model
+                    && bundle::method_marker_set(
+                        &bare_inputs.train,
+                        &m.markers,
+                        m.required_markers.as_ref(),
+                    )
+                    .is_ok()
+            })
+            .expect("the catalogue has a required-mode method the marker rule accepts");
+        assert_eq!(
+            bare_inputs.preflight(required),
+            Err(BundleError::CovariatesWithoutColumns),
+            "{}: a required-mode method is refused on the same table",
+            required.id
         );
     }
 
@@ -1575,7 +1697,7 @@ mod tests {
             train: Arc::new(first_patients(&full.train, n)),
             predict: full.predict.clone(),
             config: full.config.clone(),
-            settings: full.settings.clone(),
+            cpus: full.cpus,
         }
     }
 
@@ -1605,11 +1727,18 @@ mod tests {
                 .find_map(|m| {
                     let mut fitted = m.clone();
                     fitted.fitted = true;
+                    let settings = orchestrator::train_call_bundle_settings(
+                        &cut.config,
+                        cut.cpus,
+                        &fitted,
+                        &cut.train,
+                        cut.predict.as_deref(),
+                    );
                     let first_bundles = orchestrator::method_bundles(
                         &cut.train,
                         cut.predict.as_deref(),
                         &fitted,
-                        &cut.settings,
+                        &settings,
                         fitted.min_draws,
                     );
                     (first_bundles.is_ok() && cut.preflight(&fitted) == refused).then_some(fitted)

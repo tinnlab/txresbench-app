@@ -348,12 +348,12 @@ impl fmt::Display for BundleError {
             ),
             BundleError::CovariatesWithoutColumns => write!(
                 f,
-                "{}: covariates are on but the patients table has no cov_* column",
+                "{}: This method needs covariates, but the training patients table has no cov_* columns.",
                 self.code()
             ),
             BundleError::TestCovariatesNeedPatients => write!(
                 f,
-                "{}: the predict side uses covariates — pass the predict patients with patient_id and the cov_* columns",
+                "{}: This method needs covariates, but the patients to predict have no patients table with cov_* columns.",
                 self.code()
             ),
             BundleError::TestPatientWithoutCovariateRow { patient_id } => write!(

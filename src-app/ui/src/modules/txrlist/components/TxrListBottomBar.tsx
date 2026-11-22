@@ -59,6 +59,10 @@ export interface TxrListBottomBarProps {
   saveModels?: { checked: boolean; onChange(v: boolean): void }
   /** The research-use notice (DEC-13); not rendered when null. */
   notice?: string | null
+  /** Why the run cannot start with this selection (a reason beside the
+   *  disabled button), or null. The D/I run bar's blocked-state idiom — the
+   *  same one the E screen's `TxrRunBar` uses. */
+  blockedReason?: string | null
   /** Run clicked: the options (keys are wired by TxrSelectList). */
   onRun(opts: { atATime: number; saveModels: boolean }): void
   /** The host step's Back button, rendered just before Run (absent: nothing extra). */
@@ -82,6 +86,9 @@ const TOTAL_LINE: CSSProperties = { color: 'var(--txr-text-2)', fontSize: 14 }
 /** The notice's look (the board's `var(--txr-muted)` 12.5px). */
 const NOTICE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
+/** The blocked reason beside the button (the E run bar's own idiom). */
+const BLOCKED_REASON: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
+
 /** The save toggle's look (the board's label line). */
 const SAVE_LABEL: CSSProperties = { fontSize: 13.5, display: 'flex', gap: 6, alignItems: 'center' }
 
@@ -103,6 +110,7 @@ export function TxrListBottomBar({
   atATime,
   saveModels,
   notice,
+  blockedReason,
   onRun,
   back,
 }: TxrListBottomBarProps) {
@@ -145,10 +153,16 @@ export function TxrListBottomBar({
         </label>
       ) : null}
       {notice !== null && notice !== undefined ? <span style={NOTICE}>{notice}</span> : null}
+      {blockedReason !== null && blockedReason !== undefined ? (
+        <span data-testid="txr-list-blocked-reason" style={BLOCKED_REASON}>
+          {blockedReason}
+        </span>
+      ) : null}
       {back}
       <Button
         data-testid="txr-list-run"
         style={RUN_BUTTON}
+        disabled={blockedReason !== null && blockedReason !== undefined}
         onClick={() =>
           onRun({ atATime: atATime?.value ?? TXRLIST_DEFAULT_AT_A_TIME, saveModels: saveModels?.checked ?? false })
         }

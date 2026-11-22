@@ -1489,3 +1489,144 @@ async fn test_ee21_real_stack_reuse_path() {
     assert_eq!(m.prob_source.as_deref(), Some("converted"));
     assert!(m.coverage_scored.unwrap_or(0) > 0, "the reuse column has chances");
 }
+
+/// Bug 3 (server half): a reuse run must use each model's OWN decision day.
+/// A model saved at decision day 28 reaches the run only through the real
+/// resolve route — the resolved asset carries `decision_day` — and
+/// `CreateRunRequest::validate` refuses a reuse run whose `config.decision_day`
+/// differs (400 `MODEL_DECISION_DAY_MISMATCH`, `model_ids[0].decision_day`);
+/// the same model at its own day is accepted and the method's `params.json`
+/// carries `landmark_day` 28.
+#[tokio::test]
+async fn reuse_run_must_use_the_models_own_decision_day() {
+    use txresbench::modules::execution_engine::types::{
+        CreateRunRequest, RunConfig, TxrModelAsset, TxrRunInput, TxrRunMode,
+    };
+    use txresbench::modules::model_store::store;
+    use txresbench::modules::model_store::types::{SaveModelsRequest, SaveTarget};
+
+    let server = TestServer::spawn().await;
+    let (_token, owner) = register_user(&server, "txr-reuse-decision-day").await;
+    let pool = pool(&server).await;
+    let scratch = scratch_dir("reuse-decision-day");
+    let _g = rootfs::scoped_data_root(&scratch);
+    let repo = TxrRepository::new(pool.clone());
+    let method = "ctdna-tf-four-group";
+
+    // Train at decision day 28 (the cohort's draws at 0/28 still satisfy the
+    // method) and save the model.
+    let mut train = super::cohort_run_request(&[method], 1, true);
+    train.config = RunConfig {
+        at_a_time: 1,
+        decision_day: 28.0,
+        look_ahead_day: 238.0,
+        save_models: true,
+        ..Default::default()
+    };
+    let summary = orchestrator::start_run(
+        pool.clone(),
+        Arc::new(RunRuntime::new()),
+        Arc::new(FakeEnv::new(Duration::from_millis(5))),
+        Arc::new(StackMethodExecutor::with_seam(
+            pool.clone(),
+            FakeStackRunSeam::new(),
+        )),
+        owner,
+        train,
+    )
+    .await
+    .expect("create the day-28 training run");
+    let row = wait_terminal(&repo, summary.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let saved = store::save_from_run(
+        &pool,
+        &SaveModelsRequest {
+            run_id: summary.id,
+            method_ids: vec![method.to_string()],
+            target: SaveTarget::NewSet {
+                set_name: "decision day".to_string(),
+            },
+            keep_training_files: false,
+            also_export: false,
+            source_label: None,
+        },
+    )
+    .await
+    .expect("save");
+    let model_id = saved.models[0].id.to_string();
+
+    // The REAL resolve route carries the row's decision day beside the asset.
+    let assets = store::resolve_assets(&pool, &[model_id.clone()])
+        .await
+        .expect("resolve");
+    assert_eq!(assets[0].decision_day, Some(28.0), "the resolved asset carries it");
+    let asset: TxrModelAsset =
+        serde_json::from_value(serde_json::to_value(&assets[0]).unwrap()).expect("engine element");
+
+    let reuse_request = |day: f64, asset: TxrModelAsset| CreateRunRequest {
+        mode: TxrRunMode::Reuse,
+        input: TxrRunInput {
+            patients: None,
+            measurements: super::cohort_measurements_parsed(),
+            predict_measurements: Some(super::cohort_measurements_parsed()),
+            joins: Vec::new(),
+            mapping: Vec::new(),
+            keep_copies: false,
+        },
+        config: RunConfig {
+            at_a_time: 1,
+            decision_day: day,
+            look_ahead_day: 238.0,
+            ..Default::default()
+        },
+        method_ids: Vec::new(),
+        model_ids: vec![asset],
+        method_list_sequence: None,
+    };
+
+    // A reuse at a DIFFERENT day is refused at create-time: 400
+    // MODEL_DECISION_DAY_MISMATCH, naming the model's field.
+    let err = orchestrator::start_run(
+        pool.clone(),
+        Arc::new(RunRuntime::new()),
+        Arc::new(FakeEnv::new(Duration::from_millis(5))),
+        Arc::new(StackMethodExecutor::with_seam(pool.clone(), FakeStackRunSeam::new())),
+        owner,
+        reuse_request(56.0, asset.clone()),
+    )
+    .await
+    .expect_err("the wrong decision day is refused");
+    assert_eq!(err.status_code(), 400);
+    assert_eq!(err.error_code(), "MODEL_DECISION_DAY_MISMATCH");
+    assert!(err.to_string().contains("trained at decision day 28"), "{err}");
+    assert!(err.to_string().contains("day 56"), "{err}");
+
+    // The same model at ITS OWN day runs, and the method's params.json
+    // carries landmark_day 28.
+    let seam = FakeStackRunSeam::new();
+    let summary = orchestrator::start_run(
+        pool.clone(),
+        Arc::new(RunRuntime::new()),
+        Arc::new(FakeEnv::new(Duration::from_millis(5))),
+        Arc::new(StackMethodExecutor::with_seam(pool.clone(), seam.clone())),
+        owner,
+        reuse_request(28.0, asset),
+    )
+    .await
+    .expect("create the reuse run at the model's own day");
+    let row = wait_terminal(&repo, summary.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let m = repo
+        .get_method(summary.id, &model_id)
+        .await
+        .expect("method row")
+        .expect("exists");
+    assert_eq!(m.state, "finished");
+    let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(calls.len(), 1, "one predict call");
+    assert_eq!(
+        calls[0].params["landmark_day"],
+        serde_json::json!(28.0),
+        "the method runs at the model's own decision day"
+    );
+}

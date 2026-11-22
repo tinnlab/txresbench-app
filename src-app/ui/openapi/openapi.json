@@ -2644,7 +2644,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "List the method catalogue rows (unpaged — the bounded runnable set; the list screen filters client-side). Optional `group`/`runnable`/`frozen`/`q` filters; `q` is a case-insensitive substring on the method id.",
+        "description": "List the method catalogue rows (unpaged — the bounded set; a screen that offers methods asks `runnable=true`, retired rows stay for saved models; the list screen filters client-side). Optional `group`/`runnable`/`frozen`/`q` filters; `q` is a case-insensitive substring on the method id.",
         "operationId": "MethodCatalogue.list",
         "parameters": [
           {
@@ -2696,9 +2696,9 @@
           {
             "in": "query",
             "name": "runnable",
-            "description": "Filter to runnable / non-runnable entries. (The shipped catalogue is the\n runnable set — DEC-2 — so this is a contract future for the fixture\n world and for consumers that must reason about both.)",
+            "description": "Filter to runnable / non-runnable entries. A method the list retires\n keeps its row (`runnable: false`) so saved models and history still\n resolve it; a screen that offers methods asks for `runnable: true`.",
             "schema": {
-              "description": "Filter to runnable / non-runnable entries. (The shipped catalogue is the\n runnable set — DEC-2 — so this is a contract future for the fixture\n world and for consumers that must reason about both.)",
+              "description": "Filter to runnable / non-runnable entries. A method the list retires\n keeps its row (`runnable: false`) so saved models and history still\n resolve it; a screen that offers methods asks for `runnable: true`.",
               "type": [
                 "boolean",
                 "null"
@@ -10676,7 +10676,7 @@
             "default": null
           },
           "runnable": {
-            "description": "Filter to runnable / non-runnable entries. (The shipped catalogue is the\n runnable set — DEC-2 — so this is a contract future for the fixture\n world and for consumers that must reason about both.)",
+            "description": "Filter to runnable / non-runnable entries. A method the list retires\n keeps its row (`runnable: false`) so saved models and history still\n resolve it; a screen that offers methods asks for `runnable: true`.",
             "type": [
               "boolean",
               "null"
@@ -13673,6 +13673,14 @@
               "$ref": "#/components/schemas/TxrConversion"
             }
           },
+          "decision_day": {
+            "description": "The decision day the model was trained at (the row's `decision_day`;\n the engine element's `decision_day` — a reuse run must run at the\n model's own day, bug 3). Absent on a pre-bug-3 client asset.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "env": {
             "$ref": "#/components/schemas/TxrMethodEnv"
           },
@@ -15738,6 +15746,14 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/TxrConversion"
             }
+          },
+          "decision_day": {
+            "description": "The decision day the model was trained at (the store row's\n `decision_day`, filled by `model_store::resolve_assets`). A saved\n model runs at its own decision day: `validate` refuses a reuse run\n whose `config.decision_day` differs (`MODEL_DECISION_DAY_MISMATCH`).\n Absent on an asset from an older client: no check.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
           },
           "env": {
             "$ref": "#/components/schemas/TxrMethodEnv"

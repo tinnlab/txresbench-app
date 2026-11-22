@@ -50,6 +50,7 @@ use txresbench_core::AppError;
 
 mod api_test;
 mod bundle_test;
+mod covariates_test;
 mod predictions_test;
 mod run_flow_test;
 

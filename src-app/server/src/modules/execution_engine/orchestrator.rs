@@ -859,10 +859,20 @@ impl MethodExecutor for StackMethodExecutor {
 
         match &ctx.target {
             RunTarget::TrainMethod => {
+                let train = ctx
+                    .train
+                    .as_deref()
+                    .expect("train mode always carries the train side");
+                // The per-method covariates flag (bug 2): a train call's
+                // settings carry the method's own modes and data verdict.
+                let settings =
+                    train_call_bundle_settings(&ctx.config, ctx.cpus, facts, train, ctx.predict.as_deref());
                 self.execute_train(&ctx, facts, &spec, &settings, timeout_secs)
                     .await
             }
             RunTarget::ReuseModel { asset } => {
+                // Reuse runs (saved models) keep their behaviour in this
+                // step: the run-wide flag is what they always used.
                 self.execute_reuse(&ctx, facts, &spec, &settings, timeout_secs, asset)
                     .await
             }
@@ -1637,6 +1647,65 @@ pub(crate) fn method_bundle_settings(config: &RunConfig, cpus: u32) -> bundle::B
     bundle::BundleSettings::for_run(config, per_method_cpus(cpus, config.at_a_time))
 }
 
+/// The per-method covariates flag (bug 2: the covariates requirement is per
+/// method, not per run — the package's `prepare.cpp` reads `st.covariates`
+/// per method). The one rule, in one place:
+/// - the run's checkbox is off → off (for every method);
+/// - the method's catalogue `covariates` mode is `none` → off (the method
+///   takes no covariates — the train and test bundles are both built without
+///   them and the method runs);
+/// - `optional` → on ONLY when the train patients table carries a cov_*
+///   column AND the call's predict surface has a patients table (a separate
+///   predict measurements file has none, so it is off there — train and test
+///   then both run without covariates, the package's "this model uses
+///   covariates: pass patients …" only ever trips for a method that REQUIRES
+///   them);
+/// - `required` → on; a missing table is then THIS method's typed refusal
+///   (`BUNDLE_COVARIATES_MISSING` / `BUNDLE_TEST_COVARIATES_MISSING`), never
+///   a refusal of the whole run.
+pub(crate) fn method_covariates(
+    run_covariates: bool,
+    mode: crate::modules::method_catalogue::types::CovariateMode,
+    train_has_covariates: bool,
+    predict_has_patients: bool,
+) -> bool {
+    if !run_covariates {
+        return false;
+    }
+    match mode {
+        crate::modules::method_catalogue::types::CovariateMode::None => false,
+        crate::modules::method_catalogue::types::CovariateMode::Optional => {
+            train_has_covariates && predict_has_patients
+        }
+        crate::modules::method_catalogue::types::CovariateMode::Required => true,
+    }
+}
+
+/// The bundle settings of ONE TRAIN-CALL method (the [`method_bundle_settings`]
+/// of a train call, with the per-method covariates flag applied): every train
+/// path — the executor's `execute` and `call_bundle_preflight` — derives its
+/// settings here, so the preflight and the execution never disagree about
+/// whether a method's bundles carry covariates. A call without a separate
+/// predict file predicts the training cohort itself, whose patients table IS
+/// the predict surface ([`method_bundles`]'s `None` arm); a separate predict
+/// measurements file carries no patients table.
+pub(crate) fn train_call_bundle_settings(
+    config: &RunConfig,
+    cpus: u32,
+    facts: &Method,
+    train: &CanonicalBundle,
+    predict: Option<&CanonicalBundle>,
+) -> bundle::BundleSettings {
+    let mut settings = method_bundle_settings(config, cpus);
+    settings.covariates = method_covariates(
+        config.covariates,
+        facts.covariates,
+        !train.patients.iter().all(|p| p.covariates.is_empty()),
+        predict.is_none(),
+    );
+    settings
+}
+
 /// [`train_bundle_preflight`] over a train call's own context: its canonical
 /// sides, its `min_draws` and the settings `execute` builds from it
 /// ([`method_bundle_settings`]). The outer `Err` is a context that is not a
@@ -1653,11 +1722,13 @@ pub fn call_bundle_preflight(
             ctx.method_id
         ))
     })?;
+    let settings =
+        train_call_bundle_settings(&ctx.config, ctx.cpus, facts, train, ctx.predict.as_deref());
     Ok(train_bundle_preflight(
         train,
         ctx.predict.as_deref(),
         facts,
-        &method_bundle_settings(&ctx.config, ctx.cpus),
+        &settings,
         ctx.min_draws,
     ))
 }
@@ -6270,6 +6341,7 @@ mod tests {
                 contract: "2.0".to_string(),
                 conversions: Default::default(),
                 method_facts: None,
+                decision_day: None,
             }],
             method_list_sequence: None,
         };
@@ -6334,6 +6406,7 @@ mod tests {
             method_facts: Some(crate::modules::execution_engine::types::TxrMethodFacts::from_method(
                 crate::modules::method_list::builtin().method(method).expect("a catalogue method"),
             )),
+            decision_day: None,
         }
     }
 
@@ -7136,6 +7209,42 @@ mod tests {
         })
     }
 
+    /// The per-method covariates rule (bug 2) — [`method_covariates`]: the
+    /// 3 catalogue modes × (run checkbox on/off) × (predict patients table
+    /// present/absent), with the train patients carrying a cov_* column, plus
+    /// the `optional` cases where the train side carries none.
+    #[test]
+    fn method_covariates_is_per_mode_run_and_predict_surface() {
+        use crate::modules::method_catalogue::types::CovariateMode;
+        for mode in [
+            CovariateMode::None,
+            CovariateMode::Optional,
+            CovariateMode::Required,
+        ] {
+            for run_covariates in [false, true] {
+                for predict_has_patients in [false, true] {
+                    let want = match mode {
+                        CovariateMode::None => false,
+                        CovariateMode::Required => run_covariates,
+                        // The matrix's train side carries cov_* columns.
+                        CovariateMode::Optional => run_covariates && predict_has_patients,
+                    };
+                    assert_eq!(
+                        method_covariates(run_covariates, mode, true, predict_has_patients),
+                        want,
+                        "mode={mode:?} run={run_covariates} predict_patients={predict_has_patients}"
+                    );
+                }
+            }
+        }
+        // `optional` also needs the TRAIN side's cov_* column: without it the
+        // method runs without covariates (train and test agree).
+        assert!(!method_covariates(true, CovariateMode::Optional, false, true));
+        assert!(!method_covariates(true, CovariateMode::Optional, false, false));
+        // The run's checkbox is off → off for EVERY method, even `required`.
+        assert!(!method_covariates(false, CovariateMode::Required, false, false));
+    }
+
     /// The bundle preflight ([`call_bundle_preflight`], the example pick's
     /// filter) answers what the train executor's bundle stage does: in every
     /// case the preflight's refusal is the method's failure reason (same code,
@@ -7209,6 +7318,22 @@ mod tests {
             covariates: true,
             ..config.clone()
         };
+        // The covariates-refusal legs use the BASE METHOD AS a `required`
+        // method (bug 2: the shipped catalogue's `ctdna-tf-four-group` is
+        // `none`, so the run-wide-flag era's refusals would silently move
+        // into "runs without covariates"; the typed refusals now belong to a
+        // method that REQUIRES covariates). The executor resolves facts from
+        // `ctx.list`, so the list is cloned with the method's mode replaced
+        // and both the preflight and the execution see the same facts.
+        let mut required_list = (*crate::modules::method_list::builtin()).clone();
+        for m in &mut required_list.catalogue.methods {
+            if m.id == base {
+                m.covariates = crate::modules::method_catalogue::types::CovariateMode::Required;
+            }
+        }
+        let required_list = Arc::new(required_list);
+        let required_facts =
+            required_list.method(base).expect("the base method").clone();
         struct Case {
             name: &'static str,
             method: String,
@@ -7217,6 +7342,9 @@ mod tests {
             config: RunConfig,
             min_draws: Option<u32>,
             expect: Option<&'static str>,
+            /// The method runs as `required`-covariates (the list + facts
+            /// above replace the shipped `none` mode).
+            required: bool,
         }
         let case = |name, method: &str, train: &Arc<CanonicalBundle>| Case {
             name,
@@ -7226,6 +7354,7 @@ mod tests {
             config: config.clone(),
             min_draws: None,
             expect: None,
+            required: false,
         };
         let cases = vec![
             case("the base method on the cohort", base, &train),
@@ -7240,6 +7369,7 @@ mod tests {
             },
             Case {
                 config: covariates_on.clone(),
+                required: true,
                 expect: Some("BUNDLE_COVARIATES_MISSING"),
                 ..case(
                     "covariates without a covariate column",
@@ -7258,9 +7388,19 @@ mod tests {
             Case {
                 predict: Some(with_covariates.clone()),
                 config: covariates_on.clone(),
+                required: true,
                 expect: Some("BUNDLE_TEST_COVARIATES_MISSING"),
                 ..case(
                     "covariates over a predict file without a patients table",
+                    base,
+                    &with_covariates,
+                )
+            },
+            Case {
+                predict: Some(with_covariates.clone()),
+                config: covariates_on.clone(),
+                ..case(
+                    "a none-mode method over the same predict file runs without covariates",
                     base,
                     &with_covariates,
                 )
@@ -7286,7 +7426,14 @@ mod tests {
 
         for (i, case) in cases.into_iter().enumerate() {
             let name = case.name;
-            let facts = crate::modules::method_list::builtin().method(&case.method).expect("a catalogue method");
+            let facts = if case.required {
+                required_facts.clone()
+            } else {
+                crate::modules::method_list::builtin()
+                    .method(&case.method)
+                    .expect("a catalogue method")
+                    .clone()
+            };
             let seam = FakeStackRunSeam::new();
             let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
             let run_dir = rootfs::data_root().join(format!("case-{i}"));
@@ -7302,8 +7449,11 @@ mod tests {
             );
             ctx.config = case.config;
             ctx.cpus = detect_cpus();
+            if case.required {
+                ctx.list = required_list.clone();
+            }
             ctx.min_draws = case.min_draws.unwrap_or(facts.min_draws);
-            let preflight = call_bundle_preflight(&ctx, facts).expect("a train call's context");
+            let preflight = call_bundle_preflight(&ctx, &facts).expect("a train call's context");
             let outcome = exec.execute(ctx).await.expect("an executor verdict");
             let reason = outcome.reason.clone();
             match &preflight {
@@ -7393,6 +7543,7 @@ mod tests {
                 contract: "2.0".to_string(),
                 conversions: Default::default(),
                 method_facts: None,
+                decision_day: None,
             }],
             method_list_sequence: None,
         }
@@ -8664,6 +8815,7 @@ mod tests {
             contract: "2.0".to_string(),
             conversions: Default::default(),
             method_facts: None,
+            decision_day: None,
         };
         let req = CreateRunRequest {
             mode: TxrRunMode::Reuse,
@@ -8740,6 +8892,7 @@ mod tests {
             contract: "2.0".to_string(),
             conversions: Default::default(),
             method_facts: None,
+            decision_day: None,
         };
         let reuse = CreateRunRequest {
             mode: TxrRunMode::Reuse,

@@ -370,6 +370,45 @@
       }
     },
     {
+      "id": "models.run",
+      "title": "Run the chosen models",
+      "kind": "instance",
+      "context": "txr.model-list",
+      "mutating": true,
+      "stateful": true,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the model step (the ready-made or the saved models list), start the run with the models that are checked. Refused when the chosen models were trained at different decision days (each model runs at its own day), when no model is chosen, and when a selected model cannot be run (a download still running or failed, on the ready-made list). Requires the current state token (view.describe).",
+      "aliases": [
+        "run the models",
+        "run the chosen models",
+        "start the run"
+      ],
+      "keywords": [
+        "models",
+        "run",
+        "state token"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "expected"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The model list (views.list, type txr.model-list)."
+          },
+          "expected": {
+            "type": "string",
+            "description": "The current state token of the model list (view.describe._state_token)."
+          }
+        }
+      }
+    },
+    {
       "id": "models.switchList",
       "title": "Switch between the ready-made models and your saved models",
       "kind": "global",
