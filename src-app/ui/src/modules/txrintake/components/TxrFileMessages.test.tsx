@@ -9,8 +9,8 @@
  * and no frame of its own.
  *
  * The card host (`TxrFileCard`) places these parts — the title + this
- * component — inside the card (screens C and N) or inline under the preview
- * (the E-screen dialog); `TxrFileCard.test.tsx` covers the places (the
+ * component — inside the card, in its full-width row (screens C and N and
+ * the E-screen dialog); `TxrFileCard.test.tsx` covers the place (the
  * full-width row inside the card and its title bytes, the parts rendered
  * ONCE per card, no row without a file). This file covers the parts
  * themselves: nothing renders before a file is adopted, the offer rows

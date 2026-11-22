@@ -594,7 +594,6 @@ export function PredictFilesPage() {
                     error={cardError}
                     savedPath={cardSaved}
                     isExample={exampleSlots.predictMeasurements}
-                    messages="row"
                     onPick={picked => void handlePick('measurements', picked)}
                     onRemove={handleRemove}
                     onAcceptJoin={acceptJoin}

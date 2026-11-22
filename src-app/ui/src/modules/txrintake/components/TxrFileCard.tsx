@@ -8,11 +8,10 @@
  * the drop zone (`TxrFileDrop`, kit `Upload`) and, once a file is chosen,
  * the "Choose a different file" link in its place (every state —
  * step3-file-cards B). What the check says about the file (the status box,
- * the problem list and the offer rows) is `TxrFileMessages`: rendered here
- * for `messages: 'inline'` under the preview (the E-screen dialog), or in
- * the card's own full-width row — the card's LAST child, below both halves,
- * introduced by the file's title — for `messages: 'row'` (screens C and N
- * — step3-file-cards A).
+ * the problem list and the offer rows) is `TxrFileMessages`: the card's own
+ * full-width row — the card's LAST child, below both halves, introduced by
+ * the file's title (screens C and N and the E-screen dialog —
+ * step3-file-cards A).
  *
  * The surface is CONTROLLED — the frozen props carry the card facts and the
  * host's store actions (onPick / onRemove / the four offer answers / the two
@@ -69,14 +68,6 @@ export interface TxrFileCardProps {
   onDownloadExample: () => void
   /** The card holds the example set's table (qa-fixes3 ITEM-4 — the badge). */
   isExample?: boolean
-  /**
-   * Where the check's messages render (step3-file-cards A): `'inline'` (the
-   * default — inside the card, under the preview: the E-screen dialog) or
-   * `'row'` (a full-width row INSIDE the card, after both halves and as the
-   * card's last child, titled with the file's name: screens C and N). With
-   * `'row'` and no chosen file the card renders no messages at all.
-   */
-  messages?: 'inline' | 'row'
 }
 
 /** The board's bordered card. */
@@ -297,7 +288,6 @@ export function TxrFileCard(props: TxrFileCardProps) {
     busy,
     error,
     savedPath = null,
-    messages = 'inline',
     onPick,
     onRemove,
     onAcceptJoin,
@@ -413,17 +403,13 @@ export function TxrFileCard(props: TxrFileCardProps) {
             Choose a different file
           </Button>
         )}
-
-        {messages === 'inline' ? (
-          <TxrFileMessages kind={kind} mode={mode} file={file} onRemove={onRemove} {...offerHandlers} />
-        ) : null}
       </div>
 
       {/* step3-file-cards A: with a chosen file the check's messages are the
           card's own full-width row — after both halves, the card's last
           child, titled with the file kind and name (the card shows the file
           name nowhere else). No file: no row. */}
-      {messages === 'row' && file !== null ? (
+      {file !== null ? (
         <section
           style={MESSAGES_ROW}
           data-testid={`txr-intake-file-messages-${kind}`}

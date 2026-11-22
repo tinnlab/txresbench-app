@@ -545,7 +545,6 @@ export function FilesPage() {
                     error={cardErrors.patients ?? null}
                     savedPath={cardSaved.patients ?? null}
                     isExample={exampleSlots.patients}
-                    messages="row"
                     onPick={file => void handlePick('patients', file)}
                     onRemove={() => handleRemove('patients')}
                     onAcceptJoin={acceptJoin}
@@ -566,7 +565,6 @@ export function FilesPage() {
                     error={cardErrors.measurements ?? null}
                     savedPath={cardSaved.measurements ?? null}
                     isExample={exampleSlots.measurements}
-                    messages="row"
                     onPick={file => void handlePick('measurements', file)}
                     onRemove={() => handleRemove('measurements')}
                     onAcceptJoin={acceptJoin}

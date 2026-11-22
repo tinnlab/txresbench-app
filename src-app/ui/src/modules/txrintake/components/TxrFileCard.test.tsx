@@ -134,7 +134,7 @@ function seedValidation(validation: ValidationResponse) {
 
 function renderCard(
   props: Partial<
-    Pick<TxrFileCardProps, 'kind' | 'mode' | 'file' | 'busy' | 'error' | 'savedPath' | 'messages'>
+    Pick<TxrFileCardProps, 'kind' | 'mode' | 'file' | 'busy' | 'error' | 'savedPath'>
   > = {},
 ) {
   const callbacks = {
@@ -158,7 +158,6 @@ function renderCard(
         busy={props.busy ?? false}
         error={props.error ?? null}
         savedPath={props.savedPath ?? null}
-        messages={props.messages}
         {...callbacks}
       />
     </MemoryRouter>,
@@ -808,7 +807,8 @@ describe('step3-file-cards — the messages row inside the card, the file can al
           )
         }
         const callbacks = renderCard({ kind, file: state.file(kind) })
-        // The inline mount still shows the state (the right one is tested).
+        // The card shows the state (which one is the state's own test) in
+        // its one layout — the messages row.
         const status = screen.getByTestId(`txr-intake-file-status-${kind}`)
         expect(within(status).getByText(state.heading)).toBeTruthy()
         if (state.sibling === true) {
@@ -822,9 +822,9 @@ describe('step3-file-cards — the messages row inside the card, the file can al
         fireEvent.click(link)
         expect(callbacks.onRemove).toHaveBeenCalledTimes(1)
         cleanup()
-        // The row mount keeps the same link on the card, and renders the
-        // messages row inside the card too (its placement is its own test).
-        renderCard({ kind, file: state.file(kind), messages: 'row' })
+        // The card keeps the same link and renders the messages row inside
+        // the card too (its placement is its own test).
+        renderCard({ kind, file: state.file(kind) })
         expect(screen.getByTestId(`txr-intake-file-choose-again-${kind}`)).toBeTruthy()
         expect(screen.getByTestId(`txr-intake-file-messages-${kind}`)).toBeTruthy()
       })
@@ -837,7 +837,7 @@ describe('step3-file-cards — the messages row inside the card, the file can al
     expect(screen.queryByTestId('txr-intake-file-choose-again-patients')).toBeNull()
   })
 
-  it('with messages "row" a chosen file gets its messages INSIDE the card, as the last child, after both halves', () => {
+  it('a chosen file gets its messages INSIDE the card, as the last child, after both halves', () => {
     const offer = { from: 'pid', to: 'patient_id' }
     const file = loadedPatients({
       problems: [row14Problem, row88Problem],
@@ -846,7 +846,7 @@ describe('step3-file-cards — the messages row inside the card, the file can al
       columnOffers: [offer],
     })
     seedValidation(patientsValidation({ problems: [row14Problem, row88Problem] }))
-    renderCard({ file, messages: 'row' })
+    renderCard({ file })
     const card = screen.getByTestId('txr-intake-file-card-patients')
     const row = screen.getByTestId('txr-intake-file-messages-patients')
     // The row is INSIDE the card and is the card's LAST child.
@@ -885,13 +885,13 @@ describe('step3-file-cards — the messages row inside the card, the file can al
     expect(row.getAttribute('aria-labelledby')).toBe(title.id)
   })
 
-  it('with messages "row" and NO offer pending the status box and the problem list are inside the row', () => {
+  it('with NO offer pending the status box and the problem list are inside the row', () => {
     const file = loadedPatients({
       problems: [row14Problem, row88Problem],
       inspection: inspectionFixture({ problems: [row14Problem] }),
     })
     seedValidation(patientsValidation({ problems: [row14Problem, row88Problem] }))
-    renderCard({ file, messages: 'row' })
+    renderCard({ file })
     const card = screen.getByTestId('txr-intake-file-card-patients')
     const row = screen.getByTestId('txr-intake-file-messages-patients')
     // The row is INSIDE the card and is the card's LAST child.
@@ -912,8 +912,8 @@ describe('step3-file-cards — the messages row inside the card, the file can al
     expect(card.querySelectorAll('[data-testid="txr-intake-file-notes-patients"]')).toHaveLength(1)
   })
 
-  it('with messages "row" and no file there is no messages row at all', () => {
-    renderCard({ messages: 'row' })
+  it('with no file there is no messages row at all', () => {
+    renderCard()
     expect(screen.queryByTestId('txr-intake-file-messages-patients')).toBeNull()
     expect(screen.queryByTestId('txr-intake-file-messages-title-patients')).toBeNull()
     expect(screen.queryByTestId('txr-intake-file-status-patients')).toBeNull()
