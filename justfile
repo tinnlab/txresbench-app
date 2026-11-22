@@ -60,13 +60,154 @@ test-unit:
 # `--min-legs` is the floor: a leg silently dropped from the heredoc below — or a heredoc
 # that stops expanding — must redden rather than shrink the gate to a green over a smaller
 # set. Adding a leg needs no edit to it; removing one does.
+#
+# The UI leg is SPLIT: `npm run check` is one `&&` chain of twelve links, so a red link
+# hides every later one — the #287 defect one level down (`check:e2e-routing` is red on
+# main and was hiding `test:unit`). Each link is now its own visible leg (`ui-tsc`,
+# `ui-typecheck-tests`, `ui-guards-actions` = the three action guards, `ui-guards-lint` =
+# the four lint guards, `ui-e2e-routing`, `ui-rename-mechanical`, `ui-unit`), so a red
+# link is a named red leg and the legs after it still run. `npm run check` is unchanged
+# in package.json as the developer's one-shot command; TEST-25 pins the chain and the
+# legs in parity.
+#
+# The Rust crate test legs (gate-tests phase 2): until now `just check` COVERED the Rust
+# tree only by compiling it (`cargo check --workspace --tests`); NO leg ran the SDK
+# crates' own tests (a nested workspace at sdk/ with its own sdk/Cargo.toml, excluded
+# from the root workspace) or the desktop crate's tests (src-app/desktop/tauri).
+#
+#   - `sdk-crates-test` runs `cargo test --workspace` inside sdk/. The crates DEFAULT to
+#     the Postgres/embedded-pg driver, whose schema-bound `query!` macros must verify
+#     against a live build-time Postgres cluster (docker-compose, 127.0.0.1:54321) that the
+#     gate image does not ship — and the committed sdk/Cargo.lock pins postgresql_embedded
+#     0.20.4 (sqlx 0.9, rustc >= 1.94; the image has 1.90), so the default-feature
+#     workspace cannot even resolve here. The leg therefore tests the SQLITE driver
+#     variant (`--no-default-features --features sqlite-backend,routes,module`): the same
+#     crate surfaces (routes + module on) with the driver the app itself consumes. The
+#     `--exclude`s are sandbox-guest-agent and sandbox-seccomp ONLY — their test binaries
+#     link `-lseccomp`, and the gate image ships just `libseccomp2`, no `libseccomp-dev`;
+#     the repo's own runner for those two is sdk/scripts/test-guest-agent-linux.sh (a
+#     Docker image with libseccomp-dev + bwrap + privilege for the WSL-mode e2e).
+#     `-- --test-threads=1`: the parallel default trips a pre-existing global
+#     storage re-init race in txresbench-file's http_routes suite (flaky 404s; the same
+#     binary passes serially), so the leg runs every test deterministically. KNOWN REDS
+#     this leg surfaces — findings to fix, NEVER exclude: txresbench-framework's
+#     `openapi::emit_ts::tests::generator_golden_fixture` (deterministic, feature-
+#     independent generator-vs-golden drift) and txresbench-test-harness's
+#     tests/data_dir_reclaim.rs (mounts squashfs via FUSE: "fuse: device not found" —
+#     no /dev/fuse in this gate image; mksquashfs + squashfuse are installed).
+#   - `desktop-crate-test` runs the desktop crate's own tests (`cargo test -p
+#     txresbench-desktop`): 103 tests including tests/update_check_seam.rs (the only
+#     runtime network call's seam) and tests/build_sidecar.rs. Tauri links against the
+#     GTK/WebKit system libs the gate image has. No adjustments needed.
+#
+# `--min-legs` (11 -> 13) rises with the two legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
+# the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
+# into agreement with itself.
+#
+# The JS/TS gate legs (gate-tests phase 3): three more committed test populations were
+# run by NO leg. `sdk-ts-test` runs the npm `test` script of the five SDK packages that
+# declare one — @txresbench/{framework,kit,gallery,shell,config}: each is
+# `typecheck (tsc --noEmit) && vitest run && npm run test:node` (shell/config: the
+# node:test half only), ~46 test files between them. `npm test --workspace=<name>` is
+# run from the repo root against the root workspace list (`sdk/packages/*` +
+# `src-app/ui`), and npm runs EVERY named workspace even when one fails (it collects
+# the failures and exits non-zero) — so a red package cannot hide the ones after it
+# either. notification-ui and test-e2e declare NO test or typecheck script (test-e2e's
+# only script is `validate`, a tsc --noEmit; notification-ui has none), so there is
+# nothing to run and no leg was added for them.
+# `gallery-guards` runs the two pinned gallery guards from the app's `ui/` cwd (both
+# resolve `gallery.config.json` against it): `check-gallery-prod-exclusion.mjs --build`
+# (cleans + rebuilds the prod bundle with `npm run build` — INSIDE the leg, because
+# the aggregate's legs are independent and `ui-npm-build` cannot be relied on to have
+# run first — then proves the dev-gallery sentinel was tree-shaken out of every
+# emitted asset) and `check-harness-parity.mjs` together with its own engine test
+# (`node --test scripts/check-harness-parity.test.mjs` — the neutral cases of the
+# guard; the gallery package's `test` script also runs it via `npm run test:node`, a
+# second invocation is harmless and keeps this leg self-contained). The app's
+# `src-app/ui/gallery.config.json` pins `distDir` (`ui/dist` — this app's vite outDir,
+# which differs from the generic default) and `buildCmd` (`npm run build`; the default
+# `build:nocheck` does not exist here) so the guard scans the bundle this tree actually
+# emits. The gallery PLAYWRIGHT e2e (`test:e2e:gallery`) is deliberately NOT wired: it
+# needs a browser, and the gate image ships no Playwright browsers (no
+# ~/.cache/ms-playwright directory and no playwright package on disk — verified in the
+# gate environment).
+# `site-test` runs the zero-dependency site suite (`node --test 'site/tests/*.test.mjs'`
+# from the repo root): the landing page, the pretrained-catalogue feed and the update
+# feed. EXPECTED RED on main, and the red is kept a NAMED red leg, never skipped:
+# site/tests/deploy.test.mjs "TEST-18 the node's diff surface …" asserts the last
+# commit's (or the working-tree's) diff touches only that node's file list, while the
+# gate-tests phase diffs themselves touch docs/justfile/scripts — the failure is this
+# phase's own subject — and site/tests/build.test.mjs "TEST-16 the suite is
+# self-contained and green" inherits that red (it re-runs the suite and asserts it is
+# green). site/public/updates/latest.json does not exist yet (its producer node writes
+# it; a finding, deliberately not created here) — the suite treats an absent feed as
+# valid, so that is not the red's cause.
+#
+# `--min-legs` (13 -> 16) rises with the three legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
+# the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
+# into agreement with itself.
+#
+# The scripts/ test suites as gate legs (gate-tests phase 4, AUDIT B4/D17): the `scripts/`
+# tree carries 13 top-level `*.test.mjs` (plus 6 more under `scripts/installer/` when the
+# installer node's own six suites are counted) and 6 `*.test.py` (scripts/demo + the
+# dev-registry quartet). FIVE of the top-level .mjs files are ALREADY legs elsewhere —
+# check-aggregate.test.mjs (check-aggregate-controls, below), check-method-env-images
+# .test.mjs + check-method-list.test.mjs (check-method-*-controls in `check-guards`),
+# check-network-allowlist.test.mjs + check-pub-orphans.test.mjs (the controls in
+# `check-invariants`) — and EVERYTHING ELSE was run by NO leg, so two legs now run the
+# rest: `scripts-node-tests` (`node --test` per file, one subprocess per suite so a
+# crashing suite cannot mask the files after it) and `scripts-py-tests` (each file with
+# `python3 -I`, stdlib-unittest, no runner beyond the file's own `unittest.main()`).
+# `scripts-node-tests` DISCOVERS at run time (`find scripts -name '*.test.mjs'`, piped
+# through `sort` for a deterministic order): a test file that lands next month is picked
+# up with no justfile edit — the same self-growing property the farm guards already
+# demand of a runner's scope. The exclusion list below is the ONLY run-time excluded
+# set, and it is exactly the ones another leg already runs (each named here with its
+# leg) plus `build-wsl-rootfs.docker.test.mjs`: that suite builds the WSL root in
+# docker (linux/amd64 + arm64, network, ~minutes) and its own header says a plain
+# `node --test` skips it silently unless TXR_WSL_ROOTFS_DOCKER_TEST=1; the gate image
+# ships no docker, so the leg excludes it AND prints
+# `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` — the skip is never silent.
+# The docker build remains a deliberate, separately-invoked lane
+# (`TXR_WSL_ROOTFS_DOCKER_TEST=1 node --test scripts/build-wsl-rootfs.docker.test.mjs`),
+# not a test hidden behind an env var. TEST-26 in check-aggregate.test.mjs pins all of
+# this: every scripts/**/*.test.mjs and *.test.py is either covered by one of the two
+# legs' run-time globs or named in the exclusion list WITH the leg that runs it, so a
+# new orphan suite (or an exclusion entry with no running leg) turns the gate red.
+# `scripts-py-tests` runs with `python3 -I` (every one of the six loads the module under
+# test by explicit `sys.path.insert`/`importlib.util`, so the isolated-mode sys.path
+# does not matter — verified) and BOTH legs run with TMPDIR EXPORTED at a per-run dir
+# under $HOME (never /tmp, never the repo — `export`, not a plain assignment, so every
+# node/python3 child inherits it): the four scripts that honor TMPDIR write their scratch
+# there and clean up; the demo/e2e_real tests hardcode /data/pbya/... paths instead and
+# are ABSENT on this box — the failures are path-only and stay NAMED reds (listed in the
+# phase-4 change note), never skipped or edited. Both legs keep the same shape the old
+# `check-py` used: `env`-style isolation, run every file, collect each failure, exit
+# non-zero once — a red file cannot hide the ones after it.
+#
+# `--min-legs` (16 -> 18) rises with the two legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
+# the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
+# into agreement with itself.
 check:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 5 --controls-leg check-aggregate-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 18 --controls-leg check-aggregate-controls <<'LEGS'
     check-aggregate-controls node --test "{{justfile_directory()}}/scripts/check-aggregate.test.mjs"
     cargo-check-workspace cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo check --workspace --tests
-    ui-npm-check cd {{ui_dir}} && npm run check
+    sdk-crates-test cd {{justfile_directory()}}/sdk && cargo test --workspace --no-default-features --features "sqlite-backend,routes,module" --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1
+    desktop-crate-test cd {{justfile_directory()}} && cargo test -p txresbench-desktop
+    sdk-ts-test cd {{justfile_directory()}} && npm test --workspace=@txresbench/framework --workspace=@txresbench/kit --workspace=@txresbench/gallery --workspace=@txresbench/shell --workspace=@txresbench/config
+    gallery-guards cd {{ui_dir}} && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs --build && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.mjs && node --test {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.test.mjs
+    site-test cd {{justfile_directory()}} && node --test 'site/tests/*.test.mjs'
+    scripts-node-tests cd {{justfile_directory()}} && export TMPDIR="${HOME}/.txresbench-gate-tests/node-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); node --test "$f" || rc=1; done < <(find scripts -name '*.test.mjs' -not -name 'check-aggregate.test.mjs' -not -name 'check-method-env-images.test.mjs' -not -name 'check-method-list.test.mjs' -not -name 'check-network-allowlist.test.mjs' -not -name 'check-pub-orphans.test.mjs' -not -name 'build-wsl-rootfs.docker.test.mjs' | sort); echo 'SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker'; echo "scripts-node-tests: ran $n suite file(s)"; [ "$n" -ge 7 ] || rc=1; exit $rc
+    scripts-py-tests cd {{justfile_directory()}} && export TMPDIR="${HOME}/.txresbench-gate-tests/py-$$" && mkdir -p "$TMPDIR" && trap 'rm -rf "$TMPDIR"' EXIT && rc=0; n=0; while IFS= read -r f; do n=$((n+1)); python3 -I "$f" || rc=1; done < <(find scripts -name '*.test.py' | sort); echo "scripts-py-tests: ran $n suite file(s)"; [ "$n" -ge 3 ] || rc=1; exit $rc
+    ui-tsc cd {{ui_dir}} && npx --no-install tsc --noEmit
+    ui-typecheck-tests cd {{ui_dir}} && npm run typecheck:tests
+    ui-guards-actions cd {{ui_dir}} && node scripts/collect-actions.mjs --check && node scripts/action-refs-lint.mjs && node scripts/action-coverage.mjs
+    ui-guards-lint cd {{ui_dir}} && node scripts/lint-no-domain-in-builtin.mjs && node scripts/lint-text-source-bytes.mjs && node scripts/lint-native-controls.mjs && node scripts/lint-secret-input-caps.mjs
+    ui-e2e-routing cd {{ui_dir}} && npm run check:e2e-routing
+    ui-rename-mechanical cd {{ui_dir}} && npm run check:rename-mechanical
+    ui-unit cd {{ui_dir}} && npm run test:unit
     ui-npm-build cd {{ui_dir}} && npm run build
     check-invariants just check-invariants
     LEGS

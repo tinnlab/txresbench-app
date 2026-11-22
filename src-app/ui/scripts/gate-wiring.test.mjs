@@ -61,15 +61,29 @@ test('TEST-46: `just check` exists and invokes a real chain', () => {
   assert.ok(body, 'the `check` recipe is missing from the justfile')
   // POSITIVE COUNT: an emptied recipe would pass every "references no deleted script"
   // assertion below.
-  assert.ok(body.length >= 5, `\`just check\` runs only ${body.length} step(s): ${body.join(' | ')}`)
+  assert.ok(body.length >= 10, `\`just check\` runs only ${body.length} step(s): ${body.join(' | ')}`)
   assert.ok(
     body.some(l => l.includes('cargo check')),
     '`just check` must still run the backend check',
   )
-  assert.ok(
-    body.some(l => l.includes('npm run check')),
-    '`just check` must still run the frontend check',
-  )
+  // The frontend `npm run check` chain is split into one `ui-*` leg per link (gate-tests
+  // phase 1): a red link was hiding every later one, `test:unit` included. The split
+  // keeps `npm run check` in package.json as the one-shot command while making each
+  // link a named, visible leg — name every one or the recipe quietly re-collapses.
+  for (const leg of [
+    'ui-tsc',
+    'ui-typecheck-tests',
+    'ui-guards-actions',
+    'ui-guards-lint',
+    'ui-e2e-routing',
+    'ui-rename-mechanical',
+    'ui-unit',
+  ]) {
+    assert.ok(
+      body.some(l => l.startsWith(`${leg} `)),
+      `\`just check\` must still run the frontend check — the \`${leg}\` leg is missing`,
+    )
+  }
 })
 
 test('TEST-46: the RETIRED `check-ts-packages` recipe is gone from executable justfile code', () => {

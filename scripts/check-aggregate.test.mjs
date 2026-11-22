@@ -49,12 +49,22 @@ const RUNNER = path.join(SCRIPTS_DIR, 'check-aggregate.sh');
  * reads green over a red gate.
  */
 function runLegs(legLines, args = [], cwd = REPO) {
-  const r = spawnSync('bash', [RUNNER, ...args], {
-    input: legLines.join('\n') + (legLines.length ? '\n' : ''),
-    cwd,
-    encoding: 'utf8',
-  });
-  assert.equal(r.error, undefined, `spawning the runner failed: ${r.error}`);
+  // EPIPE handling (pre-existing flake, fixed here): the runner BAILS on some argument
+  // errors (e.g. an out-of-range --min-legs) BEFORE it reads stdin, so the input write
+  // races the child's exit — `spawnSync` then reports EPIPE ~1 run in 6 and this whole
+  // controls suite reddened for no assertion-related reason. The child that closed its
+  // stdin already RAN and EXITED: when EPIPE comes with a numeric `status` (measured
+  // `error: EPIPE, status: 2`), that status is the child's OWN verdict and the unborn
+  // stdin bytes were not needed — a runner that exits before EOF-on-input has already
+  // decided (bad leg, out-of-range floor, bad flag). The verdict is read exactly as
+  // before; EPIPE-with-status is accepted, ANY other error still fails loudly.
+  const input = legLines.join('\n') + (legLines.length ? '\n' : '');
+  const r = spawnSync('bash', [RUNNER, ...args], { input, cwd, encoding: 'utf8' });
+  assert.ok(
+    r.error === undefined ||
+      (r.error.code === 'EPIPE' && typeof r.status === 'number'),
+    `spawning the runner failed: ${r.error}`,
+  );
   assert.notEqual(
     r.status,
     null,
@@ -219,7 +229,43 @@ test('TEST-7 each leg’s stdout and stderr reach the aggregate output, failing 
 // the coercion corpus, all deleted by the node's plan. A plan shrinkage, not the
 // "lower the floor to fit a red" §5 names as the anti-pattern; see the ITEM-2 block in
 // the TEST-21 ledger below.
-const MIN_LEGS_FLOOR = 5;
+// 5 -> 11 (gate-tests phase 1): the UI `npm run check` chain was split into seven
+// `ui-*` legs (one per link / guard family) because its red first link (`check:e2e-routing`)
+// was hiding `test:unit` behind it — the #287 defect one level down. A pure ADD, so the
+// floor moved UP with the set, in the same diff as `--min-legs` and AGGREGATE_FLOORS.
+// 11 -> 13 (gate-tests phase 2): two Rust crate-test legs added — `sdk-crates-test`
+// (the SDK crates' own tests, `cargo test --workspace` in the sdk/ workspace, run in the
+// sqlite-backend driver variant the app consumes because the default PG/embedded-pg
+// variant needs a build-time Postgres cluster the gate image lacks; sandbox-guest-agent +
+// sandbox-seccomp excluded: their test binaries need `libseccomp-dev`, absent from the
+// gate image — see the justfile comment) and `desktop-crate-test`
+// (`cargo test -p txresbench-desktop`). A pure ADD (nested sdk/ workspace + the desktop
+// crate were covered by NO leg before), again in the same diff as `--min-legs` and
+// AGGREGATE_FLOORS. Note the sdk leg is EXPECTED RED today: it surfaces a pre-existing
+// generator-golden drift (txresbench-framework) and a FUSE-device gap
+// (txresbench-test-harness data_dir_reclaim) — reds to fix, never to exclude (the floor
+// moves up WITH the legs; it does not shrink to fit them).
+// 13 -> 16 (gate-tests phase 3): three JS/TS legs added — `sdk-ts-test` (the npm `test`
+// script of the five SDK packages that declare one: framework, kit, gallery, shell,
+// config; notification-ui + test-e2e have no test/typecheck script and get no leg),
+// `gallery-guards` (check-gallery-prod-exclusion.mjs --build + check-harness-parity.mjs
+// from the app's ui/ cwd) and `site-test` (node --test site/tests/*.test.mjs). A pure
+// ADD — committed suites no leg ran — again in the same diff as `--min-legs` and
+// AGGREGATE_FLOORS. The site leg is EXPECTED RED today: deploy.test.mjs TEST-18
+// (the node's diff-surface rule) fails because the gate-tests phase diffs themselves
+// touch docs/justfile/scripts, and build.test.mjs TEST-16 (self-contained + green)
+// inherits that red — named reds, never excluded (the floor rises WITH the set).
+// 16 -> 18 (gate-tests phase 4): TWO legs added — `scripts-node-tests` (a run-time
+// `find` over scripts/ for every `*.test.mjs` not already a leg, minus the one docker
+// suite the gate cannot build) and `scripts-py-tests` (the six stdlib-unittest
+// `*.test.py` under scripts/demo + scripts/dev-registry, `python3 -I`). A pure ADD —
+// committed suites no leg ran — again in the same diff as `--min-legs` and
+// AGGREGATE_FLOORS. Both legs are expected RED today on THIS box for path-only
+// reasons: the demo scripts' tests hardcode /data/pbya/... work dirs (absent here), and
+// build-wsl-rootfs + installer/surface + e2e_demo carry pre-existing code-state reds —
+// NAMED reds per file (TEST-26 keeps the coverage claim machine-checked), never
+// skipped, never edited.
+const MIN_LEGS_FLOOR = 18;
 
 /**
  * The body of a `just` recipe, delimited the way JUST delimits it: every following line
@@ -658,7 +704,17 @@ function runRealJustCheck({ fail = '' } = {}) {
   // distinguishable from the run it stands in for is not standing in for it.
   const failFile = path.join(d, 'fail-directive');
   fs.writeFileSync(failFile, fail);
-  for (const name of ['cargo', 'npm', 'node', 'just']) {
+  // `npx` (and `tsc`, the binary it resolves) are stubbed too: the split UI chain runs
+  // `npx --no-install tsc --noEmit` as its OWN leg now, on the raw PATH — without a stub
+  // the behavioural tests would execute the real compiler (minutes, and it needs
+  // node_modules/.bin) and record nothing for TEST-17/18/19. (`tsc` is kept so a bare
+  // `tsc` invocation anywhere would also be intercepted, not executed for real.)
+  // `python3` joins the stub set with the gate-tests phase-4 `scripts-py-tests` leg:
+  // without it the behavioural runs would execute the REAL six-suite python leg once per
+  // TEST-17/18/19 run (minutes of squashfs packaging, plus it is RED on this box on the
+  // absent /data/pbya paths, so TEST-19's all-green sanity would redden for an
+  // environment reason). The stub set is exactly the external commands a leg may call.
+  for (const name of ['cargo', 'npm', 'node', 'just', 'npx', 'tsc', 'python3']) {
     fs.writeFileSync(
       path.join(bin, name),
       `#!/usr/bin/env bash\n` +
@@ -704,16 +760,108 @@ const EXPECTED_GATES = [
   // the gate while `node --test …` still shows up in the recorded argv.
   `node --test ${path.join(SCRIPTS_DIR, 'check-aggregate.test.mjs')}`,
   'cargo check --workspace --tests',
-  'npm run check',
+  // gate-tests phase 2: the two Rust crate-test legs. `sdk-crates-test` is the ONLY
+  // recorded form that can work in the gate image — the default-feature SDK workspace
+  // cannot even resolve (its PG driver needs a build-time Postgres cluster; the lock pins
+  // postgresql_embedded 0.20.4, rustc >= 1.94, the image has 1.90), so the leg runs the
+  // sqlite-backend variant and excludes the two crates whose test binaries need
+  // `libseccomp-dev` (see the justfile comment). Frozen here by exact string so the leg
+  // cannot silently drop the feature/exclude set. `desktop-crate-test` needs no
+  // adjustment — it links and its 103 tests pass.
+  'cargo test --workspace --no-default-features --features sqlite-backend,routes,module --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1',
+  'cargo test -p txresbench-desktop',
+  // gate-tests phase 3: the JS/TS legs. `sdk-ts-test` runs the npm `test` script of the
+  // five SDK packages that declare one, in ONE npm invocation from the repo root (npm
+  // runs every named workspace even when one fails, so a red package cannot hide the
+  // rest); the workspace names are spelled out because `npm test --workspaces
+  // --if-present` would also sweep the src-app/ui workspace and any package that grows
+  // a `test` script, and this leg is scoped to the SDK packages the phase names.
+  // notification-ui and test-e2e have no test/typecheck script and are deliberately not
+  // included. `gallery-guards` runs the two pinned gallery guards from the app's ui/
+  // cwd — the prod-exclusion guard builds the bundle ITSELF (`--build`: clean + `npm run
+  // build` from src-app/ui/gallery.config.json's buildCmd, then scan) because the
+  // aggregate's legs are independent and ui-npm-build cannot be relied on to have run
+  // first — plus the parity guard's own engine test (`node --test
+  // check-harness-parity.test.mjs`, the neutral cases that prove the guard fires when a
+  // copy loses a core; the gallery package's `test` script runs the same file again via
+  // `npm run test:node`, a harmless second invocation that keeps this leg self-contained).
+  // `site-test` is `node --test site/tests/*.test.mjs` from the repo root (the
+  // zero-dependency site suite); it is EXPECTED RED today on deploy.test.mjs TEST-18
+  // (the diff-surface rule vs the gate-tests phase diffs) + build.test.mjs TEST-16
+  // (which re-runs the suite and demands green) — frozen here so a future change cannot
+  // silently drop that red instead of keeping it a named leg.
+  'npm test --workspace=@txresbench/framework --workspace=@txresbench/kit --workspace=@txresbench/gallery --workspace=@txresbench/shell --workspace=@txresbench/config',
+  `node ${path.join(REPO, 'sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs')} --build`,
+  `node ${path.join(REPO, 'sdk/packages/gallery/scripts/check-harness-parity.mjs')}`,
+  `node --test ${path.join(REPO, 'sdk/packages/gallery/scripts/check-harness-parity.test.mjs')}`,
+  'node --test site/tests/*.test.mjs',
+  // gate-tests phase 4: the scripts/ suites as their own legs. `scripts-node-tests`
+  // discovers every `scripts/**/*.test.mjs` with a run-time `find` and runs each as its
+  // own `node --test` subprocess (one per suite, so a suite that crashes or fails cannot
+  // mask the files after it; sort for a deterministic order), excluding ONLY the five
+  // suites another leg already runs (check-aggregate-controls in this recipe;
+  // check-method-env-images-controls + check-method-list-controls in `check-guards`;
+  // check-network-allowlist-controls + check-pub-orphans-controls in `check-invariants`)
+  // and build-wsl-rootfs.docker.test.mjs (needs docker + network + ~minutes — the leg
+  // PRINTS `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker`, so the skip is never
+  // silent; the docker suite remains its own TXR_WSL_ROOTFS_DOCKER_TEST=1 lane). The 13
+  // rows below are the file set as of this phase, frozen in find|sort order; a NEW test
+  // file that lands is discovered by the leg, and TEST-26 asserts over the filesystem
+  // that every scripts/**/*.test.mjs and *.test.py is covered or named in an exclusion.
+  // `scripts-py-tests` runs the six stdlib-unittest `*.test.py` under scripts/demo +
+  // scripts/dev-registry, each `python3 -I`, TMPDIR exported at a per-run dir under
+  // $HOME (the four that honor TMPDIR write there; the demo/e2e_real tests hardcode
+  // /data/pbya work dirs — path-only reds on this box, named, never skipped). Both
+  // legs are one
+  // subprocess per file and exit non-zero after the LAST file regardless of the
+  // failures before it, exactly the no-hiding property the aggregate itself has.
+  'node --test scripts/assemble-method-list.test.mjs',
+  'node --test scripts/build-installer-local.test.mjs',
+  'node --test scripts/build-wsl-rootfs.test.mjs',
+  'node --test scripts/fetch-oras.test.mjs',
+  'node --test scripts/import-method-list.test.mjs',
+  'node --test scripts/installer/bundle-pretrained-models.test.mjs',
+  'node --test scripts/installer/discover-artifacts.test.mjs',
+  'node --test scripts/installer/lib/artifacts.test.mjs',
+  'node --test scripts/installer/make-update-feed.test.mjs',
+  'node --test scripts/installer/surface.test.mjs',
+  'node --test scripts/installer/write-downloads-config.test.mjs',
+  'node --test scripts/publish-method-list.test.mjs',
+  'node --test scripts/verify-macos-vm-runtime.test.mjs',
+  'python3 -I scripts/demo/e2e_demo.test.py',
+  'python3 -I scripts/demo/record_demo_bundle.test.py',
+  'python3 -I scripts/dev-registry/e2e_real.test.py',
+  'python3 -I scripts/dev-registry/make_real_inputs.test.py',
+  'python3 -I scripts/dev-registry/publish.test.py',
+  'python3 -I scripts/dev-registry/registry.test.py',
+  // The UI `npm run check` chain (gate-tests phase 1): one recorded command per link —
+  // the chain was split out of the single opaque `npm run check` leg precisely so a red
+  // link (currently `check:e2e-routing`) cannot hide the links after it. TEST-25 keeps
+  // the package.json chain and the `ui-*` legs in parity; these rows are the frozen
+  // case-table half of the same property over the REAL recipe. The tsc link runs through
+  // `npx --no-install` because `tsc` is on PATH only inside `npm run` (node_modules/.bin)
+  // — a plain shell leg would say "tsc: command not found".
+  'npx --no-install tsc --noEmit',
+  'npm run typecheck:tests',
+  'node scripts/collect-actions.mjs --check',
+  'node scripts/action-refs-lint.mjs',
+  'node scripts/action-coverage.mjs',
+  'node scripts/lint-no-domain-in-builtin.mjs',
+  'node scripts/lint-text-source-bytes.mjs',
+  'node scripts/lint-native-controls.mjs',
+  'node scripts/lint-secret-input-caps.mjs',
+  'npm run check:e2e-routing',
+  'npm run check:rename-mechanical',
+  'npm run test:unit',
   'npm run build',
   'just check-invariants',
 ];
 
 // ── TEST-17 [acceptance] [invariant: INV-1] ─────────────────────────────────────────
 test('TEST-17 [acceptance] [invariant: INV-1] the REAL `just check` runs every gate when one fails', () => {
-  // Fail the ui type-check — the leg that was actually red on main and that made seven
-  // gates unreachable in the first place.
-  const { invocations, status } = runRealJustCheck({ fail: 'npm run check' });
+  // Fail the e2e-routing gate — the chain link that is red on main and that made every
+  // later link of the old one-leg `npm run check` unreachable.
+  const { invocations, status } = runRealJustCheck({ fail: 'npm run check:e2e-routing' });
   assert.notEqual(status, 0, 'sanity: the run had a failing gate and must not be green');
 
   const missing = EXPECTED_GATES.filter((g) => !invocations.includes(g));
@@ -741,8 +889,8 @@ test('TEST-18 [acceptance] [invariant: INV-2] the REAL `just check` exits non-ze
   // Read from the process's own status. This is the assertion that ` || true` anywhere in
   // the recipe — on the runner invocation or on any single leg — turns RED, which no
   // text-shape check reliably did.
-  // EVERY gate, one at a time — not a sample. Forcing only three of the ten left the other
-  // seven able to be made unable to fail (` || true`, `&`, a redirect) with the suite green.
+  // EVERY gate, one at a time — not a sample. Forcing only a sample of the gates left the
+  // rest able to be made unable to fail (` || true`, `&`, a redirect) with the suite green.
   // Each run is ~0.1s because every leg is a stub.
   for (const gate of EXPECTED_GATES) {
     const { status, out } = runRealJustCheck({ fail: gate });
@@ -808,8 +956,36 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // App repo (PR 4a, the method list) — 'check-guards': 4 -> 6. Two legs added,
 // `check-method-list-controls` and `check-method-list` (the method list guard + its controls),
 // in the SAME diff that adds them, next to their pins in scripts/guard-hashes.txt.
+// gate-tests phase 1 — 'check': 5 -> 11. The UI `npm run check` chain was split into
+// seven `ui-*` legs (one per link / guard family): the chain's red first link
+// (`check:e2e-routing`) was hiding `test:unit`, the #287 defect one level down. A pure
+// ADD, raised in the SAME diff as `--min-legs` and MIN_LEGS_FLOOR (see TEST-8).
+// gate-tests phase 2 — 'check': 11 -> 13. Two legs added: `sdk-crates-test` (the SDK
+// crates' own tests; the adjusted sqlite-backend form of `cd sdk && cargo test
+// --workspace`, excluding the two crates that need libseccomp-dev) and
+// `desktop-crate-test` (`cargo test -p txresbench-desktop`). A pure ADD (neither was
+// covered by any leg before), raised in the SAME diff as `--min-legs` and
+// MIN_LEGS_FLOOR; the sdk leg is expected RED today on the pre-existing
+// generator-golden drift + FUSE-device gap — the floor rises WITH the set, it never
+// shrinks to fit a red.
+// gate-tests phase 3 — 'check': 13 -> 16. Three legs added: `sdk-ts-test` (npm `test`
+// of the five SDK packages that declare one), `gallery-guards`
+// (check-gallery-prod-exclusion --build + check-harness-parity from the app's ui/ cwd)
+// and `site-test` (the zero-dep site suite). A pure ADD (all three were committed test
+// populations no leg ran), raised in the SAME diff as `--min-legs` and MIN_LEGS_FLOOR;
+// the site leg is expected RED today on deploy.test.mjs TEST-18 (diff-surface rule vs
+// the gate-tests phase diffs) + build.test.mjs TEST-16 (suite-must-be-green) — a NAMED
+// red leg, never excluded.
+// gate-tests phase 4 — 'check': 16 -> 18. Two legs added: `scripts-node-tests` (the
+// run-time-discovered node:test suites under scripts/, minus the five suites another leg
+// runs and the docker-only suite, which the leg prints a SKIPPED line for) and
+// `scripts-py-tests` (the six stdlib-unittest *.test.py, python3 -I). A pure ADD (all
+// were committed test populations no leg ran), raised in the SAME diff as `--min-legs`
+// and MIN_LEGS_FLOOR; both legs are expected RED today for path-only + pre-existing
+// code-state reasons — NAMED reds per failing suite (the justfile comment and TEST-26
+// list them), never excluded.
 const AGGREGATE_FLOORS = {
-  check: 5,
+  check: 18,
   'check-invariants': 9,
   'check-guards': 6,
 };
@@ -965,7 +1141,7 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176  5f356c5e THIS-CHANGE
+ * check                      f3401cffe28d2b50e738a2768c8d54d1e8b38065441d1fc43c8f75e82b3e5fc1  THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
  * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
@@ -1092,6 +1268,208 @@ const REACHABLE_FROM_CHECK = [
  *             STRENGTHENING.
  *             Establish it yourself: `git show <this commit> -- justfile` is one recipe.
  *
+ * ── CHECK MOVES AGAIN (gate-tests phase 1, THIS-CHANGE) ────────────────────────────────
+ * `check` 555f7ffb -> 9c09d395: the recipe's single opaque `ui-npm-check` leg
+ * (`cd src-app/ui && npm run check`) is replaced by seven `ui-*` legs, one per link of
+ * the `check` chain (or per guard family): `ui-tsc`
+ * (`npx --no-install tsc --noEmit`),
+ * `ui-typecheck-tests`, `ui-guards-actions` (collect-actions + action-refs-lint +
+ * action-coverage, one family), `ui-guards-lint` (the four lint scripts, one family),
+ * `ui-e2e-routing`, `ui-rename-mechanical` and `ui-unit`. `--min-legs` rises 5 -> 11
+ * with them, and AGGREGATE_FLOORS / MIN_LEGS_FLOOR move to 11 in this same diff, so
+ * the recipe cannot be edited into agreement with itself. Nothing removed, no leg
+ * repointed, no floor lowered; `npm run check` is unchanged in package.json (the
+ * developer's one-shot command), and the new TEST-25 asserts the chain and the legs
+ * are in parity so a link added to one and not the other reddens here. STRENGTHENING:
+ * the chain's red first link (`check:e2e-routing`) no longer hides `test:unit`.
+ *
+ * ── CHECK MOVES AGAIN AGAIN (gate-tests phase 1 fix — the `ui-tsc` leg) ────────────────
+ * `check` 9c09d395 -> b781c463: the `ui-tsc` leg is `npx --no-install tsc --noEmit`
+ * instead of bare `tsc --noEmit`. `tsc` is on PATH only inside `npm run`
+ * (node_modules/.bin), so the leg as written could not work — a plain shell leg says
+ * "tsc: command not found". `npx --no-install` resolves the installed `tsc` from
+ * node_modules/.bin without fetching anything (it refuses to install a missing package),
+ * on the same npm version resolution the `npm run` chain uses. The gate is the SAME
+ * `tsc --noEmit` typecheck — the invocation is repaired, not weakened: TEST-25
+ * normalises a leading `npx --no-install ` to the bare link text so parity holds against
+ * the unchanged package.json link `tsc --noEmit`, and the frozen case table pins the
+ * leg's recorded command as `npx --no-install tsc --noEmit` (TEST-17/18/19 fail it by
+ * exact string, so the leg cannot drop back to a form that cannot run). FIX.
+ *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN (gate-tests phase 2, THIS-CHANGE) ────────────────────
+ * `check` b781c463 -> 8d6a84f4: TWO crate-test legs are ADDED to the end of the Rust
+ * group (after `cargo-check-workspace`): `sdk-crates-test` and `desktop-crate-test`,
+ * the two things phase 1's `cargo check --workspace --tests` covered only by compiling
+ * (AUDIT A1/D4/C2 — no leg RAN the SDK crates' own tests or the desktop crate's tests).
+ * `--min-legs` rises 11 -> 13 with them, and AGGREGATE_FLOORS / MIN_LEGS_FLOOR move to
+ * 13 in this same diff. Nothing removed, no leg repointed, no floor lowered.
+ * `desktop-crate-test` is the brief's literal `cargo test -p txresbench-desktop` — it
+ * links (GTK/WebKit present) and its 103 tests pass, so no adjustment. `sdk-crates-test`
+ * is ADJUSTED from the literal `cd sdk && cargo test --workspace` because the default-
+ * feature SDK workspace cannot even resolve in this gate image, and the adjustment is
+ * FLATTERING, not weakening:
+ *   * `--no-default-features --features "sqlite-backend,routes,module"` — the SDK crates
+ *     default to the Postgres/embedded-pg driver, whose schema-bound `query!` macros
+ *     verify against a live build-time Postgres cluster (docker-compose, 127.0.0.1:54321)
+ *     absent from the gate image; the committed sdk/Cargo.lock pins postgresql_embedded
+ *     0.20.4 (drag in sqlx 0.9, rust-version >= 1.94) while the image has rustc 1.90, so
+ *     `cargo test --workspace` fails at RESOLUTION before any crate builds. The leg tests
+ *     the SQLite driver variant — the same crate surfaces (routes + module stay on) with
+ *     the driver the app itself consumes — and every test of every member still runs.
+ *   * `--exclude sandbox-guest-agent --exclude sandbox-seccomp` — their TEST BINARIES
+ *     link `-lseccomp`; the gate image ships only `libseccomp2`, no `libseccomp-dev`
+ *     (measured: `rust-lld: unable to find library -lseccomp`). The repo's own runner for
+ *     these two is sdk/scripts/test-guest-agent-linux.sh (Docker, pinned rust:1.90 image,
+ *     apk libseccomp-dev + bwrap + privilege for the WSL-mode e2e) — an explicitly
+ *     separate, privileged lane, NOT part of `just check`; not a test hidden, a lane the
+ *     gate image cannot provide.
+ *   * `-- --test-threads=1` — the crate suites are not parallel-safe: txresbench-file's
+ *     http_routes tests re-init a GLOBAL storage dir per test, so under the parallel
+ *     default two tests 404 on each other's files (flaky; the same binary passes serially,
+ *     measured). Serial runs every test deterministically — no test skipped, no assertion
+ *     reduced; the race is reported, not papered over.
+ * The leg is EXPECTED RED today on main, and that red is the point: it surfaces (a)
+ * txresbench-framework `openapi::emit_ts::tests::generator_golden_fixture` — a
+ * deterministic, feature-independent generator-vs-golden drift (generated 117 lines vs
+ * golden 147) that NO leg ever ran, and (b) txresbench-test-harness tests/data_dir_reclaim.rs
+ * — `fuse: device not found` (no /dev/fuse, unprivileged container; mksquashfs and
+ * squashfuse ARE installed). Neither is excluded: per §5-adjacent discipline a pre-existing
+ * red becomes a NAMED red leg, not an allowlist entry. (470 pass, 3 fail, 7 ignored,
+ * measured on this gate image — 12 SDK members + the sdk/desktop/harness crate; details
+ * in the justfile comment.) STRENGTHENING: the two crate-test populations the gate never
+ * executed
+ * are now legs, and the exclusions/features are frozen by exact string in EXPECTED_GATES
+ * (TEST-17/18/19) so the leg cannot silently drop back to a form that cannot run.
+ * (Same diff, control-suite repair: `runLegs` accepted a pre-existing `spawnSync bash
+ * EPIPE` ~1 run in 6 — the runner bails on an out-of-range `--min-legs` before reading
+ * stdin, so the input write races the child's exit. EPIPE-with-a-numeric-status is the
+ * child's own verdict and is now accepted; no assertion weakened, only the noise
+ * removed — measured 14/14 clean runs after, 1-in-6 before.)
+ *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN AGAIN (gate-tests phase 3, THIS-CHANGE) ──────────
+ * `check` 8d6a84f4 -> 09335a9a: THREE JS/TS legs are ADDED after `desktop-crate-test`:
+ * `sdk-ts-test`, `gallery-guards` and `site-test` — committed test populations that NO
+ * leg had ever run (the UI chain covers src-app/ui only; the sdk-crates-test leg covers
+ * the Rust crates; the npm workspaces' node:test/vitest suites, the two gallery guards
+ * and the site suite were unrun). `--min-legs` rises 13 -> 16 with them, and
+ * AGGREGATE_FLOORS / MIN_LEGS_FLOOR move to 16 in this same diff. Nothing removed, no
+ * leg repointed, no floor lowered.
+ * `sdk-ts-test` is the brief's own shape (`npm test` per SDK package in one leg): the
+ * five packages that declare a `test` script — @txresbench/framework, kit, gallery,
+ * shell, config — spelled out as `--workspace=` names from the repo root, because
+ * `npm test --workspaces --if-present` would also sweep src-app/ui and any future
+ * `test` script. npm runs EVERY named workspace even when one fails (it collects the
+ * failures and exits non-zero; measured), so a red package cannot hide the ones after
+ * it — the same no-hiding property the aggregate itself has. notification-ui and
+ * test-e2e declare no test/typecheck script (test-e2e's only script is `validate`;
+ * notification-ui has none) and get no leg — stated in the justfile comment.
+ * `gallery-guards` runs the two pinned gallery guards from the app's ui/ cwd. The
+ * prod-exclusion guard invokes its own `--build` (clean dist + `npm run build` via
+ * gallery.config.json's buildCmd, then scan) — the leg depends on NOTHING outside
+ * itself, because the aggregate's legs are independent and ui-npm-build cannot be
+ * relied on to have run first. To make that scan meaningful, this change also pins
+ * `distDir: 'dist'` and `buildCmd: 'npm run build'` in src-app/ui/gallery.config.json:
+ * this app's vite outDir is `src-app/ui/dist` (vite.config.ts `outDir: '../dist'`),
+ * which differs from the generic guard default `../../dist/ui` (the historical
+ * txresbench layout), and `npm run build:nocheck` does not exist here — without those
+ * two keys the guard would scan a directory this tree never emits (a false red) or
+ * fail at the default build command. The guard bytes themselves are untouched and
+ * still pinned. `check-harness-parity.mjs` exits 0 "nothing to check" here: the app
+ * declares no `harnessCopies` (the unified harness lives in the package itself; a
+ * standalone-consumer state the guard's design allows) — the guard still RUNS, its
+ * verdict is simply vacuous for this consumer, which is the reason the app's own
+ * README says parity is true by construction. The parity guard's own engine test
+ * (`check-harness-parity.test.mjs`, which proves the guard FIRES when a copy loses a
+ * core — the part that actually carries weight) runs as the third link of this same
+ * leg, and again inside the gallery package's `test` via `sdk-ts-test`; the consumer
+ * acceptance case named by that test's header (src-app/ui/scripts/check-harness-parity
+ * .consumer.test.mjs) does not exist in this repo and was not created. The gallery PLAYWRIGHT e2e
+ * (`test:e2e:gallery`) is NOT wired: it needs a browser and the gate image ships no
+ * Playwright browsers (verified: no ~/.cache/ms-playwright, no installed playwright
+ * package) — recorded in the justfile comment, not a hidden test (the ui e2e legs were
+ * never in this gate either).
+ * `site-test` is the site suite's own runner (`node --test site/tests/*.test.mjs` from
+ * the repo root; the suite has no package.json — it is plain node:test on builtins and
+ * the README names that as its gate). It is EXPECTED RED on main and the red is the
+ * POINT of adding it: site/tests/deploy.test.mjs "TEST-18 the node's diff surface …"
+ * requires the current round's diff (working tree vs HEAD, or the last commit when the
+ * tree is clean) to touch only that node's file list (site/, the build script, the
+ * parked workflow, its ledger, .gitignore) — and the gate-tests phase diffs themselves
+ * touch docs/justfile/scripts, so the rule reddens on this phase's own subject;
+ * site/tests/build.test.mjs "TEST-16 the suite is self-contained and green" re-runs the
+ * suite and inherits that red. Neither is fixed by editing the suite (it enforces an
+ * item-node boundary that the gate-tests phases live outside of; a fix belongs to the
+ * lead's review, and the brief says: if the suite fails, keep the leg red, do not
+ * skip). No test is removed, skipped or baselined — the reds are NAMED in the leg.
+ * (Same diff, wiring: src-app/ui/gallery.config.json gains distDir + buildCmd — see
+ * the gallery-guards bullet above; count remains 36 in guard-hashes.txt because no
+ * pinned guard's bytes changed, only scripts/check-aggregate.test.mjs re-pinned.)
+ * STRENGTHENING: three previously-unrun committed suites now run, the two gallery
+ * guards finally have a caller, and the new leg commands are frozen by exact string in
+ * EXPECTED_GATES (TEST-17/18/19) so they cannot silently drop back to a weaker form.
+ *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN AGAIN AGAIN (gate-tests phase 4, THIS-CHANGE) ────
+ * `check` 09335a9a -> a872f993: TWO legs are ADDED after `site-test`:
+ * `scripts-node-tests` and `scripts-py-tests` — the committed scripts/ test suites that
+ * NO leg had ever run (the five top-level control suites and the docker WSL-rootfs
+ * suite are the only .mjs suites handled elsewhere; EVERYTHING else — 7 top-level
+ * suites, the installer node's 6, and all 6 *.test.py — was run by nothing, AUDIT
+ * B4/D17). `--min-legs` rises 16 -> 18 with them, and AGGREGATE_FLOORS /
+ * MIN_LEGS_FLOOR move to 18 in this same diff. Nothing removed, no leg repointed, no
+ * floor lowered.
+ * `scripts-node-tests` is `find scripts -name '*.test.mjs'` at run time (piped through
+ * `sort` for a deterministic order), one `node --test <file>` subprocess per suite
+ * (a suite that crashes or fails cannot make the files after it unrun), with an
+ * exclusion list naming only what another leg already runs — check-aggregate.test.mjs
+ * (check-aggregate-controls, first leg of this recipe), check-method-env-images.test.mjs
+ * + check-method-list.test.mjs (check-method-*-controls in `check-guards`),
+ * check-network-allowlist.test.mjs + check-pub-orphans.test.mjs (the controls in
+ * `check-invariants`) — plus build-wsl-rootfs.docker.test.mjs, the docker builds suite
+ * (linux/amd64 + arm64, network, minutes; its own header self-skips unless
+ * TXR_WSL_ROOTFS_DOCKER_TEST=1, and the gate image ships no docker), for which the leg
+ * prints `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` — the only exclusion
+ * without a runner, and never silent. A new *.test.mjs that lands next month is picked
+ * up with NO justfile edit (the self-growing scope the farm rules demand); the new
+ * TEST-26 asserts over the filesystem that every scripts/ *.test.mjs and *.test.py is
+ * covered by one of the two legs' globs or named in an exclusion whose claim is
+ * provable — so a new orphan suite, or an exclusion entry no leg runs, turns the gate
+ * red. `scripts-py-tests` runs the six stdlib-unittest files (scripts/demo + the
+ * dev-registry quartet) with `python3 -I` (each loads its module under test by explicit
+ * sys.path.insert/importlib.util, so isolated mode's sys.path is not a problem) and
+ * BOTH legs run with TMPDIR exported at a per-run dir under $HOME — never /tmp, never
+ * the repo (a plain assignment is invisible to the node/python3 children; the phase-4
+ * follow-up below repairs it). The `python3` stub
+ * joined the behavioural stubs (TEST-17/18/19) in this same diff for the same reason
+ * npm/cargo are stubbed, so the real (red, path-bound) python leg is never executed
+ * four dozen times inside the controls. REDS, NAMED, NOT FIXED (a red is listed, never
+ * skipped): scripts/demo/e2e_demo.test.py — a route-surface assertion (133 vs 130
+ * policy rows) plus 6 errors on the absent /data/pbya work dir; scripts/demo/
+ * record_demo_bundle.test.py — 3 errors on the absent /data/pbya work dir;
+ * scripts/dev-registry/e2e_real.test.py — module error: makedirs /data/pbya is
+ * PermissionError (absent, root-owned); scripts/dev-registry/publish.test.py — 1 error
+ * on the absent /data/share/pbya/sigtrans/methods/... real-method tree (11 pass, 1
+ * skipped); scripts/build-wsl-rootfs.test.mjs — 1 pre-existing failure (the test's
+ * expected tauri.conf.json object lacks the windows.nsis keys the installers node added
+ * to the real config; 31 pass); scripts/installer/surface.test.mjs — 2 pre-existing
+ * failures (TEST-IR-13: the diff vs the installers node base touches src-app/ui paths
+ * committed after that base; ITEM-6: release.yml's step order no longer matches the
+ * test's expectations). registry.test.py, make_real_inputs.test.py (1 self-skip: no
+ * benchmark tree) and the other ten node suites pass. STRENGTHENING: nineteen committed
+ * suites no leg executed are now legs, the two newly-run legs are frozen by exact string
+ * in EXPECTED_GATES (TEST-17/18/19), the coverage claim has its own test (TEST-26), and
+ * `python3 -I` + TMPDIR isolate the python leg from the ambient environment.
+ *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN AGAIN AGAIN AGAIN (gate-tests phase 4 fix, THIS-CHANGE) ──
+ * `check` a872f993 -> f3401cff: the two legs' `TMPDIR=…` assignments were PLAIN shell
+ * variables — set in the leg's own shell, invisible to the `node`/`python3` children the
+ * leg spawns, so whatever honours TMPDIR wrote scratch to /tmp, contradicting both legs'
+ * own "never /tmp" comment (the review's finding). Both legs now `export TMPDIR` — same
+ * per-run dir under $HOME, same name, same cleanup — so every child inherits it, and the
+ * new TEST-27 pins `export TMPDIR=` in BOTH legs by exact string (value shape included),
+ * so the export cannot silently fall back to a plain assignment or to /tmp. Nothing
+ * removed, no leg repointed, no floor lowered. FIX: the recipe now does what its
+ * comment claimed, not a weakening.
+ *
  * ── THE ANCHOR IS a9bc4c1c, NOT 2caaa6e9 ────────────────────────────────────────────────
  *
  * Stated exactly, because the first draft of this block said "unmoved since the pins were
@@ -1101,11 +1479,15 @@ const REACHABLE_FROM_CHECK = [
  * the top-level directives joined the hash) and added `__directives__`, so every value in this
  * object moved there for a reason that has nothing to do with any recipe. `check-r-regime`'s
  * BODY genuinely moved at a9bc4c1c too — a bare `-eq 0` suite check became
- * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly three recipes have moved: `check-guards`
- * once, `check-invariants` twice and `check-processor-versions` once — the four rows above.
+ * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly four recipes have moved: `check-guards`
+ * once, `check-invariants` twice, `check-processor-versions` once and `check` six
+ * times (gate-tests phase 1, its phase-1 `ui-tsc` leg fix, the phase-2 crate-test
+ * legs, the phase-3 JS/TS legs, the phase-4 scripts/ suites, and the phase-4 fix
+ * that exports TMPDIR in both new legs — the six blocks above) — the
+ * rows above.
  */
 const RECIPE_PINS = {
-  "check": "555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176",
+  "check": "f3401cffe28d2b50e738a2768c8d54d1e8b38065441d1fc43c8f75e82b3e5fc1",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",
@@ -1284,5 +1666,329 @@ test('TEST-24 docs/aggregate-gate-reporting.md states the same floors as AGGREGA
     AGGREGATE_FLOORS,
     'the floors in docs/aggregate-gate-reporting.md §4 differ from AGGREGATE_FLOORS in this file; ' +
       'fix the DOC (never lower a floor to match a stale doc)',
+  );
+});
+
+// ── TEST-25 ─────────────────────────────────────────────────────────────────────────
+/**
+ * The `npm run check` chain and the `just check` UI legs must stay in PARITY.
+ *
+ * The recipe no longer runs `npm run check` as one opaque leg: that is the #287 defect
+ * one level down — the chain's red first link (`check:e2e-routing` is red on main) hid
+ * every later link, including `test:unit`. The chain is split into per-link `ui-*` legs
+ * (`ui-tsc`, `ui-typecheck-tests`, `ui-guards-actions`, `ui-guards-lint`,
+ * `ui-e2e-routing`, `ui-rename-mechanical`, `ui-unit`), so a red link is a named red
+ * leg and the legs after it still run.
+ *
+ * This test holds both sides to the same list. A link added to `src-app/ui/package.json`'s
+ * `check` chain without a matching `ui-*` leg — or a `ui-*` leg whose command is not a
+ * link of the chain — reddens here. Links are compared by THEIR OWN TEXT (`npm run X`
+ * compares as `X`: the script's body command is irrelevant, only that the same script
+ * name is wired on both sides; every other link, e.g. `node scripts/foo.mjs`, compares
+ * verbatim, so a command changed in ONE place without the other is also a parity break).
+ * `ui-npm-build` is excluded: the bundle build is a separate gate that has no place in
+ * the `check` chain.
+ *
+ * The FAILING direction is demonstrated in `.dsh/parity-proof.txt` (gate-tests phase 1):
+ * dropping one `ui-*` leg from the justfile turns this test red while the chain is
+ * untouched.
+ */
+function uiChainLinks() {
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'src-app/ui/package.json'), 'utf8'));
+  const chain = pkg.scripts.check;
+  assert.ok(chain, '`src-app/ui/package.json` no longer declares a `check` script');
+  const links = chain.split('&&').map((l) => l.trim()).filter(Boolean);
+  assert.ok(
+    links.length >= 10,
+    `the ui check chain has only ${links.length} link(s) — it must still be the full chain, ` +
+      `not something an emptied parser would read as complete`,
+  );
+  return links;
+}
+
+/**
+ * `npm run X` compares as `X`; a leg that invokes a binary through
+ * `npx --no-install <cmd>` is treated as `<cmd>` itself (the SAME tool, resolved via
+ * node_modules/.bin by npx — the leg fix for `tsc` being off the raw PATH). Every other
+ * link compares as its own text.
+ */
+function uiLinkKey(link) {
+  const m = /^npm run ([\w:.-]+)$/.exec(link);
+  if (m) return m[1];
+  return link.replace(/^npx --no-install /, '');
+}
+
+/** The `ui-*` legs of the `check:` recipe: leg name -> [normalised link(s) of its command]. */
+function uiLegCommands() {
+  const { legs } = legLinesOf(checkBlock());
+  const out = new Map();
+  for (const leg of legs) {
+    const [name, ...rest] = leg.split(/\s+/);
+    if (!name.startsWith('ui-')) continue;
+    const cmd = rest.join(' ').trim();
+    assert.ok(
+      cmd.startsWith('cd {{ui_dir}} && '),
+      `ui leg '${name}' does not begin with 'cd {{ui_dir}} && ' — a leg that does not run ` +
+        `from the UI directory cannot be the link's own command`,
+    );
+    out.set(
+      name,
+      cmd.slice('cd {{ui_dir}} && '.length).split('&&').map((l) => l.trim()).filter(Boolean).map(uiLinkKey),
+    );
+  }
+  return out;
+}
+
+test('TEST-25 every ui link of the `check` chain has a `just check` ui-* leg, and vice versa', () => {
+  const chain = uiChainLinks().map(uiLinkKey);
+  const legs = uiLegCommands();
+  // The bundle build is a separate gate and is deliberately NOT part of the check chain.
+  assert.ok(
+    legs.has('ui-npm-build'),
+    '`just check` must keep the `ui-npm-build` leg (its `npm run build` is not a `check`-chain link)',
+  );
+  const chainLegs = new Map(legs);
+  chainLegs.delete('ui-npm-build');
+
+  // Every declared linkage must have both sides: a chain link with no leg, and a leg
+  // command that is not a chain link. These come FIRST so a dropped leg reddens with
+  // the link named, not with a count message (`.dsh/parity-proof.txt`).
+  const legLinks = new Map();
+  for (const [name, keys] of chainLegs) for (const k of keys) legLinks.set(k, name);
+  const uncovered = chain.filter((k) => !legLinks.has(k));
+  assert.deepEqual(
+    uncovered,
+    [],
+    `these link(s) of ui/package.json's \`check\` chain have no \`ui-*\` leg in the justfile ` +
+      `(the chain: ${chain.join(' && ')}): ${uncovered.join(', ')}`,
+  );
+  const chainSet = new Set(chain);
+  const stray = [];
+  for (const [name, keys] of chainLegs) {
+    for (const k of keys) if (!chainSet.has(k)) stray.push(`${name} -> ${k}`);
+  }
+  assert.deepEqual(
+    stray,
+    [],
+    `these \`ui-*\` leg command(s) are not link(s) of ui/package.json's \`check\` chain: ` +
+      `${stray.join(', ')}`,
+  );
+  // POSITIVE COUNT, last: a parser that extracted nothing is caught by the two assertions
+  // above (every link is then "uncovered"), and this keeps the split from silently
+  // re-collapsing into fewer legs while somehow staying in parity.
+  assert.ok(
+    chainLegs.size >= 7,
+    `only ${chainLegs.size} ui-* chain leg(s) found — the split must be one leg per link ` +
+      `or guard family, not a re-collapsed chain`,
+  );
+});
+
+// ── TEST-26 ─────────────────────────────────────────────────────────────────────────
+/**
+ * The scripts/ test-suite legs (gate-tests phase 4) must actually cover every committed
+ * test file under scripts/ — otherwise `just check` again answers about a subset of its
+ * suites, which is the failure class this whole file exists to remove, one level up.
+ *
+ * `scripts-node-tests` discovers at run time (`find scripts -name '*.test.mjs'`) and
+ * excludes an EXPLICIT list; `scripts-py-tests` discovers `*.test.py`. A test file that
+ * no glob runs is an orphan suite the gate never executes. So this test derives the
+ * ground truth from the FILESYSTEM — every scripts/ `*.test.mjs` and `*.test.py` on
+ * disk (a `**` glob in prose would terminate this block comment; the pattern is spelled
+ * as the legs spell it) —
+ * and checks each file against the two legs' own commands as spelled in the `check:`
+ * recipe (never against a second copy of the list, which is the tautology §4 warns
+ * about):
+ *
+ *  - a file NOT in the exclusions is covered by the run-time glob (which is also why a
+ *    NEW suite that lands is picked up with no justfile edit — that self-growing property
+ *    is the member here, and the frozen cases are the exclusions' claims);
+ *  - a file IN an exclusion list is legal only when its claim is provable from the
+ *    justfile: another leg runs it by path (`node --test … scripts/<file>`), or — the one
+ *    designed exception — it is build-wsl-rootfs.docker.test.mjs, for which the leg
+ *    prints `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` (the suite needs
+ *    docker + network + minutes; its own header self-skips unless
+ *    TXR_WSL_ROOTFS_DOCKER_TEST=1, so excluding it WITHOUT the printed line would be a
+ *    silent skip — the precisely-named anti-pattern);
+ *  - an exclusion name that matches NO file on disk is drift, not a skip: it excludes
+ *    nothing and would leave the suite double-run or silently dropped;
+ *  - the discover globs' exact patterns and the SKIPPED print remain spelled in the legs,
+ *    so the discovery cannot be narrowed to a subset in a diff nobody reads.
+ *
+ * FLOOR. The suite set GROWS without a justfile edit by design (a new *.test.mjs that
+ * lands is discovered automatically), so the floor here is a MINIMUM, not the exact
+ * count: today 19 *.test.mjs + 6 *.test.py = 25 files. It moves UP with a deliberate
+ * shrink, NEVER down to fit a red — the derived-guards §5 rule, applied to a set whose
+ * growth is automatic and whose shrink therefore has to be argued for.
+ */
+test('TEST-26 every scripts/**/*.test.mjs and *.test.py is covered by the scripts-node-tests / scripts-py-tests globs or a named exclusion', () => {
+  const { legs } = legLinesOf(checkBlock());
+  const nodeLeg = legs.find((l) => l.startsWith('scripts-node-tests '));
+  const pyLeg = legs.find((l) => l.startsWith('scripts-py-tests '));
+  assert.ok(
+    nodeLeg,
+    '`just check` no longer declares the scripts-node-tests leg — the coverage claim ' +
+      'this test exists to keep cannot be verified over a missing leg',
+  );
+  assert.ok(
+    pyLeg,
+    '`just check` no longer declares the scripts-py-tests leg — the coverage claim this ' +
+      'test exists to keep cannot be verified over a missing leg',
+  );
+  const nodeCmd = nodeLeg.slice('scripts-node-tests '.length);
+  const pyCmd = pyLeg.slice('scripts-py-tests '.length);
+
+  // The discovery patterns are part of the contract, frozen by exact string: a narrowed
+  // glob (a subset, a different suffix) drops suites with every other check still green.
+  assert.match(
+    nodeCmd,
+    /find scripts -name '\*\.test\.mjs'/,
+    `scripts-node-tests must discover with \`find scripts -name '*.test.mjs'\` — a narrower ` +
+      `glob would silently drop suites: ${nodeCmd}`,
+  );
+  assert.match(
+    pyCmd,
+    /find scripts -name '\*\.test\.py'/,
+    `scripts-py-tests must discover with \`find scripts -name '*.test.py'\` — a narrower ` +
+      `glob would silently drop suites: ${pyCmd}`,
+  );
+  // The docker suite's exclusion must stay LOUD: without the printed line it is exactly
+  // the silent skip (a suite whose own header self-skips) the leg exists to prevent.
+  assert.match(
+    nodeCmd,
+    /SKIPPED build-wsl-rootfs\.docker\.test\.mjs: needs docker/,
+    'scripts-node-tests must print `SKIPPED build-wsl-rootfs.docker.test.mjs: needs docker` ' +
+      '— an exclusion with no printed reason is a silent skip',
+  );
+
+  const nodeExcluded = new Set([...nodeCmd.matchAll(/-not -name '([^']+)'/g)].map((m) => m[1]));
+  const pyExcluded = new Set([...pyCmd.matchAll(/-not -name '([^']+)'/g)].map((m) => m[1]));
+
+  // Every test file under scripts/, DERIVED — never a hand-list (a hand-list is a
+  // snapshot of what existed the day someone typed it; this is the file system).
+  const files = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith('.test.mjs') || e.name.endsWith('.test.py')) files.push(p);
+    }
+  };
+  walk(path.join(REPO, 'scripts'));
+  assert.ok(
+    files.length >= 20,
+    `only ${files.length} test file(s) found under scripts/ (25 today: 19 *.test.mjs + ` +
+      `6 *.test.py) — the scan collapsed? Do NOT lower this floor to fit a red; a shrink ` +
+      `of the suite set has to be argued for like any other guard removal`,
+  );
+
+  /**
+   * "Another leg runs it": a non-comment recipe line that invokes `node --test` naming
+   * the suite's path. The two new legs run files through `"$f"`, so they can never
+   * satisfy this — an exclusion cannot be self-justifying.
+   */
+  const runnerOf = (base) => {
+    const hits = [];
+    for (const rec of allRecipes().values()) {
+      for (const l of rec.body) {
+        const t = l.trim();
+        if (!t || t.startsWith('#')) continue;
+        if (t.includes('node --test') && t.includes(`scripts/${base}`)) hits.push(t);
+      }
+    }
+    return hits;
+  };
+
+  const problems = [];
+  for (const p of files) {
+    const rel = path.relative(REPO, p).split(path.sep).join('/');
+    const base = path.basename(p);
+    const py = rel.endsWith('.test.py');
+    const excluded = (py ? pyExcluded : nodeExcluded).has(base);
+    if (!excluded) continue;
+    if (base === 'build-wsl-rootfs.docker.test.mjs') continue; // its SKIPPED line is asserted above
+    if (runnerOf(base).length === 0) {
+      problems.push(
+        `${rel} is excluded from the ${py ? 'scripts-py' : 'scripts-node'}-tests leg's glob ` +
+          `but NO other leg runs it — excluded-but-unrun is exactly the orphan suite this ` +
+          `phase came to close. Let the glob run it (it is discovered automatically) or ` +
+          `justify the exclusion beside the leg in the justfile`,
+      );
+    }
+  }
+  assert.deepEqual(
+    problems,
+    [],
+    `script-suite coverage holes (a file only counts as covered when it is run):\n  ` +
+      `${problems.join('\n  ')}`,
+  );
+
+  // The reverse drift: an exclusion that names no file on disk excludes nothing. It can
+  // silently re-run a suite that is already a leg, or pretend to skip one that never
+  // existed — both put the coverage claim in a diff nobody reads.
+  for (const base of nodeExcluded) {
+    assert.ok(
+      files.some((p) => path.basename(p) === base),
+      `scripts-node-tests excludes '${base}', which is not a *.test.mjs under scripts/ — ` +
+        `an exclusion that names nothing is drift, not a skip`,
+    );
+  }
+  for (const base of pyExcluded) {
+    assert.ok(
+      files.some((p) => path.basename(p) === base),
+      `scripts-py-tests excludes '${base}', which is not a *.test.py under scripts/ — an ` +
+        `exclusion that names nothing is drift, not a skip`,
+    );
+  }
+});
+
+// ── TEST-27 ─────────────────────────────────────────────────────────────────────────
+/**
+ * The scripts/ legs' TMPDIR must be EXPORTED, not merely assigned (gate-tests phase 4 fix).
+ *
+ * `TMPDIR=…` as a plain assignment sets the variable in the leg's own shell but is
+ * invisible to the `node`/`python3` child processes the leg spawns — so whatever honours
+ * TMPDIR fell through to /tmp, contradicting both legs' own "never /tmp" comment (the
+ * review's finding). Both legs must spell `export TMPDIR="${HOME}/.txresbench-gate-tests/
+ * <leg>$$"`, so the value is inherited and still lives under $HOME, and the export must
+ * come BEFORE any child invocation — an `export` after the first child is as dead as no
+ * export. TEST-26 owns the discovery/coverage claim; this test owns the export claim, so
+ * a future edit cannot silently drop the export while every other check stays green.
+ */
+test('TEST-27 both scripts legs export TMPDIR (under $HOME, before any child runs)', () => {
+  const { legs } = legLinesOf(checkBlock());
+  const nodeLeg = legs.find((l) => l.startsWith('scripts-node-tests '));
+  const pyLeg = legs.find((l) => l.startsWith('scripts-py-tests '));
+  assert.ok(
+    nodeLeg && pyLeg,
+    '`just check` no longer declares the scripts-node-tests/scripts-py-tests legs — the ' +
+      'TMPDIR-export claim cannot be verified over a missing leg',
+  );
+  const nodeCmd = nodeLeg.slice('scripts-node-tests '.length);
+  const pyCmd = pyLeg.slice('scripts-py-tests '.length);
+  // EXACT spellings, both legs. A plain assignment (the defect), an export to /tmp, or a
+  // per-run dir outside $HOME all redden here.
+  assert.match(
+    nodeCmd,
+    /export TMPDIR="\$\{HOME\}\/\.txresbench-gate-tests\/node-\$\$"/,
+    `scripts-node-tests must export TMPDIR at a per-run dir under $HOME — a plain ` +
+      `assignment is invisible to the node children (they would write to /tmp): ${nodeCmd}`,
+  );
+  assert.match(
+    pyCmd,
+    /export TMPDIR="\$\{HOME\}\/\.txresbench-gate-tests\/py-\$\$"/,
+    `scripts-py-tests must export TMPDIR at a per-run dir under $HOME — a plain ` +
+      `assignment is invisible to the python3 children (they would write to /tmp): ${pyCmd}`,
+  );
+  // …and before any child spawns (the exact-string asserts above already guarantee the
+  // export exists, so a -1 here cannot produce a false green).
+  assert.ok(
+    nodeCmd.indexOf('export TMPDIR=') < nodeCmd.indexOf('node --test'),
+    `scripts-node-tests must export TMPDIR before it spawns any \`node\` — an export after ` +
+      `the first child is as dead as no export: ${nodeCmd}`,
+  );
+  assert.ok(
+    pyCmd.indexOf('export TMPDIR=') < pyCmd.indexOf('python3 -I'),
+    `scripts-py-tests must export TMPDIR before it spawns any \`python3\` — an export after ` +
+      `the first child is as dead as no export: ${pyCmd}`,
   );
 });
