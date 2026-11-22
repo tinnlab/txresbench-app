@@ -156,7 +156,8 @@ pub struct EnvRef {
     /// another), so the reference no longer names the env; the caller does,
     /// and the download manager keys its ledger by it. A tag, when present,
     /// must start with `<env_id>-` (the published tag shapes
-    /// `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).
+    /// `<env_id>-<version>-<arch>-<sha12>` and
+    /// `<base_id>-<contract>-<arch>-<sha12>`).
     pub env_id: String,
     /// Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where
     /// `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or
@@ -365,7 +366,8 @@ pub fn validate_oci_ref(oci_ref: &str) -> Result<OciRefParts, AppError> {
 }
 
 /// The env id + tag consistency check: a tag names `<env_id>-…` (layers
-/// `<env_id>-<version>-<arch>`, bases `<base_id>-<contract>-<arch>-<sha12>`),
+/// `<env_id>-<version>-<arch>-<sha12>`, bases
+/// `<base_id>-<contract>-<arch>-<sha12>`),
 /// so a ref whose tag belongs to another env is refused with
 /// [`ENV_REF_HOST_UNALLOWED_CODE`] before any pull. The env id must itself be
 /// a valid env id. A ref without a tag (digest-only) has no tag to check; its
@@ -2143,7 +2145,7 @@ mod tests {
                 // `cox-delta-1.0.0-amd64` does start with `cox-`: the tag check is a
                 // consistency guard, not the pin; the bytes are still verified
                 // against the entry's own sha256, and the manifest loader pins each
-                // entry's tag to exactly `<env_id>-<version>-<arch>`.
+                // entry's tag to exactly `<env_id>-<version>-<arch>-<sha12>`.
                 res.expect("a tag starting with `<env_id>-` passes the consistency check");
                 continue;
             }
