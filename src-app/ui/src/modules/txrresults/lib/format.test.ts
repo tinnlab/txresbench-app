@@ -25,6 +25,7 @@ import {
   DIFFER_NONE,
   DIVERGENCE_PP,
   DIVERGENT_TOGGLE,
+  LEARN_RUN_CHANCES_NOTE,
   legendLabel,
   REASON_FALLBACK,
   SHARED_TOP_LEAD,
@@ -296,6 +297,14 @@ describe('the compare-card copy constants and sentence builders (DEC-7)', () => 
     )
     expect(formatSharedTopSentence([])).toBe(`${SHARED_TOP_NONE}.`)
     expect(formatDifferSentence([])).toBe(`${DIFFER_NONE}.`)
+  })
+})
+
+describe('the learning-run note (learn-run-results-note)', () => {
+  it('pins the learning-run copy constant verbatim', () => {
+    expect(LEARN_RUN_CHANCES_NOTE).toBe(
+      'Some of these chances are worked out from the same patients the methods learned from, so they can look better than they will on new patients. To predict new patients, save a model and use it on the predict path.',
+    )
   })
 })
 

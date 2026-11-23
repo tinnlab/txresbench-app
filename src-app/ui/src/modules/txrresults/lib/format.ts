@@ -509,6 +509,13 @@ export const NO_CHANCE_REASON =
 export const FLAT_CONVERSION_LINE =
   "This method's score did not track the outcome in the training data, so every patient gets the same chance: the event rate."
 
+/** The learning-run note: on a learning run the methods are fitted on
+ * these patients and the score-to-chance step is fitted on their outcomes,
+ * so the chances can look better than on new patients; a fixed rule's own
+ * chance is not, hence "Some of". */
+export const LEARN_RUN_CHANCES_NOTE =
+  'Some of these chances are worked out from the same patients the methods learned from, so they can look better than they will on new patients. To predict new patients, save a model and use it on the predict path.'
+
 /** The prob-source sentence of the method facts card (qa-fixes RES-11/05),
  * plus the flat-result sentence when the column's conversion is flat. */
 export function formatProbSourceLine(
