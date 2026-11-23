@@ -392,7 +392,12 @@ export function StudyPage() {
                 <div style={QUESTION_GROUP}>
                   <div style={QUESTION_LABEL}>Patients</div>
                   <div style={FIELD_ROW}>
-                    <div style={FIELD}>
+                    {/* study-step-ui-tweaks: the disease box takes the full
+                        width of the filters column (the picker's trigger is
+                        `w-full` of this field; the wrapper carries
+                        `minWidth: 0`), so the treatment ticks wrap to their
+                        own row beneath it. */}
+                    <div style={{ ...FIELD, flex: '1 1 100%', minWidth: 0 }}>
                       <span style={FIELD_LABEL}>Disease</span>
                       <TxrDiseasePicker
                         value={study.disease}

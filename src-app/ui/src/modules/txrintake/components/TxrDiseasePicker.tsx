@@ -94,40 +94,49 @@ export function buildDiseaseOptions(categories: DiseaseCategory[]): SelectOption
 }
 
 export function TxrDiseasePicker({ value, categories, onChange }: TxrDiseasePickerProps) {
+  // study-step-ui-tweaks: the box takes the FULL width of the filters column
+  // — the trigger fills this wrapper (`w-full` in the kit) and the popup is
+  // anchored to the trigger (`min-w-(--anchor-width)`), so the open list is
+  // as wide as the trigger at every window width.
   return (
-    <Select
-      id="txr-intake-study-disease"
-      data-testid="txr-intake-study-disease"
-      aria-label="Disease"
-      value={value ?? undefined}
-      onChange={next => onChange(next === '' ? null : next)}
-      // A stored id the vocabulary does not (yet) hold — the picker mounted
-      // before the filter options landed, or the id is simply unknown — has
-      // no option to display, so the kit would render its empty-state prompt
-      // (a blank trigger with a clear button, brief 5b2 ITEM-3). Show the
-      // stored id as text instead, by the display rule; once the vocabulary
-      // loads, an unknown id is already dropped by the store's reconcile
-      // (`reconcileStudyWithVocabulary`), so this branch reads the honest
-      // pre-load state only.
-      labelRender={selected => selected?.label ?? (value !== null ? diseaseDisplayName(value) : undefined)}
-      placeholder="Choose a disease…"
-      emptyText="No disease matches"
-      allowClear
-      clearLabel={DISEASE_CLEAR_LABEL}
-      options={buildDiseaseOptions(categories)}
-      optionRender={option => {
-        const indent = (option as DiseasePickOption).indent ?? 0
-        return (
-          <span
-            style={{
-              paddingLeft: indent * 18,
-              color: indent > 0 ? 'var(--txr-text-2)' : undefined,
-            }}
-          >
-            {option.label}
-          </span>
-        )
-      }}
-    />
+    <div
+      data-testid="txr-intake-study-disease-wrap"
+      style={{ width: '100%', minWidth: 0 }}
+    >
+      <Select
+        id="txr-intake-study-disease"
+        data-testid="txr-intake-study-disease"
+        aria-label="Disease"
+        value={value ?? undefined}
+        onChange={next => onChange(next === '' ? null : next)}
+        // A stored id the vocabulary does not (yet) hold — the picker mounted
+        // before the filter options landed, or the id is simply unknown — has
+        // no option to display, so the kit would render its empty-state prompt
+        // (a blank trigger with a clear button, brief 5b2 ITEM-3). Show the
+        // stored id as text instead, by the display rule; once the vocabulary
+        // loads, an unknown id is already dropped by the store's reconcile
+        // (`reconcileStudyWithVocabulary`), so this branch reads the honest
+        // pre-load state only.
+        labelRender={selected => selected?.label ?? (value !== null ? diseaseDisplayName(value) : undefined)}
+        placeholder="Choose a disease…"
+        emptyText="No disease matches"
+        allowClear
+        clearLabel={DISEASE_CLEAR_LABEL}
+        options={buildDiseaseOptions(categories)}
+        optionRender={option => {
+          const indent = (option as DiseasePickOption).indent ?? 0
+          return (
+            <span
+              style={{
+                paddingLeft: indent * 18,
+                color: indent > 0 ? 'var(--txr-text-2)' : undefined,
+              }}
+            >
+              {option.label}
+            </span>
+          )
+        }}
+      />
+    </div>
   )
 }

@@ -425,11 +425,13 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     })
     renderStudy()
     const field = screen.getByTestId('txr-intake-study-last-draw')
+    // study-step-ui-tweaks: the "Other values" chip follows the suggestion
+    // chips (the box it opens is view state, checked in its own test).
     expect(
       within(field)
         .getAllByRole('button')
         .map(b => b.textContent),
-    ).toEqual(['Day 21', 'Day 33', 'Day 42', 'Day 56'])
+    ).toEqual(['Day 21', 'Day 33', 'Day 42', 'Day 56', 'Other values'])
     expect(within(field).queryByTestId('txr-intake-study-last-draw-no-facts')).toBeNull()
 
     await act(async () => {
@@ -441,7 +443,12 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(screen.getByTestId('txr-intake-study-last-draw-coverage').textContent).toBe(
       'Day 42: 2 of 3 patients have a draw during treatment by this day',
     )
-    // The input's aria-describedby names the coverage line shown under it.
+    // The input's aria-describedby names the coverage line shown under it
+    // (the box is view state: reopen it to read the input).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-other'))
+      await Promise.resolve()
+    })
     const input = screen.getByTestId('txr-intake-study-last-draw-input')
     const coverageLine = screen.getByTestId('txr-intake-study-last-draw-coverage')
     expect(input.getAttribute('aria-describedby')).toContain(coverageLine.id)
@@ -457,6 +464,11 @@ describe('StudyPage (screen B, ITEM-5)', () => {
       useTxrIntakeStore.setState({ dayFacts: DAY_FACTS })
     })
     renderStudy()
+    // The number box is view state (study-step-ui-tweaks): open it first.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-other'))
+      await Promise.resolve()
+    })
     const input = screen.getByTestId('txr-intake-study-last-draw-input')
     await act(async () => {
       fireEvent.change(input, { target: { value: '33' } })
@@ -468,9 +480,15 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(screen.getByTestId('txr-intake-study-last-draw-coverage').textContent).toBe(
       'Day 33: 2 of 3 patients have a draw during treatment by this day',
     )
+    // A suggested day closed the box; open it again for the refused day.
     await act(async () => {
-      fireEvent.change(input, { target: { value: '0' } })
-      fireEvent.blur(input)
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-other'))
+      await Promise.resolve()
+    })
+    const refusedInput = screen.getByTestId('txr-intake-study-last-draw-input')
+    await act(async () => {
+      fireEvent.change(refusedInput, { target: { value: '0' } })
+      fireEvent.blur(refusedInput)
       await Promise.resolve()
     })
     expect(screen.getByTestId('txr-intake-study-last-draw-error').textContent).toBe(
@@ -548,9 +566,14 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     })
     expect(errorSpy).toHaveBeenCalledWith('Open the questions step of a new analysis first.')
     // The action was refused: no day stored, and the field keeps its old
-    // value (no day chosen).
+    // value (no day chosen). The box is view state — open it to read the
+    // draft it holds (it shows the stored value, still none).
     expect(store().study.lastDrawDay).toBeNull()
     expect(store().parameters.decision_day).toBe(56)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-other'))
+      await Promise.resolve()
+    })
     expect((screen.getByTestId('txr-intake-study-last-draw-input') as HTMLInputElement).value).toBe(
       '',
     )
