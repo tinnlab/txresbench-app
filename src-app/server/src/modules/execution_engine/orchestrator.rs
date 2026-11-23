@@ -899,6 +899,26 @@ impl StackMethodExecutor {
             .clone()
             .expect("train mode always carries the train side");
 
+        // A method whose catalogue covariates requirement is `required` must
+        // never be launched without its inputs: the run's Extra inputs switch
+        // off leaves its per-method settings with no covariates (bug 2's
+        // other half), so this method is refused here — before anything is
+        // written — with the typed `BUNDLE_COVARIATES_OFF`, exactly like the
+        // other BUNDLE_* refusals (only this method; the run carries on with
+        // `none`/`optional` methods, which keep today's rule: switch off →
+        // no covariates). The refusal is on the TRAIN path ONLY: a
+        // data-carrying reuse run builds its cohort bundles through the
+        // shared [`method_bundles`] after its predict call and keeps today's
+        // behaviour (the run-wide flag).
+        if facts.covariates
+            == crate::modules::method_catalogue::types::CovariateMode::Required
+            && !ctx.config.covariates
+        {
+            return Ok(failed_outcome(bundle_failure(
+                &bundle::BundleError::CovariatesSwitchedOff,
+            )));
+        }
+
         // The marker set, the train bundle and the test bundle over the
         // predict surface ([`method_bundles`]): a refusal is terminal with the
         // typed `BUNDLE_*` code — the method never runs on the wrong markers.
@@ -1651,7 +1671,12 @@ pub(crate) fn method_bundle_settings(config: &RunConfig, cpus: u32) -> bundle::B
 /// The per-method covariates flag (bug 2: the covariates requirement is per
 /// method, not per run — the package's `prepare.cpp` reads `st.covariates`
 /// per method). The one rule, in one place:
-/// - the run's checkbox is off → off (for every method);
+/// - the run's checkbox is off → off (for every method); a method that
+///   REQUIRES the inputs is then refused on the TRAIN path
+///   (`BUNDLE_COVARIATES_OFF`, [`execute_train`] /
+///   [`train_bundle_preflight`]) instead of being launched without them —
+///   a data-carrying reuse / predict-only run keeps today's behaviour
+///   exactly (the run-wide flag is what it always used);
 /// - the method's catalogue `covariates` mode is `none` → off (the method
 ///   takes no covariates — the train and test bundles are both built without
 ///   them and the method runs);
@@ -1824,6 +1849,21 @@ pub(crate) fn train_bundle_preflight(
     settings: &bundle::BundleSettings,
     min_draws: u32,
 ) -> Result<(), bundle::BundleError> {
+    // The train-path half of the required-covariates rule, before any bundle
+    // is built: a method that REQUIRES the inputs with the run's Extra inputs
+    // switch off is refused `BUNDLE_COVARIATES_OFF` (the settings the train
+    // executor derives — [`train_call_bundle_settings`] — carry the per-method
+    // flag, and for a `required` method it IS the run's switch). Only this
+    // method; `none`/`optional` keep the silent no-covariates path. The
+    // shared [`method_bundles`] does NOT refuse: the data-carrying reuse
+    // run's cohort refit calls it with the run-wide settings and keeps
+    // today's behaviour.
+    if facts.covariates
+        == crate::modules::method_catalogue::types::CovariateMode::Required
+        && !settings.covariates
+    {
+        return Err(bundle::BundleError::CovariatesSwitchedOff);
+    }
     let bundles = method_bundles(train, predict, facts, settings, min_draws)?;
     if needs_list(facts, &bundles.train.outcomes, settings).is_empty() {
         return Ok(());
@@ -7242,8 +7282,155 @@ mod tests {
         // method runs without covariates (train and test agree).
         assert!(!method_covariates(true, CovariateMode::Optional, false, true));
         assert!(!method_covariates(true, CovariateMode::Optional, false, false));
-        // The run's checkbox is off → off for EVERY method, even `required`.
+        // The run's checkbox is off → off for EVERY method, even `required`
+        // (the derivation; `method_covariates` itself is unchanged).
         assert!(!method_covariates(false, CovariateMode::Required, false, false));
+        // The new rule is not the silent launch but the REFUSAL — and it
+        // lives on the TRAIN path only: the train executor and the train-side
+        // preflights answer `BUNDLE_COVARIATES_OFF` with this exact message
+        // for a required method (`None`/`Optional` keep the silent
+        // no-covariates path) — pinned on the cohort fixture by
+        // `required_method_with_the_switch_off_is_refused_on_the_train_path` —
+        // while the shared bundle builder keeps building for a data-carrying
+        // reuse run (`reuse_refit_keeps_building_with_the_switch_off_for_a_required_method`).
+        let refused = bundle::BundleError::CovariatesSwitchedOff;
+        assert_eq!(refused.code(), "BUNDLE_COVARIATES_OFF");
+        assert_eq!(
+            refused.to_string(),
+            "BUNDLE_COVARIATES_OFF: This method needs the extra inputs, but this run was started with Extra inputs off."
+        );
+    }
+
+    /// The other half of bug 2 on the train path (the derivation above is
+    /// just the flag): a method whose catalogue covariates requirement is
+    /// `required`, with the run's Extra inputs switch OFF, is refused
+    /// `BUNDLE_COVARIATES_OFF` by the train-side preflight BEFORE anything is
+    /// written; `optional` and `none` keep today's rule (switch off → no
+    /// covariates, no error); with the switch ON and a cov_* column the
+    /// required method builds with covariates. The settings are derived like
+    /// the run's ([`train_call_bundle_settings`]) and the bundles built like
+    /// the preflight / executor's ([`method_bundles`]); the switch-off +
+    /// required bundles themselves keep building (the data-carrying reuse
+    /// path — `reuse_refit_keeps_building_with_the_switch_off_for_a_required_method`).
+    #[test]
+    fn required_method_with_the_switch_off_is_refused_on_the_train_path() {
+        use crate::modules::file_validator::types::CanonCell;
+        use crate::modules::method_catalogue::types::CovariateMode;
+
+        let _g = rootfs::scoped_data_root(test_data_dir("method-covariates-switch-off"));
+        let req = cohort_run_request(&["ctdna-tf-four-group"], 2, false);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Train,
+            &req.method_ids,
+            &[],
+        )
+        .expect("the cohort fixture validates");
+        let train = prepared.train.expect("a train side");
+        let mut facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("a catalogue method")
+            .clone();
+
+        // Switch off + required → the typed refusal by the train preflight,
+        // before anything is written.
+        facts.covariates = CovariateMode::Required;
+        let settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
+        let err = train_bundle_preflight(&train, None, &facts, &settings, facts.min_draws)
+            .err()
+            .expect("switch off + required → BUNDLE_COVARIATES_OFF");
+        assert_eq!(err, bundle::BundleError::CovariatesSwitchedOff);
+
+        // Switch off + optional / none → today's rule: no refusal, no
+        // covariates anywhere in the call's bundles.
+        for mode in [CovariateMode::Optional, CovariateMode::None] {
+            facts.covariates = mode;
+            let settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
+            train_bundle_preflight(&train, None, &facts, &settings, facts.min_draws)
+                .expect("optional/none with the switch off still preflights");
+            let b = method_bundles(&train, None, &facts, &settings, facts.min_draws)
+                .expect("optional/none with the switch off still builds");
+            assert_eq!(b.train.params["covariates"], serde_json::json!(false), "{mode:?}");
+            assert!(
+                !b.train.files.iter().any(|f| f.name == "covariates.csv"),
+                "{mode:?}: no train covariates.csv"
+            );
+            assert!(
+                !b.test.files.iter().any(|f| f.name == "covariates.csv"),
+                "{mode:?}: no test covariates.csv"
+            );
+        }
+
+        // Switch on + required with a cov_* column → today's behaviour: the
+        // preflight passes and the bundle builds WITH covariates (and one
+        // without the column is the existing BUNDLE_COVARIATES_MISSING,
+        // unchanged).
+        let mut with_cov = (*train).clone();
+        for (i, p) in with_cov.patients.iter_mut().enumerate() {
+            p.covariates = vec![("age".to_string(), CanonCell::Number(40.0 + i as f64))];
+        }
+        let mut config_on = req.config.clone();
+        config_on.covariates = true;
+        facts.covariates = CovariateMode::Required;
+        let settings = train_call_bundle_settings(&config_on, 4, &facts, &with_cov, None);
+        train_bundle_preflight(&with_cov, None, &facts, &settings, facts.min_draws)
+            .expect("switch on + required + columns preflights");
+        let b = method_bundles(&with_cov, None, &facts, &settings, facts.min_draws)
+            .expect("switch on + required + columns builds");
+        assert_eq!(b.train.params["covariates"], serde_json::json!(true));
+        assert!(b.train.files.iter().any(|f| f.name == "covariates.csv"));
+    }
+
+    /// Round 2 (review fix 1): the refusal lives on the TRAIN path, NOT in
+    /// the shared [`method_bundles`]. The data-carrying reuse run's cohort
+    /// refit calls it with the run-WIDE settings ([`method_bundle_settings`])
+    /// after the predict call has already written files, so it must keep
+    /// today's behaviour exactly: a model whose method REQUIRES covariates
+    /// still refits (no covariates — the run-wide flag — and no
+    /// `BUNDLE_COVARIATES_OFF`), while the train-side preflight refuses the
+    /// very same method + switch + data.
+    #[test]
+    fn reuse_refit_keeps_building_with_the_switch_off_for_a_required_method() {
+        use crate::modules::method_catalogue::types::CovariateMode;
+
+        let _g = rootfs::scoped_data_root(test_data_dir("reuse-refit-covariates-switch-off"));
+        let req = cohort_run_request(&["ctdna-tf-four-group"], 2, false);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Train,
+            &req.method_ids,
+            &[],
+        )
+        .expect("the cohort fixture validates");
+        let train = prepared.train.expect("a train side");
+        let mut facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("a catalogue method")
+            .clone();
+        facts.covariates = CovariateMode::Required;
+
+        // The reuse refit's call is [`method_bundles`] with the run-wide
+        // settings (not the per-method train settings): switch off → no
+        // covariates, still builds, never `BUNDLE_COVARIATES_OFF`.
+        let run_wide = method_bundle_settings(&req.config, 4);
+        assert!(!run_wide.covariates, "the run's Extra inputs switch is off");
+        let b = method_bundles(&train, None, &facts, &run_wide, facts.min_draws)
+            .expect("the reuse refit still builds with the switch off");
+        assert_eq!(b.train.params["covariates"], serde_json::json!(false));
+        assert!(
+            !b.train.files.iter().any(|f| f.name == "covariates.csv"),
+            "the reuse refit carries no covariates.csv"
+        );
+
+        // The same method + switch + data IS refused on the train path (the
+        // per-method train settings), so the two paths stay split.
+        let train_settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
+        let refused = train_bundle_preflight(&train, None, &facts, &train_settings, facts.min_draws)
+            .err()
+            .expect("the train preflight refuses the same inputs");
+        assert_eq!(refused, bundle::BundleError::CovariatesSwitchedOff);
     }
 
     /// The bundle preflight ([`call_bundle_preflight`], the example pick's
@@ -7376,6 +7563,15 @@ mod tests {
                     "covariates without a covariate column",
                     base,
                     &no_covariates,
+                )
+            },
+            Case {
+                required: true,
+                expect: Some("BUNDLE_COVARIATES_OFF"),
+                ..case(
+                    "a required method with the Extra inputs switch off",
+                    base,
+                    &with_covariates,
                 )
             },
             Case {
@@ -7804,6 +8000,88 @@ mod tests {
         );
         assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
         assert!(!calls[0].scored.contains(&"X99".to_string()));
+        drop(calls);
+    }
+
+    /// Round 2 (review fix 1), end to end: a data-carrying reuse run with
+    /// the Extra inputs switch OFF and a saved model whose method REQUIRES
+    /// covariates keeps today's behaviour — the cohort refit's shared
+    /// [`method_bundles`] call, made AFTER the predict call has already
+    /// written files, is NOT refused `BUNDLE_COVARIATES_OFF`; the run refits
+    /// with the run-wide flag (no covariates, no covariates.csv) and
+    /// finishes. The train-path refusal of the same method + switch is pinned
+    /// by `required_method_with_the_switch_off_is_refused_on_the_train_path`.
+    #[tokio::test]
+    async fn executor_reuse_with_the_switch_off_and_a_required_method_is_not_refused() {
+        use crate::modules::execution_engine::types::TxrMethodFacts;
+        use crate::modules::method_catalogue::types::CovariateMode;
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-required-switch-off"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let mut req = cohort_reuse_request(&asset_dir, &digest, method);
+        // The model kept run-shaping facts that REQUIRE covariates; the run's
+        // Extra inputs switch stays off (the reuse request's default).
+        let mut kept = TxrMethodFacts::from_method(
+            crate::modules::method_list::builtin()
+                .method(method)
+                .expect("facts"),
+        );
+        kept.covariates = CovariateMode::Required;
+        req.model_ids[0].method_facts = Some(kept);
+        assert_eq!(
+            req.model_ids[0].method_id, method,
+            "the asset's method is the one whose facts require covariates"
+        );
+        assert!(!req.config.covariates, "the run's Extra inputs switch is off");
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train),
+            Some(predict),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert!(outcome.reason.is_none(), "no BUNDLE_COVARIATES_OFF in a reuse run");
+        assert_eq!(
+            outcome.prob_source,
+            Some(TxrProbSource::Recalibrated),
+            "the cohort refit ran, with the run-wide flag"
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 2, "the predict-surface call + the cohort call");
+        assert!(calls.iter().all(|c| c.mode == MethodRunMode::ReuseModel));
+        assert_eq!(
+            calls[1].params["covariates"],
+            serde_json::json!(false),
+            "the cohort call carries the run-wide flag, not a refusal"
+        );
         drop(calls);
     }
 

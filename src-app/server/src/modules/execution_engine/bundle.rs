@@ -291,6 +291,11 @@ pub enum BundleError {
     /// column (the package's "covariates=True but the patients table has no
     /// cov_* column").
     CovariatesWithoutColumns,
+    /// The method's catalogue covariates requirement is `required` but the
+    /// run was started with the Extra inputs switch off — the method needs
+    /// the inputs, so it is refused before anything is written rather than
+    /// launched without them (a per-method refusal, never a whole-run one).
+    CovariatesSwitchedOff,
     /// The test side uses covariates but no predict-side patients table was
     /// given (the package's "this model uses covariates: pass patients …").
     TestCovariatesNeedPatients,
@@ -324,6 +329,7 @@ impl BundleError {
             BundleError::NoTrainingPatient { .. } => "BUNDLE_NO_TRAINING_PATIENT",
             BundleError::NoLearnableOutcome { .. } => "BUNDLE_NO_LEARNABLE_OUTCOME",
             BundleError::CovariatesWithoutColumns => "BUNDLE_COVARIATES_MISSING",
+            BundleError::CovariatesSwitchedOff => "BUNDLE_COVARIATES_OFF",
             BundleError::TestCovariatesNeedPatients => "BUNDLE_TEST_COVARIATES_MISSING",
             BundleError::TestPatientWithoutCovariateRow { .. } => "BUNDLE_TEST_PATIENT_UNKNOWN",
             BundleError::NoMainMarker => "BUNDLE_NO_MAIN_MARKER",
@@ -349,6 +355,11 @@ impl fmt::Display for BundleError {
             BundleError::CovariatesWithoutColumns => write!(
                 f,
                 "{}: This method needs covariates, but the training patients table has no cov_* columns.",
+                self.code()
+            ),
+            BundleError::CovariatesSwitchedOff => write!(
+                f,
+                "{}: This method needs the extra inputs, but this run was started with Extra inputs off.",
                 self.code()
             ),
             BundleError::TestCovariatesNeedPatients => write!(
@@ -1948,6 +1959,22 @@ mod tests {
         assert_eq!(
             train_bundle(&nocol, &s, 2),
             Err(BundleError::CovariatesWithoutColumns)
+        );
+    }
+
+    #[test]
+    fn ee08_covariates_switched_off_is_a_typed_refusal() {
+        // The run's Extra inputs switch off + a method that REQUIRES the
+        // inputs: the one code and the exact human line (the same
+        // `CODE: message` shape as the other BUNDLE_* refusals). Raised on
+        // the TRAIN path — the train executor and the train-side preflights
+        // (orchestrator::execute_train / train_bundle_preflight) — before
+        // anything is written; pinned here, at the code/message seat.
+        let err = BundleError::CovariatesSwitchedOff;
+        assert_eq!(err.code(), "BUNDLE_COVARIATES_OFF");
+        assert_eq!(
+            err.to_string(),
+            "BUNDLE_COVARIATES_OFF: This method needs the extra inputs, but this run was started with Extra inputs off."
         );
     }
 

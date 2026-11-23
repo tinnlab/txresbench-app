@@ -1825,6 +1825,52 @@ mod tests {
         }
     }
 
+    /// Round 2 (review fix 1's example half): the example's DEFAULT config
+    /// has the Extra inputs switch OFF, so a method whose catalogue
+    /// covariates requirement is `required` is dropped by the pick through
+    /// the preflight (`BUNDLE_COVARIATES_OFF` — it would only have failed
+    /// inside the example run, before anything is written). The same method
+    /// with its shipped mode is still picked.
+    #[test]
+    fn a_required_method_is_dropped_on_the_switch_off_example() {
+        use crate::modules::method_catalogue::types::CovariateMode;
+
+        let inputs = inputs();
+        let picked = pick_fast_methods_with(&inputs, amd64_env);
+        let base = picked.first().expect("the amd64 pick is not empty");
+        let method = catalogue().method(base).expect("a catalogue method");
+        assert_ne!(
+            method.covariates,
+            CovariateMode::Required,
+            "the picked base method is not already required-mode"
+        );
+
+        let mut required = method.clone();
+        required.covariates = CovariateMode::Required;
+        assert_eq!(
+            inputs.preflight(&required),
+            Err(BundleError::CovariatesSwitchedOff),
+            "{base} marked required: the example preflight drops it (Extra inputs off)"
+        );
+
+        let mut cat = catalogue().clone();
+        *cat.methods
+            .iter_mut()
+            .find(|m| m.id == *base)
+            .expect("the picked method is in the catalogue") = required;
+        let with_required = pick_from(&cat, &inputs, amd64_env);
+        assert!(
+            !with_required.contains(base),
+            "{base}: required on the switch-off example is not picked: {with_required:?}"
+        );
+        for id in picked.iter().filter(|id| *id != base) {
+            assert!(
+                with_required.contains(id),
+                "{id} is still picked: {with_required:?}"
+            );
+        }
+    }
+
     /// FU 123: an empty pick on a list with no method image for this kind of
     /// processor says so, in plain words that never say where the app runs,
     /// and never suggests training instead.

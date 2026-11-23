@@ -8,6 +8,11 @@
 //! - `required` → on (only THIS method is refused,
 //!   `BUNDLE_TEST_COVARIATES_MISSING`).
 //!
+//! The other half — the run's covariates checkbox OFF with a `required`
+//! method — is `covariates_switch_off_only_refuses_a_required_method`: the
+//! required method is refused `BUNDLE_COVARIATES_OFF` before anything is
+//! written, while `none` / `optional` still run without covariates.csv.
+//!
 //! The real executor path is driven in-process (the `StackMethodExecutor` +
 //! the scripted `StackRunSeam` the run-flow tests share) with the canonical
 //! sides built through the REAL validator (`canonical_bundle` — the same
@@ -254,6 +259,127 @@ async fn per_method_covariates_only_refuses_a_required_method() {
 
         // The written bundles: no covariates.csv anywhere for none / optional
         // (the required method is refused BEFORE any bundle is written).
+        let bundle_dir = run_dir.join("bundles").join(method_id);
+        let params = std::fs::read_to_string(bundle_dir.join("params.json"))
+            .ok()
+            .map(|s| serde_json::from_str::<serde_json::Value>(&s).expect("params.json"));
+        if key == "required" {
+            assert!(
+                !bundle_dir.join("train").join("long.csv").exists(),
+                "{method_id}: nothing written before the refusal"
+            );
+            assert!(params.is_none(), "{method_id}: no params.json before the refusal");
+        } else {
+            assert!(
+                !bundle_dir.join("train").join("covariates.csv").exists(),
+                "{method_id}: train bundle has no covariates.csv"
+            );
+            assert!(
+                !bundle_dir.join("test").join("covariates.csv").exists(),
+                "{method_id}: test bundle has no covariates.csv"
+            );
+            assert!(
+                bundle_dir.join("train").join("long.csv").exists(),
+                "{method_id}: the train bundle wrote long.csv"
+            );
+            let params = params.expect("params.json written");
+            assert_eq!(params["covariates"], serde_json::json!(false), "{method_id}");
+        }
+    }
+}
+
+/// Bug 2's other half: the run's Extra inputs switch OFF with a method whose
+/// catalogue covariates requirement is `required` → only THAT method is
+/// refused, with `BUNDLE_COVARIATES_OFF` and the exact message, and BEFORE
+/// anything is written (no sandbox call, no params.json, no bundle file) —
+/// never a whole-run refusal, never a silent run without the inputs. The
+/// `none` and `optional` methods keep today's rule exactly: switch off → no
+/// covariates.csv, they run and score.
+#[tokio::test]
+async fn covariates_switch_off_only_refuses_a_required_method() {
+    let server = TestServer::spawn().await;
+    let pool = pool(&server).await;
+    let scratch = scratch_dir("covariates-switch-off");
+    let _g = rootfs::scoped_data_root(&scratch);
+    let list = method_list::current();
+
+    // The same canonical sides as the switch-ON leg (the real validator).
+    let train = Arc::new(
+        canonical_bundle(&train_vreq()).expect("the train side with covariates validates"),
+    );
+    let predict = Arc::new(canonical_bundle(&predict_vreq()).expect("the predict side validates"));
+
+    // none / optional / required: real catalogue facts for the modes, pinned
+    // so a catalogue change that swaps a fixture method's mode fails loudly
+    // here rather than silently relabelling the leg.
+    let none = list.method("ctdna-tf-four-group").expect("a none-mode method");
+    let optional = list.method("jm-lme").expect("an optional-mode method");
+    let required = list.method("jmgpu-linear").expect("a required-mode method");
+    assert_eq!(
+        none.covariates,
+        txresbench::modules::method_catalogue::types::CovariateMode::None,
+        "ctdna-tf-four-group stays none-mode"
+    );
+    assert_eq!(
+        optional.covariates,
+        txresbench::modules::method_catalogue::types::CovariateMode::Optional,
+        "jm-lme stays optional-mode"
+    );
+    assert_eq!(
+        required.covariates,
+        txresbench::modules::method_catalogue::types::CovariateMode::Required,
+        "jmgpu-linear stays required-mode"
+    );
+
+    for (method_id, key) in [
+        ("ctdna-tf-four-group", "none"),
+        ("jm-lme", "optional"),
+        ("jmgpu-linear", "required"),
+    ] {
+        let facts = list.method(method_id).expect("facts");
+        let run_dir = rootfs::data_root().join(key);
+        for sub in ["bundles", "output", "models"] {
+            std::fs::create_dir_all(run_dir.join(sub).join(method_id)).expect("method dirs");
+        }
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+        let (mut ctx, _cancel_tx) =
+            train_ctx(&run_dir, method_id, facts, train.clone(), predict.clone());
+        // The run's Extra inputs switch OFF (the harness defaults it ON).
+        ctx.config.covariates = false;
+        let outcome = exec.execute(ctx).await.expect("a verdict");
+
+        match key {
+            "required" => {
+                assert_eq!(outcome.state, TxrMethodState::Failed, "{method_id}");
+                let reason: TxrRunReason = outcome.reason.expect("a failure reason");
+                assert_eq!(reason.code, "BUNDLE_COVARIATES_OFF", "{method_id}");
+                assert_eq!(
+                    reason.detail,
+                    "BUNDLE_COVARIATES_OFF: This method needs the extra inputs, \
+                     but this run was started with Extra inputs off.",
+                    "{method_id}: the exact refusal message"
+                );
+                let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+                assert!(
+                    calls.is_empty(),
+                    "{method_id}: no sandbox call before the refusal"
+                );
+                drop(calls);
+            }
+            _ => {
+                assert_eq!(outcome.state, TxrMethodState::Finished, "{method_id}");
+                assert!(outcome.reason.is_none(), "{method_id}");
+                assert!(
+                    outcome.coverage.is_some(),
+                    "{method_id}: patients were scored"
+                );
+            }
+        }
+
+        // The written bundles: nothing for the refused method; no
+        // covariates.csv anywhere for none / optional (switch off → no
+        // covariates, today's rule).
         let bundle_dir = run_dir.join("bundles").join(method_id);
         let params = std::fs::read_to_string(bundle_dir.join("params.json"))
             .ok()
