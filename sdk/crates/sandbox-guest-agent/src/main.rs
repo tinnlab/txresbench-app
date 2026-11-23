@@ -43,6 +43,7 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 mod cli;
+mod cpu_pin;
 mod wsl_mode;
 #[cfg(target_os = "linux")]
 mod wsl_sys;
@@ -52,6 +53,8 @@ use std::sync::Arc;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
+use cpu_pin::{allowed_cpus, pin_command, pinned_cpus};
 #[cfg(target_os = "linux")]
 use sandbox_vm_protocol::{
     encode, CgroupLimits, Decoder, ExitStatus, Frame, PROGRESS_GUEST_FIFO_PATH, PROGRESS_MAX_LINE_BYTES,
@@ -626,6 +629,30 @@ where
         .kill_on_drop(true);
     if guest.own_process_group() {
         cmd.process_group(0);
+    }
+
+    // CPU pinning (the host gives each concurrent run its own CPU slots, only
+    // in WSL: the macOS host never sends them, and the macOS VM is sized by
+    // its vCPU count instead). Best-effort: a pinning failure or an empty CPU
+    // list leaves the command unpinned — pinning is a resource control and
+    // must never stop a run — and is reported as one stderr line.
+    if let Some(slots) = req.cpu_slots.as_deref() {
+        match allowed_cpus().map(|allowed| pinned_cpus(&allowed, slots)) {
+            Ok(cpus) if !cpus.is_empty() => {
+                pin_command(&mut cmd, &cpus);
+                tracing::info!(cpus = ?cpus, "agent: command pinned to CPUs");
+            }
+            Ok(_) => {
+                let _ = tx.send(Frame::Stderr(
+                    b"agent: CPU pinning skipped: no CPUs to pin to\n".to_vec(),
+                ));
+            }
+            Err(e) => {
+                let _ = tx.send(Frame::Stderr(
+                    format!("agent: CPU pinning skipped: {e}\n").into_bytes(),
+                ));
+            }
+        }
     }
 
     // Install the seccomp pipe (read end dup2'd to the host-specified fd in the
@@ -1538,6 +1565,7 @@ mod tests {
             progress: false,
             collect_artifacts: vec![],
             artifacts: Default::default(),
+            cpu_slots: None,
         }
     }
 
@@ -2028,5 +2056,50 @@ mod tests {
             !frames.iter().any(|f| matches!(f, Frame::Stdout(_))),
             "command must NOT have run"
         );
+    }
+
+    /// Run `/bin/sh -c 'grep Cpus_allowed_list /proc/self/status'` through the
+    /// exec path and return the child's allowed CPUs.
+    async fn run_cpu_report(req: &mut sandbox_vm_protocol::ExecRequest) -> (Vec<usize>, Vec<Frame>) {
+        req.bwrap_path = "/bin/sh".into();
+        let frames = run_exec(req.clone()).await;
+        let stdout: Vec<u8> = frames
+            .iter()
+            .filter_map(|f| match f {
+                Frame::Stdout(b) => Some(b.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let listed = cpu_pin::parse_cpus_allowed_list(&String::from_utf8_lossy(&stdout));
+        let exit = frames.iter().find_map(|f| match f {
+            Frame::Exit(s) => Some(*s),
+            _ => None,
+        });
+        assert_eq!(exit, Some(ExitStatus { code: 0, timed_out: false }), "{frames:?}");
+        (listed, frames)
+    }
+
+    #[tokio::test]
+    async fn exec_cpu_slots_pin_the_command_to_the_resolved_cpu() {
+        // Slot 0 is the agent's first allowed CPU: the child must run pinned
+        // to exactly that one CPU.
+        let allowed = allowed_cpus().expect("sched_getaffinity succeeds");
+        assert!(!allowed.is_empty(), "the test process must run on at least one CPU");
+        let mut req = echo_exec(vec!["-c", "grep Cpus_allowed_list /proc/self/status"]);
+        req.cpu_slots = Some(vec![0]);
+        let (listed, _) = run_cpu_report(&mut req).await;
+        assert_eq!(listed, vec![allowed[0]], "the child is pinned to the slot's CPU");
+    }
+
+    #[tokio::test]
+    async fn exec_without_cpu_slots_runs_on_the_agents_own_allowed_cpus() {
+        // No slots: no pinning; the child inherits the agent's mask, so its
+        // allowed list is the agent's own.
+        let allowed = allowed_cpus().expect("sched_getaffinity succeeds");
+        let mut req = echo_exec(vec!["-c", "grep Cpus_allowed_list /proc/self/status"]);
+        req.cpu_slots = None;
+        let (listed, _) = run_cpu_report(&mut req).await;
+        assert_eq!(listed, allowed, "unpinned child has the agent's own mask");
     }
 }

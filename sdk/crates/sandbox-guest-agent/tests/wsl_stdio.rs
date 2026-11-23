@@ -637,6 +637,7 @@ fn exec_request(script: &str) -> ExecRequest {
             scratch_dirs: vec![home],
             total_cap_bytes: 64 << 20,
         },
+        cpu_slots: None,
     }
 }
 

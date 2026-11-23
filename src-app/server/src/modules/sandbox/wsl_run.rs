@@ -1602,6 +1602,7 @@ exit $code
             progress: false,
             collect_artifacts: vec!["/tmp/txresbench-artifacts-out/0".into()],
             artifacts: Default::default(),
+            cpu_slots: None,
         }
     }
 

@@ -114,6 +114,13 @@ pub struct ExecRequest {
     /// Where [`Self::collect_artifacts`] live and how much may come back.
     #[serde(default)]
     pub artifacts: ArtifactOptions,
+    /// CPU slots the command may run on (WSL: the host gives each concurrent
+    /// run its own). Slot `s` is the agent's `s % n`-th allowed CPU (its own
+    /// `sched_getaffinity`, ascending; `n` = how many), so the host needs no
+    /// knowledge of the guest's CPU numbering. `None` or empty: no pinning
+    /// (the macOS VM is sized by its vCPU count instead).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_slots: Option<Vec<u32>>,
 }
 
 impl ExecRequest {
@@ -490,6 +497,7 @@ mod tests {
                 scratch_dirs: vec!["/tmp/out/home".into()],
                 total_cap_bytes: 1 << 30,
             },
+            cpu_slots: None,
         })
     }
 
@@ -506,6 +514,7 @@ mod tests {
             progress: false,
             collect_artifacts: vec![],
             artifacts: ArtifactOptions::default(),
+            cpu_slots: None,
         };
         assert!(with(PROTOCOL_VERSION).check_version().is_ok());
         // A missing version (0), an earlier one (whose agents read the request
@@ -750,6 +759,53 @@ mod tests {
         assert_eq!(req.cgroup, None);
         assert!(!req.progress);
         assert!(req.collect_artifacts.is_empty());
+    }
+
+    #[test]
+    fn cpu_slots_defaults_to_none_when_the_key_is_absent() {
+        // A request from an older host has no `cpu_slots` key; with
+        // `#[serde(default)]` it must decode as no pinning, and an empty vec
+        // (a host that sends the key but no slots) must too.
+        let json = r#"{"protocol_version":3,"request_id":1,"bwrap_path":"/x","argv":[],"timeout_ms":1}"#;
+        let req: ExecRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.cpu_slots, None);
+        let empty = serde_json::json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "request_id": 1,
+            "bwrap_path": "/x",
+            "argv": [],
+            "timeout_ms": 1,
+            "cpu_slots": [],
+        });
+        let req: ExecRequest = serde_json::from_value(empty).unwrap();
+        assert_eq!(req.cpu_slots, Some(Vec::new()));
+    }
+
+    #[test]
+    fn cpu_slots_round_trip_and_vanish_when_none() {
+        // `Some(vec![2, 3])` round-trips through serde_json ...
+        let mut req: ExecRequest = serde_json::from_str(
+            r#"{"protocol_version":3,"request_id":1,"bwrap_path":"/x","argv":[],"timeout_ms":1}"#,
+        )
+        .unwrap();
+        req.cpu_slots = Some(vec![2, 3]);
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["cpu_slots"], serde_json::json!([2, 3]));
+        let back: ExecRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(back.cpu_slots, Some(vec![2, 3]));
+
+        // ... and a request with `None` serializes with NO `cpu_slots` key, so
+        // the bytes on the wire are unchanged for every existing caller.
+        let req: ExecRequest = serde_json::from_str(
+            r#"{"protocol_version":3,"request_id":1,"bwrap_path":"/x","argv":[],"timeout_ms":1}"#,
+        )
+        .unwrap();
+        assert_eq!(req.cpu_slots, None);
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(
+            !json.as_object().unwrap().contains_key("cpu_slots"),
+            "cpu_slots must be omitted when None: {json}"
+        );
     }
 
     #[test]

@@ -834,6 +834,7 @@ pub async fn run_method_in_stack(
             // enforces the same total.
             total_cap_bytes: u64::from(OUTPUT_BUDGET_MIB) * 1024 * 1024,
         },
+        cpu_slots: None,
     };
     // The command's own budget (+ grace); the copy-back after it is bounded by
     // inactivity instead (`MethodVm::exec`).
@@ -1190,6 +1191,7 @@ pub async fn run_method_in_stack(
             scratch_dirs: vec![guest_home.clone()],
             total_cap_bytes: u64::from(OUTPUT_BUDGET_MIB) * 1024 * 1024,
         },
+        cpu_slots: None,
     };
     let command_budget = std::time::Duration::from_secs(effective_timeout.saturating_add(60));
     let mut outcome = vx::AgentExec::exec(&agent, exec, command_budget, sink.as_ref(), &artifact_dirs).await?;

@@ -206,6 +206,7 @@ fn boot_and_exec(
         progress: false,
         collect_artifacts: Vec::new(),
         artifacts: Default::default(),
+        cpu_slots: None,
     });
     stream.write_all(&encode(&req)).expect("write Exec");
 
