@@ -31,7 +31,7 @@ import { TxrLogDialog } from '../components/TxrLogDialog'
 import { TxrRunTrouble } from '../components/TxrRunTrouble'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { troubleRowsOf } from '../lib/trouble'
-import { formatChanceMissingNote, formatConstantNote, formatEmptyColumnsNote, formatGroupedChanceNote, formatMixedOutcomeNote, txrRunFailed } from '../lib/format'
+import { formatChanceMissingNote, formatConstantNote, formatEmptyColumnsNote, formatGroupedChanceNote, formatMixedOutcomeNote, LEARN_RUN_CHANCES_NOTE, txrRunFailed } from '../lib/format'
 
 /**
  * Screen G — the run's predictions (board `BusyResults.dc.html`): the
@@ -518,6 +518,15 @@ export function ResultsPage() {
           <ScrollRegion label="Patient predictions" className="txr-results-region">
             <div style={REGION_CONTENT}>
               <TxrHeatmapTable view={view} />
+              {/* learn-run-results-note: every chance on a learning run
+              shares this caveat, so it sits first among the notes — only
+              for a `train` run (a `reuse` run's chances are a
+              ready-made/saved model's, not fitted on these patients). */}
+              {run.mode === 'train' ? (
+                <p data-testid="txr-results-learn-run-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+                  {LEARN_RUN_CHANCES_NOTE}
+                </p>
+              ) : null}
               {chanceNote !== null ? (
                 <p data-testid="txr-results-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
                   {chanceNote}

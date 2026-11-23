@@ -27,6 +27,7 @@ import { useEventBusStore } from '@txresbench/framework/events'
 import type { TxrPredictionsResponse, TxrRunDetail, TxrRunMethod } from '@/api-client/types'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { ResultsPage } from './ResultsPage'
+import { LEARN_RUN_CHANCES_NOTE } from '../lib/format'
 
 const api = vi.hoisted(() => ({
   getRun: vi.fn(),
@@ -883,5 +884,52 @@ describe("ResultsPage — the methods' own results (B)", () => {
       state().setSearch('no-such-patient')
     })
     await waitFor(() => expect(view.queryByTestId('txr-own-results')).toBeNull())
+  })
+})
+
+// ── The learning-run chances note (learn-run-results-note) ───────────────────
+
+describe('ResultsPage — the learning-run note (learn-run-results-note)', () => {
+  it('a train run shows the note, verbatim, after the heatmap', async () => {
+    const view = await renderLoaded()
+    const note = view.getByTestId('txr-results-learn-run-note')
+    expect(note.textContent).toBe(LEARN_RUN_CHANCES_NOTE)
+    const heatmap = view.getByTestId('txr-heatmap')
+    // The note sits directly below the heatmap (the heatmap precedes it).
+    expect(heatmap.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('a reuse run never shows the note', async () => {
+    const run = runFixture()
+    run.mode = 'reuse'
+    api.getRun.mockResolvedValue(run)
+    const view = await renderLoaded()
+    expect(view.queryByTestId('txr-results-learn-run-note')).toBeNull()
+  })
+
+  it('shows no note while the run detail is still loading (run null)', () => {
+    api.getRun.mockImplementation(() => new Promise(() => {}))
+    const view = renderPage()
+    expect(view.getByTestId('txr-results-loading')).toBeTruthy()
+    expect(view.queryByTestId('txr-results-learn-run-note')).toBeNull()
+  })
+
+  it('sits BEFORE the other notes when one is shown (compareDocumentPosition)', async () => {
+    // One constant column → the constant note is shown beside the learning-run
+    // note; the learning-run note (every chance on the page) precedes it.
+    const p = twoColumns()
+    p.methods[0] = {
+      ...p.methods[0],
+      probabilities: wireArray<number>(PATIENTS.map(() => 0.5)),
+    }
+    api.getPredictions.mockResolvedValue(p)
+    const view = await renderLoaded()
+    const learn = view.getByTestId('txr-results-learn-run-note')
+    const other = view.getByTestId('txr-results-constant-note')
+    expect(other.textContent).toContain('same chance')
+    expect(learn.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // And it still follows the heatmap it sits directly under.
+    const heatmap = view.getByTestId('txr-heatmap')
+    expect(heatmap.compareDocumentPosition(learn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
