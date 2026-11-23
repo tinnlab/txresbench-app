@@ -779,11 +779,15 @@ mod tests {
                             conc.fetch_sub(1, Ordering::SeqCst);
                             return; // the client went away before the body
                         }
-                        for chunk in body.chunks(CHUNK) {
+                        let chunks = body.chunks(CHUNK).count();
+                        for (i, chunk) in body.chunks(CHUNK).enumerate() {
                             if stream.write_all(chunk).await.is_err() {
                                 break; // the client went away mid-body
                             }
-                            if !per_chunk_delay.is_zero() {
+                            // No pause after the last chunk: the client has the
+                            // whole body then, and a pause would keep a finished
+                            // transfer counted (Windows timers tick ~15 ms).
+                            if !per_chunk_delay.is_zero() && i + 1 < chunks {
                                 tokio::time::sleep(per_chunk_delay).await;
                             }
                         }

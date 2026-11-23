@@ -2736,7 +2736,9 @@ fn main() {
     let env_dump = get("env_dump");
     if !env_dump.is_empty() {
         let mut dump = String::new();
-        let mut vars: Vec<(String, String)> = env::vars().collect();
+        let mut vars: Vec<(String, String)> = env::vars_os()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+            .collect();
         vars.sort();
         for (k, v) in vars {
             dump.push_str(&k);
@@ -3595,8 +3597,12 @@ fn main() {
         }
 
         // Only PATH, HOME and the passthrough list reach the child (plus what
-        // /bin/sh sets for itself).
-        let shell_own = ["PWD", "OLDPWD", "SHLVL", "_"];
+        // /bin/sh sets for itself on Unix, and what Windows sets in every new
+        // process: PROCESSOR_ARCHITECTURE, seen with the environment cleared).
+        #[cfg(unix)]
+        let os_own: &[&str] = &["PWD", "OLDPWD", "SHLVL", "_"];
+        #[cfg(windows)]
+        let os_own: &[&str] = &["PROCESSOR_ARCHITECTURE"];
         let env_dump = std::fs::read_to_string(&envs).expect("env recorded");
         for line in env_dump.lines() {
             let Some((name, _)) = line.split_once('=') else { continue };
@@ -3604,7 +3610,7 @@ fn main() {
                 name == "PATH"
                     || name == "HOME"
                     || TOOL_PASSTHROUGH_ENV.contains(&name)
-                    || shell_own.contains(&name),
+                    || os_own.contains(&name),
                 "oras received {name:?}, which is not on the list"
             );
         }
