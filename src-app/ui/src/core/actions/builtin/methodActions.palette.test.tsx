@@ -122,7 +122,7 @@ describe('methods.applyPreset in the command palette', () => {
       </>,
     )
     const pressed = (): string[] =>
-      (['recommended', 'all', 'fast', 'none'] as const).filter(
+      (['recommended', 'all', 'fast'] as const).filter(
         value =>
           screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
       )

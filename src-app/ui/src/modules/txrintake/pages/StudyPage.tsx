@@ -545,7 +545,7 @@ export function StudyPage() {
                         </span>
                       </div>
                       <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
-                        {descriptiveSentence(study)}
+                        {descriptiveSentence(study, { categories, treatmentClasses })}
                       </p>
                     </>
                   ) : (

@@ -98,7 +98,7 @@ function liveViewId(): string {
 }
 
 const pressed = (): string[] =>
-  (['recommended', 'all', 'fast', 'none'] as const).filter(
+  (['recommended', 'all', 'fast'] as const).filter(
     value => screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
   )
 
@@ -150,7 +150,10 @@ describe('methods.applyPreset (step-4 fix)', () => {
     await act(async () => {
       await runAction('methods.applyPreset', { view_id: viewId, preset: 'none' })
     })
-    expect(pressed()).toEqual(['none'])
+    // The "None" button is gone (its job is the search bar's Clear
+    // selection); an empty selection lights no preset — the action itself
+    // still runs and clears every checkbox.
+    expect(pressed()).toEqual([])
     expect(screen.getByTestId('txr-method-checkbox-m1').getAttribute('aria-checked')).toBe('false')
   })
 

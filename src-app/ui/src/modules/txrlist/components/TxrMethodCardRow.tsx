@@ -2,7 +2,7 @@
  * TxrMethodCardRow — ONE row of the redesigned E-screen picker
  * (qa-fixes3 ITEM-1): checkbox; the method's short title with the id in
  * monospace under it; the one-sentence summary (two-line clamp, "More" to
- * expand); the family + language chips; the estimate with its measured/
+ * expand and "Less" to fold it back); the family + language chips; the estimate with its measured/
  * estimate quality dot; the benchmark score with its tooltip; the quiet
  * needs line; and the in-place About disclosure (description, journal and
  * year, DOI link, what it outputs, constraints) — never a dialog, never a
@@ -25,7 +25,14 @@
  * fact renders ONLY when the catalogue carries it (D36) — never "Paper 0",
  * never a blank fact column; unknown fields are omitted (never "—").
  */
-import { useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react'
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
 import { Button, Checkbox, Skeleton, Tooltip } from '@txresbench/kit'
 import type { TxrMethodCard } from '../types'
 import { TXRMETHOD_GROUP_EXPLAINER, type TxrMethodGroupId } from '../lib/methodPicker'
@@ -266,6 +273,32 @@ export interface TxrMethodCardRowProps {
 export function TxrMethodCardRowView({ card, checked, onToggle }: TxrMethodCardRowProps) {
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  /** Whether the summary is ACTUALLY cut on this width — measured from the
+   *  clamped `<p>` (`scrollHeight > clientHeight + 1`), never a character
+   *  count. Re-measured on mount, when the summary text changes, when the
+   *  row's box resizes (ResizeObserver; jsdom has none, so a window `resize`
+   *  fallback) and when the expansion toggles (the clamp style leaves and
+   *  comes back). */
+  const [summaryClamped, setSummaryClamped] = useState(false)
+  const summaryRef = useRef<HTMLParagraphElement>(null)
+  useLayoutEffect(() => {
+    const el = summaryRef.current
+    if (el === null) return
+    const measure = (): void => {
+      setSummaryClamped(el.scrollHeight > el.clientHeight + 1)
+    }
+    measure()
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure)
+      observer.observe(el)
+      return () => observer.disconnect()
+    }
+    // jsdom has no ResizeObserver (the ScrollRegion precedent); a window
+    // resize still re-measures, and both paths clean up in the effect's
+    // return.
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [card.summary, summaryExpanded])
   const toggle = (): void => onToggle?.(card)
 
   const onRowClick = (event: MouseEvent): void => {
@@ -312,19 +345,21 @@ export function TxrMethodCardRowView({ card, checked, onToggle }: TxrMethodCardR
           <span style={ID_LINE}>{card.id}</span>
         </div>
         <p
+          ref={summaryRef}
           data-testid={`txr-method-summary-${card.id}`}
           style={summaryExpanded ? SUMMARY : { ...SUMMARY, ...SUMMARY_TWO_LINES }}
         >
           {card.summary}
         </p>
-        {!summaryExpanded && card.summary.length > 120 ? (
+        {summaryClamped || summaryExpanded ? (
           <Button
             data-testid={`txr-method-summary-more-${card.id}`}
             variant="link"
+            aria-expanded={summaryExpanded}
             style={MORE_BUTTON}
-            onClick={() => setSummaryExpanded(true)}
+            onClick={() => setSummaryExpanded(open => !open)}
           >
-            More
+            {summaryExpanded ? 'Less' : 'More'}
           </Button>
         ) : null}
         <div style={FACTS}>

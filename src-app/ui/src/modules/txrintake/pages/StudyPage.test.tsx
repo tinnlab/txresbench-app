@@ -953,18 +953,31 @@ describe('step2-filters brief 5b — the disease picker and the treatment multi-
     expect(store().study.disease).toBe('Solid tumours')
   })
 
-  it('Clear sends null — the disease returns to unanswered', async () => {
+  it('Clear sends null — ONE click empties the box, and picking again works', async () => {
     renderStudy()
     await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
     await openDiseasePicker()
     await searchDiseases('lung')
     await pickDisease('txr-intake-study-disease-opt-lung cancer')
     expect(store().study.disease).toBe('lung cancer')
+    // One click on the clear button: the trigger returns to the untouched
+    // prompt ("Choose a disease…") — the old `value ?? undefined` made the
+    // kit's useControllableState treat the box as UNCONTROLLED, so the clear
+    // left the old id in its internal state and the trigger kept the cleared
+    // disease — the clear button itself hides, and the store's answer is null.
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-intake-study-disease-clear'))
       await Promise.resolve()
     })
     await waitFor(() => expect(store().study.disease).toBeNull())
+    expect(screen.getByTestId('txr-intake-study-disease').textContent).toBe('Choose a disease…')
+    expect(screen.queryByTestId('txr-intake-study-disease-clear')).toBeNull()
+    // Picking again after the clear works: the box is not stuck on the old id.
+    await openDiseasePicker()
+    await searchDiseases('melanoma')
+    await pickDisease('txr-intake-study-disease-opt-melanoma')
+    await waitFor(() => expect(store().study.disease).toBe('melanoma'))
+    expect(screen.getByTestId('txr-intake-study-disease').textContent).toBe('Melanoma')
   })
 
   it('a stored disease id BEFORE the vocabulary loads shows as text, never a blank trigger (5b2)', async () => {
@@ -1065,6 +1078,63 @@ describe('step2-filters brief 5b — the disease picker and the treatment multi-
     )
     expect(screen.getByRole('checkbox', { name: 'Radiotherapy' }).getAttribute('aria-checked')).toBe(
       'false',
+    )
+  })
+
+  it('the panel sentence names every answered filter, in the page order, and changes with an answer', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Immune checkpoint inhibitor' })
+    // Nothing answered: the panel's invite line, never a count (R2-1).
+    expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+      'Answer the questions above to see which methods fit your study.',
+    )
+    // One answer at a time: the sentence grows one clause per answered
+    // question, in the page's order (disease, treatment, outcome, marker
+    // groups, schedule), and each change is visible.
+    await openDiseasePicker()
+    await searchDiseases('lung')
+    await pickDisease('txr-intake-study-disease-opt-lung cancer')
+    await waitFor(() =>
+      expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+        'Methods for lung cancer. This updates as you answer.',
+      ),
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-treatment-chemotherapy'))
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+        'Methods for lung cancer, given with chemotherapy. This updates as you answer.',
+      ),
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-outcome-progression-by-day'))
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+        'Methods for lung cancer, given with chemotherapy, that predict the risk by a set day. This updates as you answer.',
+      ),
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+        'Methods for lung cancer, given with chemotherapy, that predict the risk by a set day, using ctDNA. This updates as you answer.',
+      ),
+    )
+    // The three schedule answers join ONE "with …" clause (the pin's example
+    // shape; `patchStudy` writes the same fields the controls do).
+    act(() => {
+      store().patchStudy({ beforeTreatment: 'always', drawsDuringTreatment: 2, lastDrawDay: 56 })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+        'Methods for lung cancer, given with chemotherapy, that predict the risk by a set day, using ctDNA, with a draw before treatment, 2 to 3 draws during treatment and the last draw on day 56. This updates as you answer.',
+      ),
     )
   })
 })

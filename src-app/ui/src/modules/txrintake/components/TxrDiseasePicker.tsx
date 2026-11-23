@@ -107,7 +107,15 @@ export function TxrDiseasePicker({ value, categories, onChange }: TxrDiseasePick
         id="txr-intake-study-disease"
         data-testid="txr-intake-study-disease"
         aria-label="Disease"
-        value={value ?? undefined}
+        // step3-step4-fixes: `''` is the kit's "no selection" VALUE, so the
+        // box stays CONTROLLED at every store value. `undefined` made the
+        // kit's `useControllableState` treat the box as UNCONTROLLED from
+        // the moment it held a real id, so the clear's `onChange('')` left
+        // the old id in the internal state: the trigger kept the cleared
+        // disease and the clear button kept showing. With `''` the kit
+        // shows the no-selection prompt ("Choose a disease…") and hides the
+        // clear button.
+        value={value ?? ''}
         onChange={next => onChange(next === '' ? null : next)}
         // A stored id the vocabulary does not (yet) hold — the picker mounted
         // before the filter options landed, or the id is simply unknown — has

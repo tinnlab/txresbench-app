@@ -30,7 +30,9 @@ import {
   groupShortName,
   leftOutHeading,
   outcomeClause,
+  scheduleClause,
   someFitLine,
+  treatmentClause,
   fitHeading,
 } from './format'
 import {
@@ -337,41 +339,137 @@ describe('hasStudyAnswers (R2-1 — the panel does not answer before the first a
   })
 })
 
-describe('descriptiveSentence (TEST-INT-2/examples)', () => {
-  it('renders the board sentence data-filled (the pinned acceptance string)', () => {
-    expect(descriptiveSentence(FULL_ANSWERS)).toBe(
-      'for colorectal cancer, risk by a day, with ctDNA, blood counts and LDH. This updates as you answer.',
+describe('descriptiveSentence (step3-step4-fixes — every answered filter named)', () => {
+  /** The sentence's vocabulary (the clause helpers' label/name table). */
+  const SENTENCE_VOCABULARY = {
+    categories: VOCABULARY.disease_categories,
+    treatmentClasses: VOCABULARY.treatment_classes,
+  }
+  /** The `vocab` while the filter options have not loaded (both empty). */
+  const EMPTY_VOCABULARY = { categories: [], treatmentClasses: [] }
+
+  it('renders the pinned all-clauses sentence exactly (the plan example)', () => {
+    expect(
+      descriptiveSentence(
+        {
+          ...EMPTY_ANSWERS,
+          disease: 'lung cancer',
+          treatments: ['chemotherapy'],
+          outcome: 'progression-by-day',
+          markerGroups: { 'tumour-markers': true },
+          beforeTreatment: 'always',
+          drawsDuringTreatment: 4,
+          lastDrawDay: 56,
+        },
+        SENTENCE_VOCABULARY,
+      ),
+    ).toBe(
+      'Methods for lung cancer, given with chemotherapy, that predict the risk by a set day, using tumour markers, with a draw before treatment, 4 or more draws during treatment and the last draw on day 56. This updates as you answer.',
     )
   })
 
-  it('renders only the answered clauses', () => {
+  it('renders each answered clause alone, in the page order', () => {
     expect(
-      descriptiveSentence({
-        ...EMPTY_ANSWERS,
-        outcome: 'response-probability',
-        markerGroups: { ldh: true },
-      }),
-    ).toBe('the chance of response, with LDH. This updates as you answer.')
+      descriptiveSentence({ ...EMPTY_ANSWERS, disease: 'lung cancer' }, SENTENCE_VOCABULARY),
+    ).toBe('Methods for lung cancer. This updates as you answer.')
     expect(
-      descriptiveSentence({
-        ...EMPTY_ANSWERS,
-        disease: 'breast cancer',
-        outcome: 'dynamic-risk',
-        markerGroups: { counts: true, ctdna: true },
-      }),
-    ).toBe('for breast cancer, risk over time, with blood counts and ctDNA. This updates as you answer.')
+      descriptiveSentence({ ...EMPTY_ANSWERS, treatments: ['chemotherapy'] }, SENTENCE_VOCABULARY),
+    ).toBe('Methods given with chemotherapy. This updates as you answer.')
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, outcome: 'binary-response' }, SENTENCE_VOCABULARY),
+    ).toBe('Methods that predict a yes or no response. This updates as you answer.')
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, markerGroups: { ldh: true } }, SENTENCE_VOCABULARY),
+    ).toBe('Methods using LDH. This updates as you answer.')
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, beforeTreatment: 'always' }, SENTENCE_VOCABULARY),
+    ).toBe('Methods with a draw before treatment. This updates as you answer.')
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, drawsDuringTreatment: 2 }, SENTENCE_VOCABULARY),
+    ).toBe('Methods with 2 to 3 draws during treatment. This updates as you answer.')
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, lastDrawDay: 56 }, SENTENCE_VOCABULARY),
+    ).toBe('Methods with the last draw on day 56. This updates as you answer.')
+  })
+
+  it('a category id reads "another disease in <category>" (the not-listed choice)', () => {
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, disease: 'Solid tumours' }, SENTENCE_VOCABULARY),
+    ).toBe('Methods for another disease in solid tumours. This updates as you answer.')
+    // While the vocabulary is not loaded the id is the honest text (never a
+    // guessed label).
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, disease: 'Solid tumours' }, EMPTY_VOCABULARY),
+    ).toBe('Methods for Solid tumours. This updates as you answer.')
+  })
+
+  it('treatment labels come from the vocabulary (first letter lower-cased); the id is the fallback', () => {
+    expect(
+      descriptiveSentence(
+        { ...EMPTY_ANSWERS, treatments: ['immune checkpoint inhibitor', 'chemotherapy'] },
+        SENTENCE_VOCABULARY,
+      ),
+    ).toBe(
+      'Methods given with immune checkpoint inhibitor or chemotherapy. This updates as you answer.',
+    )
+    // A class the vocabulary does not know (or before it loads) renders the id.
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, treatments: ['unknown-drug'] }, SENTENCE_VOCABULARY),
+    ).toBe('Methods given with unknown-drug. This updates as you answer.')
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, treatments: ['chemotherapy'] }, EMPTY_VOCABULARY),
+    ).toBe('Methods given with chemotherapy. This updates as you answer.')
+  })
+
+  it('an unanswered question adds nothing (null, or an empty treatment list)', () => {
+    expect(descriptiveSentence({ ...EMPTY_ANSWERS, treatments: [] }, SENTENCE_VOCABULARY)).toBe(
+      'This updates as you answer.',
+    )
+    expect(
+      descriptiveSentence({ ...EMPTY_ANSWERS, disease: 'lung cancer', treatments: [] }, SENTENCE_VOCABULARY),
+    ).toBe('Methods for lung cancer. This updates as you answer.')
   })
 
   it('distinguishes "nothing answered" from "no marker group checked"', () => {
-    expect(descriptiveSentence(EMPTY_ANSWERS)).toBe('This updates as you answer.')
+    expect(descriptiveSentence(EMPTY_ANSWERS, SENTENCE_VOCABULARY)).toBe(
+      'This updates as you answer.',
+    )
     expect(
-      descriptiveSentence({ ...EMPTY_ANSWERS, markerGroups: { ctdna: false, counts: false } }),
-    ).toBe('with no marker groups. This updates as you answer.')
+      descriptiveSentence(
+        { ...EMPTY_ANSWERS, markerGroups: { ctdna: false, counts: false } },
+        SENTENCE_VOCABULARY,
+      ),
+    ).toBe('Methods using no marker groups. This updates as you answer.')
   })
 
-  it('has no hardcoded counts (FLOW.md design-example rule)', () => {
-    const sentence = descriptiveSentence(FULL_ANSWERS)
-    for (const digit of ['0', '1', '2', '9', '28', '38', '56', '84']) {
+  it('the schedule parts join into one "with …" clause', () => {
+    expect(
+      descriptiveSentence(
+        {
+          ...EMPTY_ANSWERS,
+          beforeTreatment: 'sometimes',
+          drawsDuringTreatment: 1,
+          lastDrawDay: 42,
+        },
+        SENTENCE_VOCABULARY,
+      ),
+    ).toBe(
+      'Methods with a draw before treatment for some patients, 1 draw during treatment and the last draw on day 42. This updates as you answer.',
+    )
+  })
+
+  it('has no hardcoded counts — a sentence with no schedule answers has no digits (FLOW.md design-example rule)', () => {
+    const sentence = descriptiveSentence(
+      {
+        ...EMPTY_ANSWERS,
+        disease: 'lung cancer',
+        treatments: ['immune checkpoint inhibitor', 'chemotherapy'],
+        outcome: 'dynamic-risk',
+        markerGroups: { ctdna: true },
+      },
+      SENTENCE_VOCABULARY,
+    )
+    for (const digit of ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']) {
       expect(sentence).not.toContain(digit)
     }
   })
@@ -472,10 +570,32 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
 })
 
 describe('label helpers (TEST-INT-13 rows for this item)', () => {
-  it('option text is board verbatim and the disease clause is the vocabulary id', () => {
-    expect(diseaseClause('colorectal cancer')).toBe('colorectal cancer')
-    expect(diseaseClause('Solid tumours')).toBe('Solid tumours')
-    expect(outcomeClause('progression-by-day')).toBe('risk by a day')
+  it('the sentence helpers are pure pieces: ids/labels as-is, never a guessed name', () => {
+    expect(diseaseClause('colorectal cancer', VOCABULARY.disease_categories)).toBe(
+      'colorectal cancer',
+    )
+    expect(diseaseClause('Solid tumours', VOCABULARY.disease_categories)).toBe(
+      'another disease in solid tumours',
+    )
+    expect(outcomeClause('binary-response')).toBe('a yes or no response')
+    expect(outcomeClause('response-probability')).toBe('the chance of response')
+    expect(outcomeClause('progression-by-day')).toBe('the risk by a set day')
+    expect(outcomeClause('dynamic-risk')).toBe('risk over time')
+    expect(
+      treatmentClause(['immune checkpoint inhibitor', 'chemotherapy'], VOCABULARY.treatment_classes),
+    ).toBe('given with immune checkpoint inhibitor or chemotherapy')
+    expect(treatmentClause(['chemotherapy'], VOCABULARY.treatment_classes)).toBe(
+      'given with chemotherapy',
+    )
+    expect(scheduleClause(EMPTY_ANSWERS)).toBeNull()
+    expect(
+      scheduleClause({
+        ...EMPTY_ANSWERS,
+        beforeTreatment: 'always',
+        drawsDuringTreatment: 4,
+        lastDrawDay: 56,
+      }),
+    ).toBe('with a draw before treatment, 4 or more draws during treatment and the last draw on day 56')
     expect(groupShortName('ctdna')).toBe('ctDNA')
     expect(groupShortName('counts')).toBe('blood counts')
     expect(groupShortName('ldh')).toBe('LDH')

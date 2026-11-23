@@ -496,7 +496,7 @@ async function selectRow(key: string): Promise<void> {
  *  row would unselect — the toggle is a toggle). */
 async function chooseOnly(key: string): Promise<void> {
   await act(async () => {
-    fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+    fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
     await Promise.resolve()
   })
   await settle(0)
@@ -794,7 +794,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       'true',
     )
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
       await Promise.resolve()
     })
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
@@ -808,7 +808,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     // a settings change (an eligibility refetch) never re-treads the user's
     // own choice — the All preset stays the active segment.
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
       await Promise.resolve()
     })
     await act(async () => {
@@ -823,7 +823,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
   })
 
-  it('the clicked preset stays pressed when two presets give the same set (Recommended = All here); None never lights Fast', async () => {
+  it('the clicked preset stays pressed when two presets give the same set (Recommended = All here); clearing lights no preset, never Fast', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
     renderPage()
@@ -846,13 +846,14 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
       await Promise.resolve()
     })
-    expect(pressed('none')).toBe('true')
+    expect(pressed('recommended')).toBe('false')
+    expect(pressed('all')).toBe('false')
     expect(pressed('fast')).toBe('false')
     expect(screen.getByTestId('txr-method-preset-fast').textContent).toBe(
-      'Fast only, under 1 min each (0)',
+      'Fast only (estimated under 1 min each) (0)',
     )
   })
 
@@ -1466,7 +1467,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     await settle()
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
       await Promise.resolve()
     })
     expect(screen.getByTestId('txr-run-bar-run').getAttribute('disabled')).not.toBeNull()
@@ -1782,7 +1783,7 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
 
     // A real change still moves it.
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
       await Promise.resolve()
     })
     expect(await token()).not.toBe(before)

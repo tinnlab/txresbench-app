@@ -21,8 +21,8 @@
  * files): the component's source carries no name literal.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { TxrSettingsBlock } from './TxrSettingsBlock'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { CPUS_HELP, TxrSettingsBlock } from './TxrSettingsBlock'
 import type { TxrSettingsCovariates } from '../lib/covariates'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../lib/settings'
 import type { FileTimeline } from '@/api-client/types'
@@ -540,6 +540,21 @@ describe('TxrSettingsBlock ITEM-2 — the "What do you want to predict?" card', 
     expect(screen.getByTestId('txr-run-settings-seed-fact').textContent).toContain('fixed seed')
   })
 
+  it('step3-step4-fixes: More settings shows the CPUs help line with the exact copy', async () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    // The help line is part of the More-settings block — absent until it opens.
+    expect(screen.queryByTestId('txr-run-settings-cpus-help')).toBeNull()
+    await clickKit(screen.getByTestId('txr-run-settings-more'))
+    expect(screen.getByTestId('txr-run-settings-cpus-help').textContent).toBe(CPUS_HELP)
+  })
+
   it('the lanes control reports through onMoreSettings', async () => {
     const onMoreSettings = vi.fn()
     render(
@@ -553,5 +568,79 @@ describe('TxrSettingsBlock ITEM-2 — the "What do you want to predict?" card', 
     await clickKit(screen.getByTestId('txr-run-settings-more'))
     await clickKit(screen.getByTestId('txr-run-settings-at-a-time-opt-2'))
     expect(onMoreSettings).toHaveBeenLastCalledWith({ at_a_time: 2 })
+  })
+
+  it('step3-step4-fixes: Predict + Decision day sit in the row-predict group, Look ahead to in its own', () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    const rowPredict = screen.getByTestId('txr-run-settings-row-predict')
+    const rowLookAhead = screen.getByTestId('txr-run-settings-row-look-ahead')
+    // Predict and Decision day are inside the row-predict group.
+    expect(within(rowPredict).getByTestId('txr-run-settings-endpoint')).toBeTruthy()
+    expect(within(rowPredict).getByTestId('txr-run-settings-decision-day')).toBeTruthy()
+    // Look ahead to is inside row-look-ahead, and NOT in row-predict.
+    expect(within(rowLookAhead).getByTestId('txr-run-settings-look-ahead')).toBeTruthy()
+    expect(within(rowPredict).queryByTestId('txr-run-settings-look-ahead')).toBeNull()
+    // Extra inputs and the More settings link keep their own group.
+    expect(within(rowPredict).queryByTestId('txr-run-settings-covariates')).toBeNull()
+    expect(within(rowLookAhead).queryByTestId('txr-run-settings-covariates')).toBeNull()
+    expect(screen.getByTestId('txr-run-settings-covariates')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-settings-more')).toBeTruthy()
+  })
+
+  it('opening "Other values" keeps each day field inside its row group', async () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        dayFacts={DAY_FACTS}
+      />,
+    )
+    const rowPredict = screen.getByTestId('txr-run-settings-row-predict')
+    const rowLookAhead = screen.getByTestId('txr-run-settings-row-look-ahead')
+    await clickKit(within(rowPredict).getByTestId('txr-run-settings-decision-day-other'))
+    await clickKit(within(rowLookAhead).getByTestId('txr-run-settings-look-ahead-other'))
+    expect(within(rowPredict).getByTestId('txr-run-settings-decision-day-input')).toBeTruthy()
+    expect(within(rowLookAhead).getByTestId('txr-run-settings-look-ahead-input')).toBeTruthy()
+    expect(within(rowPredict).queryByTestId('txr-run-settings-look-ahead-input')).toBeNull()
+    expect(within(rowLookAhead).queryByTestId('txr-run-settings-decision-day-input')).toBeNull()
+  })
+
+  it('step3-step4-fixes: the lanes read plain numbers, and an outside value reads as itself — no "Day"', async () => {
+    const { rerender } = render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    await clickKit(screen.getByTestId('txr-run-settings-more'))
+    const lanes = screen.getByTestId('txr-run-settings-at-a-time')
+    for (const n of [1, 2, 3, 4]) {
+      expect(within(lanes).getByTestId(`txr-run-settings-at-a-time-opt-${n}`).textContent).toBe(
+        String(n),
+      )
+    }
+    expect(lanes.textContent).not.toMatch(/Day/)
+    // A value outside the presets reads as its own plain number chip.
+    rerender(
+      <TxrSettingsBlock
+        value={{ ...fixtureValue, at_a_time: 7 }}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    expect(within(lanes).getByTestId('txr-run-settings-at-a-time-opt-7').textContent).toBe('7')
+    expect(lanes.textContent).not.toMatch(/Day/)
   })
 })
