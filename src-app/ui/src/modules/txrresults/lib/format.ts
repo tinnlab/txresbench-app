@@ -31,6 +31,21 @@ import { safeText } from '@/modules/txrshell/lib/safeText'
 import type { TxrOutcomeKey } from '../types'
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The results-table scroll box (the fixed-height byte)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The ONE height of every per-patient results table's own scroll box
+ * (results-table-height — the user's decision: "if we have a lot of
+ * patients, then the result tables are very long, let's set a fixed height
+ * for them, then users can scroll the table in that fixed height"): about
+ * 60 % of the window, at least 320 px — a long table scrolls inside its
+ * box, a short table keeps its natural height (max-height only, no
+ * min-height, no padding rows).
+ */
+export const RESULTS_TABLE_MAX_HEIGHT = 'max(320px, 60vh)' as const
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The compare-card copy constants (DEC-7 / OWNER-UR-2)
 // ─────────────────────────────────────────────────────────────────────────────
 

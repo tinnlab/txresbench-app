@@ -12,16 +12,17 @@
  *
  * app-shell ITEM-3 — the native byte: the old kit-`Table` (the plain,
  * NON-sticky path) is replaced by the board's own native table with
- * per-cell sticky header cells — the table sits in the page's ScrollRegion
- * and its header must stick to the REGION's top (the audit's
- * "the 94-row table (sticky header)"; the region is the two-axis
- * scrollport, so the old `overflow-x: auto` box is gone). This is the
- * same DEC-11 reasoning the G heatmap already used, and the DRIFT-1
- * ITEM-10 #1 precedent (the kit's virtualized grid cannot express the
- * row surface here either): the bar cells and the row test-ids
- * (`txr-bars-row-<patientId>`, `txr-bars-<methodId>`) keep their frozen
- * contracts. The G heatmap is the sticky-FIRST-COLUMN twin; a future kit
- * gain (real sticky support on the plain path) is the refactor trigger.
+ * per-cell sticky header cells — and results-table-height reverses the
+ * ITEM-3 inner-box removal for this table too: the table scrolls inside
+ * its OWN bounded box of `RESULTS_TABLE_MAX_HEIGHT` (the user's
+ * fixed-height byte) while the page's ScrollRegion still scrolls the page
+ * around the boxes. This is the same DEC-11 reasoning the G heatmap
+ * already used, and the DRIFT-1 ITEM-10 #1 precedent (the kit's
+ * virtualized grid cannot express the row surface here either): the bar
+ * cells and the row test-ids (`txr-bars-row-<patientId>`,
+ * `txr-bars-<methodId>`) keep their frozen contracts. The G heatmap is
+ * the sticky-FIRST-COLUMN twin; a future kit gain (real sticky support on
+ * the plain path) is the refactor trigger.
  *
  * Copy facts (board-verbatim): "Chance of treatment failure by day 238,
  * sorted by the first method. Showing 8 of 40." + "Show all 40". The
@@ -42,17 +43,23 @@ import type { CSSProperties } from 'react'
 import { useMemo } from 'react'
 import { Button, Progress } from '@txresbench/kit'
 import type { TxrHeatmapColumn, TxrHeatmapRow, TxrOutcomeKey } from '../types'
-import { OWN_CALL_HEADING, OWN_SCORE_HEADING, formatOwnCall, formatOwnScore, formatPct } from '../lib/format'
+import { OWN_CALL_HEADING, OWN_SCORE_HEADING, RESULTS_TABLE_MAX_HEIGHT, formatOwnCall, formatOwnScore, formatPct } from '../lib/format'
 import { hasOwnResults, ownResultOf, patientIndexOf } from '../lib/native'
 import type { TxrOwnResult } from '../lib/native'
 
 const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 
-/** The board's table card (the REGION scrolls it — ITEM-3, no inner box). */
+/**
+ * The table's OWN scroll box (results-table-height — the user's fixed-height
+ * byte): the board's table card is bounded to `RESULTS_TABLE_MAX_HEIGHT`
+ * and scrolls on both axes; the page's ScrollRegion still scrolls the page.
+ */
 const TABLE_BOX: CSSProperties = {
   border: '1px solid var(--txr-border)',
   borderRadius: 10,
   minWidth: 0,
+  maxHeight: RESULTS_TABLE_MAX_HEIGHT,
+  overflow: 'auto',
 }
 
 const TABLE: CSSProperties = {
@@ -77,6 +84,13 @@ const TH: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
+/** The top-left corner header cell (Patient): top AND left, above everything. */
+const TH_CORNER: CSSProperties = {
+  ...TH,
+  left: 0,
+  zIndex: 3,
+}
+
 const TD: CSSProperties = {
   padding: '10px 14px',
   borderBottom: '1px solid var(--txr-border-subtle)',
@@ -84,8 +98,12 @@ const TD: CSSProperties = {
   background: 'var(--txr-surface)',
 }
 
+/** The pinned patient column beneath the corner: left only, layer 1. */
 const TD_PATIENT: CSSProperties = {
   ...TD,
+  position: 'sticky',
+  left: 0,
+  zIndex: 1,
   fontFamily: MONO_FONT,
   fontSize: 13,
   whiteSpace: 'nowrap',
@@ -171,11 +189,19 @@ export function TxrBarsTable({
   const showOwnCall = ownColumn !== null && (ownColumn.native?.calls ?? null) !== null
   return (
     <div>
-      <div style={TABLE_BOX} className="txr-results-table-box">
+      <div
+        data-testid="txr-bars-scroll"
+        data-txr-table-scroll=""
+        role="region"
+        aria-label="Chance per patient"
+        tabIndex={0}
+        style={TABLE_BOX}
+        className="txr-results-table-box"
+      >
         <table data-testid="txr-bars" className="txr-bars" style={TABLE}>
           <thead>
             <tr>
-              <th scope="col" style={TH} data-testid="txr-bars-header-patient">
+              <th scope="col" style={TH_CORNER} data-testid="txr-bars-header-patient">
                 Patient
               </th>
               {columns.map(col => (

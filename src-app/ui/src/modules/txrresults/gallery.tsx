@@ -323,7 +323,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-results',
       title: 'Results (screen G) inside the shell',
-      note: 'The app-shell ITEM-3 route byte: the summary header + the search/sort/methods bar fixed, the heatmap in the ONE region (sticky first column + sticky header against the region, the card no longer has its own scrollport), the Showing-N-of-M + Show-all + Download + Save actions in the fixed bottom bar. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
+      note: 'The app-shell ITEM-3 route byte, results-table-height updated: the summary header + the search/sort/methods bar fixed, the heatmap in the ONE page region but scrolling inside its OWN bounded box of RESULTS_TABLE_MAX_HEIGHT (sticky first column + sticky header against the box — the box is the scrollport again), the Showing-N-of-M + Show-all + Download + Save actions in the fixed bottom bar. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
       path: '/analysis/:runId/results',
       initialPath: `/analysis/${TXR_RUN_G.id}/results`,
       component: ShellGStory,
@@ -331,7 +331,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-compare',
       title: 'Results compare (screen H) inside the shell',
-      note: 'The app-shell ITEM-3 route byte: the method heading + outcome tabs fixed, the bars table in the ONE region (the sticky thead pins to the region), the actions pinned in the fixed bottom bar.',
+      note: 'The app-shell ITEM-3 route byte, results-table-height updated: the method heading + outcome tabs fixed, the bars table in the ONE page region but scrolling inside its own bounded box (the sticky thead pins to the box top), the actions pinned in the fixed bottom bar.',
       path: '/analysis/:runId/results/compare',
       initialPath: `/analysis/${TXR_RUN_H.id}/results/compare`,
       component: ShellHStory,
@@ -339,7 +339,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-method',
       title: 'Results one method (screen H) inside the shell',
-      note: 'The app-shell ITEM-3 route byte: the same frame on the one-method view — the single method tab, the sticky thead, the Save-this-model action pinned.',
+      note: 'The app-shell ITEM-3 route byte, results-table-height updated: the same frame on the one-method view — the single method tab, the sticky thead against the table\'s own bounded box, the Save-this-model action pinned.',
       path: '/analysis/:runId/results/methods/:methodId',
       initialPath: `/analysis/${TXR_RUN_H.id}/results/methods/${TXR_RUN_H.methods[0].method_id}`,
       component: ShellHStory,
@@ -347,7 +347,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-results-long',
       title: 'Results (screen G) inside the shell — 300 patients',
-      note: 'The app-shell ITEM-4 long-table byte (the audit\'s "scroll the table region by 500 px" leg): the G frame over the 300-row fixture run with the row window OPEN — the heatmap\'s sticky header + pinned patient column answer the region, the whole table in the ONE region.',
+      note: 'The app-shell ITEM-4 long-table byte (the audit\'s "scroll the table region by 500 px" leg, results-table-height: the table\'s OWN bounded box is the scrollport): the G frame over the 300-row fixture run with the row window OPEN — the heatmap\'s sticky header + pinned patient column answer the box.',
       path: '/analysis/:runId/results',
       initialPath: `/analysis/${TXR_RUN_G_LONG.id}/results`,
       component: ShellGStoryLong,
@@ -355,7 +355,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-compare-long',
       title: 'Results compare (screen H) inside the shell — 95 rows',
-      note: 'The app-shell ITEM-4 long-table byte: the H compare frame over the 95-row fixture run — the bars table\'s thead sticks to the region top after a 500 px scroll.',
+      note: 'The app-shell ITEM-4 long-table byte, results-table-height: the H compare frame over the 95-row fixture run — the bars table\'s thead sticks to its box top after a 500 px scroll.',
       path: '/analysis/:runId/results/compare',
       initialPath: `/analysis/${TXR_RUN_H_LONG.id}/results/compare`,
       component: ShellHStoryLong,
@@ -363,7 +363,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-method-long',
       title: 'Results one method (screen H) inside the shell — 95 rows',
-      note: 'The app-shell ITEM-4 long-table byte on the one-method view: the same 95-row fixture run, the single method tab, the sticky thead.',
+      note: 'The app-shell ITEM-4 long-table byte on the one-method view, results-table-height: the same 95-row fixture run, the single method tab, the sticky thead against the table\'s own bounded box.',
       path: '/analysis/:runId/results/methods/:methodId',
       initialPath: `/analysis/${TXR_RUN_H_LONG.id}/results/methods/${TXR_RUN_H_LONG.methods[0].method_id}`,
       component: ShellHStoryLong,

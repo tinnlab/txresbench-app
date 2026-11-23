@@ -22,7 +22,12 @@ import {
  * Shift+Space (previous page) and Home/End (edges) while any of its
  * content has focus — the audit's "Tab reaches each region, PageDown/Space
  * scrolls it". A native control inside the region keeps its own key
- * behaviour (Space on a button activates the button).
+ * behaviour (Space on a button activates the button). A scroll box inside
+ * the region marked `data-txr-table-scroll` (the per-patient results
+ * tables' bounded boxes — results-table-height) keeps its OWN page keys:
+ * when the event target is inside such a box (never the region itself),
+ * the handler returns without acting, so the browser scrolls the focused
+ * box natively.
  *
  * The shadow cue is a state-driven overlay (the scroll event + a resize
  * observer), never a CSS `background-attachment` trick: the region's
@@ -178,6 +183,15 @@ export function ScrollRegion({
     if (isNativeControl(event.target)) return
     const el = scrollRef.current
     if (!el) return
+    // results-table-height: the per-patient results tables scroll inside
+    // their OWN bounded boxes (`data-txr-table-scroll`). When the focused
+    // element is inside such a box (but the box is not the region itself),
+    // the region does NOTHING — the browser scrolls the focused box
+    // natively (no preventDefault/stopPropagation).
+    if (event.target instanceof HTMLElement) {
+      const innerBox = event.target.closest('[data-txr-table-scroll]')
+      if (innerBox !== null && innerBox !== el) return
+    }
     // The metric snapshot is the input; the scroll-step helpers MUTATE it
     // (their contract — see TEST-AS-1's pins), so the result is written to
     // the element only after the switch (a fresh object per keypress: a

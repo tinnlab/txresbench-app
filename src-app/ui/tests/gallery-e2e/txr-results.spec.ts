@@ -29,7 +29,9 @@ import { expect, test, type Locator } from '@playwright/test'
  *     overflow + the header actions stay inside the viewport;
  *     `txr-results-not-found` / `txr-results-empty`: the two states render.
  *   · TEST-UR-15 (INV-2) — G: pinned patient column + sticky header
- *     (computed-position pins re-asserted after a real scroll), outcome-tab
+ *     (computed-position pins re-asserted after a real scroll against the
+ *     table's OWN bounded scroll box — results-table-height: the box, not
+ *     the page region, is the scrollport), outcome-tab
  *     switching with per-tab column sets, "Show all M"; H: the method
  *     tablist (Compare + per-method tabs), the bar table sorted by the first
  *     method, the compare card + divergent filter, the chance dialog.
@@ -220,16 +222,16 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
   }) => {
     await page.goto(`${GALLERY}txr-results-g`)
 
-    const heatmap = page.getByTestId('txr-heatmap')
+    const box = page.getByTestId('txr-heatmap')
+    const table = box.locator('table')
     const patientHeader = page.getByTestId('txr-heatmap-header-direct-on')
-    await expect(heatmap).toBeVisible()
+    await expect(box).toBeVisible()
     await expect(patientHeader).toBeVisible()
 
     // The corner (top-left) + header (top) + patient column (left) pins,
-    // re-asserted AFTER a real two-axis scroll inside the REGION (ITEM-3:
-    // the page's ONE ScrollRegion is the scrollport — the heatmap card is a
-    // plain bordered div, the native table is the two-axis byte).
-    const box = heatmap.locator('table')
+    // re-asserted AFTER a real two-axis scroll inside the table's OWN box
+    // (results-table-height: the box of RESULTS_TABLE_MAX_HEIGHT is the
+    // scrollport — the page's ScrollRegion scrolls the page around it).
     expect(await stickyFacts(box.locator('thead tr > *').first())).toMatchObject({
       position: 'sticky',
       top: '0px',
@@ -239,20 +241,22 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
     const patientColumn = page.getByTestId('txr-heatmap-row-S0001').locator('th')
     expect(await stickyFacts(patientColumn)).toMatchObject({ position: 'sticky', left: '0px' })
 
-    // The scrollport is the REGION (the card's old inner scroll box is gone):
-    // the 8-column table fits the 1280 frame, so the card is widened until
-    // the region's horizontal overflow is real, then BOTH axes scroll on the
-    // region — the element that actually scrolls (its scrollTop/scrollLeft).
-    const region = page.getByRole('region', { name: 'Patient predictions' })
-    await expect(region).toBeVisible()
-    await heatmap.evaluate(el => {
+    // The scrollport is the BOX: the 8-column table fits the 1280 frame, so
+    // the TABLE is widened until the box's horizontal overflow is real, then
+    // BOTH axes scroll on the box — the element that actually scrolls.
+    await table.evaluate(el => {
       el.style.width = '1600px'
     })
-    await region.evaluate(el => {
-      el.scrollTop = 200
+    const horizontal = await box.evaluate(el => {
       el.scrollLeft = 240
       el.dispatchEvent(new Event('scroll'))
+      return {
+        hOverflow: el.scrollWidth > el.clientWidth,
+        scrollLeft: el.scrollLeft,
+      }
     })
+    expect(horizontal.hOverflow, 'the box overflows horizontally').toBe(true)
+    expect(horizontal.scrollLeft).toBe(240)
 
     expect(await stickyFacts(box.locator('thead tr > *').first())).toMatchObject({
       position: 'sticky',
@@ -263,26 +267,41 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
     expect(await stickyFacts(patientColumn)).toMatchObject({ position: 'sticky', left: '0px' })
 
     // The pinned column never moves with the content: after scrolling 240 px
-    // right, the mounted patient column sits at the REGION's left edge (the
-    // scrollport's edge is the sticky pin's reference, never the card's).
-    const regionBox = await region.boundingBox()
+    // right, the mounted patient column sits at the BOX's left edge (the
+    // scrollport's edge is the sticky pin's reference).
+    const boxBox = await box.boundingBox()
     const pinned = await patientColumn.boundingBox()
-    expect(regionBox, 'region').not.toBeNull()
+    expect(boxBox, 'box').not.toBeNull()
     expect(pinned, 'patient column after scroll').not.toBeNull()
-    expect(Math.abs(pinned!.x - regionBox!.x), 'pinned patient column at the region edge').toBeLessThanOrEqual(3)
+    expect(Math.abs(pinned!.x - boxBox!.x), 'pinned patient column at the box edge').toBeLessThanOrEqual(3)
     // …while a method value moved with the content (the row-scoped value
     // selector: the sticky header th ends with the same column id).
     const firstRow = page.getByTestId('txr-heatmap-row-S0001')
     const valueBefore = await firstRow.locator('td[data-testid$="-direct-on"]').boundingBox()
-    await region.evaluate(el => {
+    await box.evaluate(el => {
       el.scrollLeft = 0
-      el.scrollTop = 0
       el.dispatchEvent(new Event('scroll'))
     })
     const valueAfter = await firstRow.locator('td[data-testid$="-direct-on"]').boundingBox()
     expect(valueBefore, 'chance value at scroll').not.toBeNull()
     expect(valueAfter, 'chance value at rest').not.toBeNull()
     expect(Math.abs(valueAfter!.x - valueBefore!.x)).toBeGreaterThan(200)
+
+    // The vertical pin: the corner header sticks to the BOX top after a
+    // 200 px scroll inside the box (the page region does not move).
+    const sticky = await box.evaluate(el => {
+      el.scrollTop = 200
+      el.dispatchEvent(new Event('scroll'))
+      const corner = el.querySelector<HTMLElement>('thead th')!
+      return {
+        scrollTop: el.scrollTop,
+        cornerPosition: getComputedStyle(corner).position,
+        cornerDelta: Math.abs(corner.getBoundingClientRect().top - el.getBoundingClientRect().top),
+      }
+    })
+    expect(sticky.scrollTop).toBeGreaterThan(0)
+    expect(sticky.cornerPosition, 'the corner header is sticky').toBe('sticky')
+    expect(sticky.cornerDelta, 'the corner header sticks to the box top').toBeLessThanOrEqual(2)
 
     // Outcome-tab switching: per-tab column sets (pfs 8 → os 2 → response 2)
     // and the tab labels riding the board's day wording.

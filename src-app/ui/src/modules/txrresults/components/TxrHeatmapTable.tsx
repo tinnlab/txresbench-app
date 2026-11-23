@@ -7,16 +7,16 @@
  * (bounded DOM no matter how many patients a run has), and the
  * "Scroll sideways…" sentence under the box.
  *
- * app-shell ITEM-3 — the region byte: the page owns ONE ScrollRegion and
- * the table lives IN it, so the REGION is the scrollport (the old
- * `max-height` + `overflow: auto` box is gone — a bounded inner scroller
- * would nest; DEC-3). The component reads the region element from
- * `ScrollRegionContext` (the DataTable wiring, txrshell ITEM-1) and
- * measures/scrolls THAT element; without a region (the module's own gallery
- * surfaces outside a shell) it falls back to its own box — the same
- * standalone mode the DataTable has. The sticky header and the pinned
- * patient column stick to the region's edges (the per-cell sticky byte, the
- * opaque surfaces in the CSS hooks).
+ * app-shell ITEM-3 — reversed for these tables (results-table-height): the
+ * page still owns ONE ScrollRegion (the region scrolls the page around the
+ * boxes), but each per-patient table now scrolls inside its OWN bounded
+ * box of `RESULTS_TABLE_MAX_HEIGHT` at the user's request — a long table
+ * scrolls in its fixed-height box, a short one keeps its natural height.
+ * The component therefore always measures and scrolls ITS OWN box (the
+ * row windowing, the overscan and the overflow sentences read the box,
+ * never the page region) — the standalone mode the DataTable has.
+ * The sticky header and the pinned patient column stick to the box's
+ * edges (the per-cell sticky byte, the opaque surfaces in the CSS hooks).
  *
  * DEC-11 — module-local native table, deliberately NOT the kit `Table`:
  * the board's construction is a native table with `position: sticky` on
@@ -29,8 +29,10 @@
  * A future kit gain (pinned-column support) is the refactor trigger.
  *
  * Row windowing (PROV-UR-5, DEC-12): fixed `HEATMAP_ROW_HEIGHT` rows; the
- * box mounts only the viewport row window (constant, the board's 470 px box
- * budget at the 36 px row pitch, ± the overscan) and the rows outside the
+ * box mounts only the viewport row window (`HEATMAP_VIEWPORT_ROWS` rows at
+ * the 36 px row pitch when the box is short, more when the
+ * `RESULTS_TABLE_MAX_HEIGHT` box is taller — the window is derived from the
+ * box's measured `clientHeight`, ± the overscan) and the rows outside the
  * window are replaced by invisible spacer rows — the native-table shape of
  * the window: a transformed overlay (translateY) inside a table breaks the
  * sticky cells, the spacer keeps the table's own row flow AND the two-axis
@@ -68,9 +70,8 @@
 import type { CSSProperties } from 'react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Button, Tooltip } from '@txresbench/kit'
-import { useScrollRegionElement } from '@/modules/txrshell/components/ScrollRegionContext'
 import type { TxrHeatmapRow, TxrHeatmapView } from '../types'
-import { formatPct } from '../lib/format'
+import { formatPct, RESULTS_TABLE_MAX_HEIGHT } from '../lib/format'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The windowing constants (PROV-UR-5: fixed row height + bounded window)
@@ -79,48 +80,45 @@ import { formatPct } from '../lib/format'
 /** The fixed row pitch — the window scroll math's single unit (PROV-UR-5). */
 export const HEATMAP_ROW_HEIGHT = 36
 
-/** The board's scroll box height (`max-height: 470px`, `BusyResults.dc.html`). */
-export const HEATMAP_MAX_HEIGHT = 470
-
 /**
- * The viewport budget the scroll box's max-height uses (qa-fixes RES-07):
- * a hard 470 px wasted most of a 1440x900 desktop screen (12 of 94 rows) —
- * the box now takes the room the viewport has (the shell's 56 px header
- * plus the page's own chrome ≈ 300 px), never less than the board's 470 px
- * cap. At 1440x900 the box is 600 px (16 rows of 36 px), on a phone the
- * 470 px floor keeps the board's shape.
- */
-export const HEATMAP_BOX_BUDGET_CSS = 'max(470px, calc(100dvh - 300px))'
-
-/**
- * The rows the board's box shows at once: the 470 px box minus the sticky
- * header band, at the 36 px row pitch. A named constant (not a measurement
- * round-trip): the box's height is the board's fixed cap, so the window it
- * feeds is deterministic and testable.
+ * The viewport row FLOOR: the rows the board's old 470 px box showed at
+ * once, minus the sticky header band, at the 36 px row pitch. The window's
+ * real viewport count is derived from the box's measured `clientHeight`
+ * (results-table-height's `max(320px, 60vh)` box can show more rows than the
+ * old 470 px one), never below this floor — the row-window tests and any
+ * caller that passes no viewport keep the old constant's meaning.
  */
 export const HEATMAP_VIEWPORT_ROWS = 12
 
 /** Extra rows mounted on either side of the viewport so a fast scroll never shows a gap. */
 export const HEATMAP_OVERSCAN_ROWS = 6
 
-/** The bounded mount window: viewport + both overscans (24 rows at any row count). */
+/** The default bounded mount window: viewport floor + both overscans (24 rows at any row count). */
 export const HEATMAP_WINDOW_ROWS = HEATMAP_VIEWPORT_ROWS + HEATMAP_OVERSCAN_ROWS * 2
 
 /**
  * The row window for a scroll position: rows `[start, end)` mount, the
  * rest are spacer rows. A negative/NaN scroll reads as the top; a scroll
  * past the bottom clamps to the last window (never a blank table); zero
- * rows → an empty window.
+ * rows → an empty window. `viewportRows` is the rows the box really shows
+ * (derived from its measured `clientHeight` in the component); it defaults
+ * to `HEATMAP_VIEWPORT_ROWS` so the pure-window tests and the standalone
+ * callers keep the old constant's meaning.
  */
-export function heatmapWindowOf(scrollTop: number, totalRows: number): { start: number; end: number } {
-  if (!Number.isFinite(scrollTop) || scrollTop < 0) return heatmapWindowOf(0, totalRows)
+export function heatmapWindowOf(
+  scrollTop: number,
+  totalRows: number,
+  viewportRows: number = HEATMAP_VIEWPORT_ROWS,
+): { start: number; end: number } {
+  if (!Number.isFinite(scrollTop) || scrollTop < 0) return heatmapWindowOf(0, totalRows, viewportRows)
   if (totalRows <= 0) return { start: 0, end: 0 }
+  const windowRows = viewportRows + HEATMAP_OVERSCAN_ROWS * 2
   const firstVisible = Math.floor(scrollTop / HEATMAP_ROW_HEIGHT)
   const start = Math.min(
     Math.max(firstVisible - HEATMAP_OVERSCAN_ROWS, 0),
-    Math.max(0, totalRows - HEATMAP_WINDOW_ROWS),
+    Math.max(0, totalRows - windowRows),
   )
-  const end = Math.min(totalRows, start + HEATMAP_WINDOW_ROWS)
+  const end = Math.min(totalRows, start + windowRows)
   return { start, end }
 }
 
@@ -191,11 +189,18 @@ export function chanceStyleOf(value01: number): { background: string; color: str
 
 const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 
-/** The table card (the region scrolls it — no inner scrollport, ITEM-3). */
+/**
+ * The table's OWN scroll box (results-table-height — the user's fixed-height
+ * byte): the border/radius card is the box again, bounded to
+ * `RESULTS_TABLE_MAX_HEIGHT` and scrollable on both axes; the row windowing
+ * and the overflow sentences measure THIS element, never the page region.
+ */
 const SCROLL_BOX: CSSProperties = {
   border: '1px solid var(--txr-border)',
   borderRadius: 10,
   minWidth: 0,
+  maxHeight: RESULTS_TABLE_MAX_HEIGHT,
+  overflow: 'auto',
 }
 
 const TABLE: CSSProperties = {
@@ -380,19 +385,22 @@ export function TxrHeatmapTable({ view }: TxrHeatmapTableProps) {
   const [scrollTop, setScrollTop] = useState(0)
   const [columnsOverflow, setColumnsOverflow] = useState(false)
   const [rowsOverflow, setRowsOverflow] = useState(false)
+  const [boxClientHeight, setBoxClientHeight] = useState(0)
   const boxRef = useRef<HTMLDivElement | null>(null)
-  const region = useScrollRegionElement()
   // The scrollport the windowing and the overflow sentences measure: the
-  // hosting ScrollRegion (ITEM-3 — the page's ONE scroll container), else
-  // the table's own card (the standalone mode: the module's stories, a
-  // dialog host). The effect re-attaches when the region publishes its
-  // element (the context value's identity changes with the node).
+  // table's OWN box (results-table-height — the user's fixed-height byte).
+  // The page's ScrollRegion stays the page scroller; this box is the
+  // table's. The effect runs once on mount (the ref is set by then).
   useLayoutEffect(() => {
-    const el = region?.current ?? boxRef.current
-    if (el === null || el === undefined) return
+    const el = boxRef.current
+    if (el === null) return
     const measure = () => {
       setColumnsOverflow(el.scrollWidth > el.clientWidth + 1)
       setRowsOverflow(el.scrollHeight > el.clientHeight + 1)
+      // The viewport row count derives from the box's measured height (a
+      // `max(320px, 60vh)` box shows more rows than the old 470 px one —
+      // the window grows with the box, never leaving rows as blank spacers).
+      setBoxClientHeight(el.clientHeight)
     }
     measure()
     const onScroll = () => {
@@ -405,8 +413,12 @@ export function TxrHeatmapTable({ view }: TxrHeatmapTableProps) {
       el.removeEventListener('scroll', onScroll)
       observer.disconnect()
     }
-  }, [region])
-  const windowed = heatmapWindowOf(scrollTop, rows.length)
+  }, [])
+  const viewportRows = Math.max(
+    HEATMAP_VIEWPORT_ROWS,
+    Math.ceil(boxClientHeight / HEATMAP_ROW_HEIGHT),
+  )
+  const windowed = heatmapWindowOf(scrollTop, rows.length, viewportRows)
   const visibleRows = rows.slice(windowed.start, windowed.end)
   // R2-11: the Average column is redundant when ONE method column is shown
   // (its per-patient value IS the average); it remains on the two-or-more
@@ -422,6 +434,10 @@ export function TxrHeatmapTable({ view }: TxrHeatmapTableProps) {
       <div
         ref={boxRef}
         data-testid="txr-heatmap"
+        data-txr-table-scroll=""
+        role="region"
+        aria-label="Chances per patient"
+        tabIndex={0}
         className="txr-results-table-box"
         style={SCROLL_BOX}
       >
