@@ -22,6 +22,7 @@
  *   partition — never a double count.
  */
 import type { TxrMethodCard } from '../types'
+import { RUNNER_UNAVAILABLE_FIX } from './format'
 
 /** The fixed family order (the generated enum order, the boards' order). */
 export const TXRMETHOD_GROUP_ORDER = [
@@ -299,6 +300,17 @@ export const TXRMETHOD_REASON_GROUPS: readonly TxrReasonGroupDef[] = [
     label: "No published environment",
     codes: ['ENV_IMAGE_MISSING', 'NOT_RUNNABLE'],
     fix: 'This method is not available yet.',
+  },
+  // RUNNER_UNAVAILABLE is NOT in the environment group: that group's label
+  // ("No published environment") is about the app's environments, while
+  // this code is a fact about THIS COMPUTER (Windows: WSL 2 unusable) — a
+  // runner card labelled with the environment sentence would be wrong. The
+  // machine fact gets its own section, right beside the environment one.
+  {
+    key: 'runner',
+    label: 'This computer cannot run methods',
+    codes: ['RUNNER_UNAVAILABLE'],
+    fix: RUNNER_UNAVAILABLE_FIX,
   },
   {
     key: 'marker',

@@ -597,10 +597,10 @@ export interface EligibilityResponse {
   /**
    * The `cannot_run` methods whose reason is
    *  [`ReasonCode::EnvImageMissing`] or [`ReasonCode::RunnerUnavailable`] —
-   *  the count of catalogue methods that fit but this computer cannot run
-   *  (no published environment available, or no method runner — Windows:
-   *  WSL 2), each method counted once, so the list header can say how many
-   *  exist while still listing them.
+   *  the count of catalogue methods this computer cannot run (no published
+   *  environment available, or no method runner — Windows: WSL 2), each
+   *  method counted once, so the list header can say how many exist while
+   *  still listing them.
    */
   total_no_env: number
   total_some: number

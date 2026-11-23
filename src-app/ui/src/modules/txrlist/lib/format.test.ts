@@ -13,7 +13,8 @@
  * this file" — the plan pins the "your file" spelling per EXAMPLE-UL-2).
  *
  * The reason-code cases below enumerate the whole vocabulary the switch
- * renders: the provider's closed 12-code set (PROV-MC-5) plus the two
+ * renders: the provider's closed 18-code set (PROV-MC-5 — the machine-
+ * reason pair ENV_IMAGE_MISSING / RUNNER_UNAVAILABLE included) plus the two
  * grown model-list codes (PROV-MS-9 / PROV-PC-8) — TEST-UL-13's
  * vocabulary check. `TxrReasonCode` is derived from the generated
  * `ReasonCode`, so `format.ts`'s exhaustiveness line fails the typecheck
@@ -155,6 +156,13 @@ describe('formatReasonLine', () => {
     )
     expect(formatReasonLine('cannot', SOME('ENV_IMAGE_MISSING'), COVERAGE(38, 38), minDraws, [])).toBe(
       'no published environment available',
+    )
+    // RUNNER_UNAVAILABLE is a fact about THIS COMPUTER (the start-up check
+    // found no usable method runner — Windows: WSL 2), pushed FIRST by the
+    // eligibility stage; the row says the machine fact plainly, never a
+    // study/answer blame.
+    expect(formatReasonLine('cannot', SOME('RUNNER_UNAVAILABLE'), COVERAGE(38, 38), minDraws, [])).toBe(
+      'This computer cannot run methods yet',
     )
     expect(formatReasonLine('cannot', SOME('TASK_INCOMPATIBLE'), COVERAGE(38, 38), minDraws, [])).toBe(
       'needs an outcome column your file lacks',
@@ -413,6 +421,7 @@ describe('formatReasonLine', () => {
       'DECISION_DAY_UNMET',
       'NOT_RUNNABLE',
       'ENV_IMAGE_MISSING',
+      'RUNNER_UNAVAILABLE',
       'TASK_INCOMPATIBLE',
       'RESPONSE_LABEL_MISSING',
       'SURVIVAL_OUTCOME_MISSING',
