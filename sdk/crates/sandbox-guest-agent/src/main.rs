@@ -183,20 +183,28 @@ fn vm_main() {
             init_mounts();
             cgroup_init();
 
-            let bpf = build_seccomp_bpf();
+            let bpf = build_seccomp_bpf(Guest::Vm);
 
             // libkrun bridges this vsock port to a unix socket on the host.
             serve_vsock(VSOCK_PORT, bpf).await
         })
 }
 
-/// Build the seccomp BPF once from the shared policy crate (identical to the
-/// Linux host). Per-exec we pipe these bytes to bwrap's --seccomp fd. If the
+/// Build the seccomp BPF once from the shared policy crate. VM mode uses the
+/// shared filter, byte for byte the one the Linux host runs; WSL mode uses
+/// `build_bpf_wsl`, which additionally answers `NOOP_IN_WSL` syscalls with
+/// success without doing them — in WSL there is no cgroup cpuset, so a method
+/// could otherwise call `sched_setaffinity` to widen the CPU set the agent
+/// pinned. Per-exec we pipe these bytes to bwrap's --seccomp fd. If the
 /// build fails (a broken guest image), execs that request seccomp fail
 /// closed rather than running unfiltered.
 #[cfg(target_os = "linux")]
-fn build_seccomp_bpf() -> Option<Arc<Vec<u8>>> {
-    match sandbox_seccomp::build_bpf() {
+fn build_seccomp_bpf(guest: Guest) -> Option<Arc<Vec<u8>>> {
+    let built = match guest {
+        Guest::Wsl => sandbox_seccomp::build_bpf_wsl(),
+        Guest::Vm => sandbox_seccomp::build_bpf(),
+    };
+    match built {
         Ok((bytes, unresolved)) => {
             if !unresolved.is_empty() {
                 tracing::warn!(?unresolved, "agent: some seccomp DENY entries unresolved on this kernel");
@@ -235,7 +243,7 @@ fn stdio_main(args: &cli::StdioArgs) -> i32 {
         say(&format!("setup failed: {why}"));
         return cli::EXIT_SETUP;
     }
-    let bpf = build_seccomp_bpf();
+    let bpf = build_seccomp_bpf(Guest::Wsl);
     let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
@@ -2101,5 +2109,25 @@ mod tests {
         req.cpu_slots = None;
         let (listed, _) = run_cpu_report(&mut req).await;
         assert_eq!(listed, allowed, "unpinned child has the agent's own mask");
+    }
+
+    #[test]
+    fn wsl_mode_builds_the_wsl_filter_vm_mode_the_shared_filter() {
+        let wsl = build_seccomp_bpf(Guest::Wsl).expect("the WSL filter builds");
+        let vm = build_seccomp_bpf(Guest::Vm).expect("the VM filter builds");
+
+        // WSL mode must pick the WSL builder (the one that no-ops
+        // `sched_setaffinity`) and VM mode the shared builder (byte for byte
+        // the Linux host's filter): the wiring is what keeps the two —
+        // and only the two — filters in place.
+        let (wsl_direct, _) = sandbox_seccomp::build_bpf_wsl().expect("the WSL filter builds directly");
+        let (shared_direct, _) = sandbox_seccomp::build_bpf().expect("the shared filter builds directly");
+        assert_eq!(wsl.as_ref(), &wsl_direct, "WSL mode must use the WSL filter");
+        assert_eq!(vm.as_ref(), &shared_direct, "VM mode must use the shared filter");
+        assert_ne!(
+            wsl.as_ref(),
+            vm.as_ref(),
+            "the WSL filter adds no-op rules, so the two must differ"
+        );
     }
 }
