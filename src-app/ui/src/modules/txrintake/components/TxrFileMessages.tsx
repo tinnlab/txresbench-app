@@ -7,9 +7,8 @@
  *
  * The card host (`TxrFileCard`) places these parts in a full-width row
  * INSIDE the card — the card's own last child, after its two halves, with
- * the file's title ("Patients file: <name>"), for the C and N screens'
- * `messages: 'row'` cards; the E-screen "Change files" dialog keeps the
- * inline mount, under the preview, without the title. The parts themselves
+ * the file's title ("Patients file: <name>") — for the C and N screens'
+ * cards and the E-screen "Change files" dialog alike. The parts themselves
  * (content, tone, buttons and test ids) are the card's former ones, byte
  * for byte; the offers report the same OFFER OBJECT to the same host
  * callbacks.

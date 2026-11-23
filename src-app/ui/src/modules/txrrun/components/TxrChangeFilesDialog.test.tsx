@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type {
   FileInspection,
@@ -118,6 +118,21 @@ function pickFile(testId: string, name: string) {
   fireEvent.change(input, { target: { files: [file] } })
 }
 
+/** step3-file-cards A in the dialog: a card WITH a chosen file holds its
+ *  own messages row — INSIDE that card, as its LAST child, after BOTH
+ *  halves (the role table and the "Choose a different file" link). */
+function expectCardMessagesRow(kind: 'patients' | 'measurements') {
+  const card = screen.getByTestId(`txr-intake-file-card-${kind}`)
+  const row = screen.getByTestId(`txr-intake-file-messages-${kind}`)
+  expect(card.contains(row)).toBe(true)
+  expect(card.lastElementChild).toBe(row)
+  const roleTable = card.querySelector('table.txr-intake-role-table') as HTMLElement
+  expect(roleTable).toBeTruthy()
+  const chooseAgain = within(card).getByTestId(`txr-intake-file-choose-again-${kind}`)
+  expect(roleTable.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(chooseAgain.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+}
+
 beforeEach(() => {
   window.localStorage.clear()
   useTxrIntakeStore.getState().reset()
@@ -139,6 +154,9 @@ describe('TxrChangeFilesDialog (E change-files, TEST-RUN-14)', () => {
     expect(screen.getByTestId('txr-intake-file-card-patients')).toBeTruthy()
     expect(screen.getByTestId('txr-intake-file-card-measurements')).toBeTruthy()
     expect(screen.getByText('Change files')).toBeTruthy()
+    // Each card holds its own file's messages row (step3-file-cards A).
+    expectCardMessagesRow('patients')
+    expectCardMessagesRow('measurements')
   })
 
   it('mounts ONLY the predict-measurements card in the predict flow (the N-screen spec)', () => {
@@ -150,6 +168,19 @@ describe('TxrChangeFilesDialog (E change-files, TEST-RUN-14)', () => {
     expect(screen.getByTestId('txr-intake-file-card-measurements')).toBeTruthy()
     expect(screen.queryByTestId('txr-intake-file-card-patients')).toBeNull()
     expect(screen.getByText('Measurements of the patients to predict')).toBeTruthy()
+    expectCardMessagesRow('measurements')
+  })
+
+  it('a card without a file has no messages row, the filled card keeps its row', () => {
+    useTxrIntakeStore.setState({
+      mode: 'study',
+      patients: null,
+      measurements: loaded('measurements.csv'),
+    })
+    renderDialog('study')
+    expect(screen.getByTestId('txr-intake-file-card-patients')).toBeTruthy()
+    expect(screen.queryByTestId('txr-intake-file-messages-patients')).toBeNull()
+    expect(screen.getByTestId('txr-intake-file-messages-measurements')).toBeTruthy()
   })
 
   it('the remove affordance is the store action: the slot file is gone, validation invalidated', () => {
@@ -196,6 +227,9 @@ describe('TxrChangeFilesDialog (E change-files, TEST-RUN-14)', () => {
   it('a pick from disk hands off to the mode change-files target (predict → /predict-files)', () => {
     useTxrIntakeStore.setState({ mode: 'predict', predictMeasurements: null })
     renderDialog('predict')
+    // No file in the predict card: no messages row.
+    expect(screen.getByTestId('txr-intake-file-card-measurements')).toBeTruthy()
+    expect(screen.queryByTestId('txr-intake-file-messages-measurements')).toBeNull()
     pickFile('txr-intake-file-drop-measurements', 'new_measurements.csv')
     expect(routeAt()).toBe('/predict-files')
   })
