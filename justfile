@@ -83,10 +83,16 @@ test-unit:
 #     workspace cannot even resolve here. The leg therefore tests the SQLITE driver
 #     variant (`--no-default-features --features sqlite-backend,routes,module`): the same
 #     crate surfaces (routes + module on) with the driver the app itself consumes. The
-#     `--exclude`s are sandbox-guest-agent and sandbox-seccomp ONLY — their test binaries
-#     link `-lseccomp`, and the gate image ships just `libseccomp2`, no `libseccomp-dev`;
-#     the repo's own runner for those two is sdk/scripts/test-guest-agent-linux.sh (a
-#     Docker image with libseccomp-dev + bwrap + privilege for the WSL-mode e2e).
+#     `--exclude` is sandbox-guest-agent ONLY — the crate's test population is SPLIT: its
+#     unit tests run in `guest-agent-unit-test` below, and tests/wsl_stdio.rs is the
+#     WSL-mode end-to-end suite whose `#[ignore]`d tests need root + bwrap + privilege (own
+#     runner: sdk/scripts/test-guest-agent-linux.sh, a Docker image with libseccomp-dev +
+#     bwrap + privilege), a lane the gate image cannot provide, so the crate stays out of
+#     this workspace run rather than being half-run. sandbox-seccomp is INCLUDED: the gate
+#     image ships libseccomp-dev 2.5.4, so its test binaries link `-lseccomp` and run —
+#     the AF_VSOCK pin (`deny_socket_families_pins_af_vsock`) and the built-filter socket
+#     rule (`a_filtered_process_cannot_create_a_vsock_socket`) among them, the exact tests
+#     the Linux server's filter gate (the refusal in the Linux server) depends on.
 #     `-- --test-threads=1`: the parallel default trips a pre-existing global
 #     storage re-init race in txresbench-file's http_routes suite (flaky 404s; the same
 #     binary passes serially), so the leg runs every test deterministically. KNOWN REDS
@@ -99,6 +105,20 @@ test-unit:
 #     txresbench-desktop`): 103 tests including tests/update_check_seam.rs (the only
 #     runtime network call's seam) and tests/build_sidecar.rs. Tauri links against the
 #     GTK/WebKit system libs the gate image has. No adjustments needed.
+#
+# The seccomp gate (with the new image): the gate image now ships libseccomp-dev 2.5.4, so the
+# filter the Linux server refuses to run WITHOUT (the refusal in the Linux server) is tested rather than left to
+# the compile-only legs. Two new legs, both in the same diff as the floors:
+#   - `server-seccomp-test` builds the server lib with `--features sandbox_seccomp`
+#     (the SDK BPF filter compiled at boot; the feature is OFF by default, so every
+#     other leg keeps building without libseccomp) and runs the `sandbox::` unit tests —
+#     the `Loaded` path with a REAL compiled filter, which the no-feature build cannot
+#     reach. `-- --test-threads=1` matches the other crate-test legs.
+#   - `guest-agent-unit-test` runs the guest agent's UNIT tests. The form is `--bins`,
+#     because the crate is bin-only (no lib target — `--lib --bins` is a cargo error,
+#     measured) and `--bins` deliberately never compiles tests/wsl_stdio.rs: its
+#     `#[ignore]`d tests need root + bwrap + privilege and stay in
+#     sdk/scripts/test-guest-agent-linux.sh, not in the gate.
 #
 # `--min-legs` (11 -> 13) rises with the two legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
 # the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
@@ -188,14 +208,20 @@ test-unit:
 # `--min-legs` (16 -> 18) rises with the two legs; AGGREGATE_FLOORS / MIN_LEGS_FLOOR /
 # the doc and the `check` byte-pin move in the same diff, so the recipe cannot be edited
 # into agreement with itself.
+#
+# `--min-legs` (18 -> 20) rises with the two seccomp legs above; AGGREGATE_FLOORS /
+# MIN_LEGS_FLOOR, the doc and the `check` byte-pin move in the same diff, so the recipe
+# cannot be edited into agreement with itself.
 check:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 18 --controls-leg check-aggregate-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check' --min-legs 20 --controls-leg check-aggregate-controls <<'LEGS'
     check-aggregate-controls node --test "{{justfile_directory()}}/scripts/check-aggregate.test.mjs"
     cargo-check-workspace cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo check --workspace --tests
-    sdk-crates-test cd {{justfile_directory()}}/sdk && cargo test --workspace --no-default-features --features "sqlite-backend,routes,module" --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1
+    sdk-crates-test cd {{justfile_directory()}}/sdk && cargo test --workspace --no-default-features --features "sqlite-backend,routes,module" --exclude sandbox-guest-agent --no-fail-fast -- --test-threads=1
     desktop-crate-test cd {{justfile_directory()}} && cargo test -p txresbench-desktop
+    server-seccomp-test cd {{justfile_directory()}} && cargo test -p txresbench --lib --features sandbox_seccomp sandbox:: -- --test-threads=1
+    guest-agent-unit-test cd {{justfile_directory()}}/sdk && cargo test -p sandbox-guest-agent --bins
     sdk-ts-test cd {{justfile_directory()}} && npm test --workspace=@txresbench/framework --workspace=@txresbench/kit --workspace=@txresbench/gallery --workspace=@txresbench/shell --workspace=@txresbench/config
     gallery-guards cd {{ui_dir}} && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs --build && node {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.mjs && node --test {{justfile_directory()}}/sdk/packages/gallery/scripts/check-harness-parity.test.mjs
     site-test cd {{justfile_directory()}} && node --test 'site/tests/*.test.mjs'

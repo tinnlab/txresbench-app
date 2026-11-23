@@ -52,15 +52,15 @@ pre-existing and now visible, not introduced. Each red belongs to its own issue 
 own owner. The strip node removed the legs whose subjects left the tree (the
 processor-package, env-recipe and coercion legs) and moved the `--min-legs` floor with
 the removal; the aggregate keeps one floor per critical line of defence
-(`check` 18, `check-invariants` 9, `check-guards` 6) and `check-aggregate.test.mjs`
+(`check` 20, `check-invariants` 9, `check-guards` 6) and `check-aggregate.test.mjs`
 asserts all of them. (`check`'s floor rose 5 -> 11 when the UI `npm run check` chain —
 one opaque leg whose red first link hid `test:unit` — was split into one `ui-*` leg per
 link, the same class of failure this document is about, one level down. It rose again
 11 -> 13 when gate-tests phase 2 added the two Rust crate-test legs —
 `sdk-crates-test` (the SDK crates' own tests, `cargo test --workspace` in the nested sdk/
 workspace, in the sqlite-backend driver variant the gate image can build, with
-sandbox-guest-agent and sandbox-seccomp excluded because their test binaries need the
-`libseccomp-dev` the image lacks) and `desktop-crate-test`
+sandbox-guest-agent and sandbox-seccomp excluded at the time because their test binaries
+need the `libseccomp-dev` the image then lacked) and `desktop-crate-test`
 (`cargo test -p txresbench-desktop`, which links and passes) — both populations the gate
 had previously only compiled, never run. It rose again 13 -> 16 when gate-tests phase 3
 added `sdk-ts-test` (the npm `test` script of the five SDK packages that declare one —
@@ -86,7 +86,16 @@ checkout) — the failures are per-file NAMED reds listed in the phase-4 change 
 never skipped, never edited to pass. TEST-26 in `check-aggregate.test.mjs` asserts the
 coverage claim over the filesystem: every `scripts/` `*.test.mjs` and `*.test.py` is
 either covered by one of the two legs' globs or named in an exclusion list with the leg
-that runs it.)
+that runs it.) It rose again 18 -> 20 when the gate image gained libseccomp-dev 2.5.4
+with the new image: `sdk-crates-test` dropped its `--exclude sandbox-seccomp`, so the seccomp
+crate's own tests (the AF_VSOCK pin and the built-filter socket rule the Linux server's
+filter gate depends on) run in the workspace leg again, and two seccomp legs were added —
+`server-seccomp-test` (`cargo test -p txresbench --lib --features sandbox_seccomp
+sandbox:: -- --test-threads=1`: the server's `Loaded` path with a real compiled BPF
+filter, which the default no-feature build cannot reach) and `guest-agent-unit-test`
+(`cargo test -p sandbox-guest-agent --bins`: the bin-only crate's unit tests, with the
+privileged WSL-mode end-to-end suite in tests/wsl_stdio.rs deliberately left out — it
+needs root + bwrap + privilege and stays in sdk/scripts/test-guest-agent-linux.sh).)
 
 ## §5 Non-negotiables
 
