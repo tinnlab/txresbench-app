@@ -304,6 +304,120 @@ function sectionSubtitle(set: SetSummary, models: ModelSummary[]): string {
 }
 
 /**
+ * One screen-J inventory section (screen J's set grouping): a set's title +
+ * the models listed under it, facts spelled by `formatSetFacts` from the
+ * `SetSummary` when the sets read has answered, and the row keys' source.
+ */
+export interface ModelSetSection {
+  /** The stable section key: the set id, or `MODEL_SET_NONE_KEY`. */
+  key: string
+  /** The section title (the set's name, or 'Not in a set'). */
+  title: string
+  /** The set's record (facts source); null for the not-in-a-set section
+   *  and for the sets-read-not-answered fallback groups. */
+  set: SetSummary | null
+  /** The section's models, in the inventory list's order. */
+  models: ModelSummary[]
+  /** True for the not-in-a-set section (the brief's no-actions row). */
+  unsetted: boolean
+}
+
+/** The not-in-a-set section's stable key (no `SetSummary` ever carries it;
+ *  the underscored spelling keeps a real set id of that raw word from
+ *  colliding with it — the section key must never equal a provider set id). */
+export const MODEL_SET_NONE_KEY = '__none__'
+
+/**
+ * The screen-J section join (the inventory grouped by set): one section
+ * per set the inventory knows, newest set first, then a LAST section for
+ * the models whose set is not in the sets list ("Not in a set" — a missing
+ * `set_id`, or a `set_id` the sets read does not know).
+ *
+ * Ordering: known sets by `created_at` desc (the newest set first); the
+ * not-in-a-set section is always last.
+ *
+ * The `sets` contract: `null` means the sets read has NOT answered yet (or
+ * failed) — the grouping then degrades to the rows' own facts (the set
+ * name from `set_name`, the section order by the rows' newest
+ * `created_at`) so the inventory never flashes everything into
+ * "Not in a set" while the two reads race, and a failed sets read still
+ * renders the rows. A non-null list is the provider's truth: a `set_id`
+ * not in it (a set deleted from under the rows) goes to "Not in a set".
+ *
+ * A section with no listed model is omitted — the server-side `q`/`?set=`
+ * filters leave the empty sections hidden (a search hit or the set focus
+ * shows only the sections that match).
+ */
+export function buildModelSetSections(
+  sets: SetSummary[] | null,
+  models: ModelSummary[],
+): ModelSetSection[] {
+  const known = new Map((sets ?? []).map(set => [set.id, set] as const))
+  const byId = new Map<string, ModelSummary[]>()
+  const unsetted: ModelSummary[] = []
+  for (const model of models) {
+    const id = model.set_id?.trim() ?? ''
+    if (id.length === 0 || (sets !== null && !known.has(id))) {
+      unsetted.push(model)
+      continue
+    }
+    const bucket = byId.get(id) ?? []
+    bucket.push(model)
+    byId.set(id, bucket)
+  }
+
+  const sections: ModelSetSection[] = []
+  const knownSets = (sets ?? []).slice().sort(
+    (a, b) => dateInstant(b.created_at) - dateInstant(a.created_at),
+  )
+  for (const set of knownSets) {
+    const list = byId.get(set.id) ?? []
+    if (list.length === 0) continue
+    sections.push({ key: set.id, title: set.name, set, models: list, unsetted: false })
+  }
+
+  // The sets read not answered: the groups the known-sets loop did not
+  // emit, named from the rows' own `set_name`, newest row first.
+  const fallback = [...byId.entries()].filter(([id]) => !known.has(id))
+  fallback.sort((a, b) => newestInstant(b[1]) - newestInstant(a[1]))
+  for (const [id, list] of fallback) {
+    const name = list.find(model => model.set_name?.trim())?.set_name?.trim() ?? id
+    sections.push({ key: id, title: name, set: null, models: list, unsetted: false })
+  }
+
+  if (unsetted.length > 0) {
+    sections.push({
+      key: MODEL_SET_NONE_KEY,
+      title: 'Not in a set',
+      set: null,
+      models: unsetted,
+      unsetted: true,
+    })
+  }
+  return sections
+}
+
+/** The instant a date string names; an unparseable string is -Infinity —
+ *  an unknown date sorts LAST in both comparators, never arbitrarily
+ *  placed by a NaN comparison (NaN < any number is false, so the sort
+ *  treats it as equal and the position is unspecified). */
+function dateInstant(value: string): number {
+  const t = Date.parse(value)
+  return Number.isNaN(t) ? -Infinity : t
+}
+
+/** The group's newest `created_at` instant (-Infinity for a group whose
+ *  dates are all unparseable — the group sorts last). */
+function newestInstant(models: ModelSummary[]): number {
+  let newest = -Infinity
+  for (const model of models) {
+    const t = dateInstant(model.created_at)
+    if (t > newest) newest = t
+  }
+  return newest
+}
+
+/**
  * The screen-I section join (INV-2: models from one training run are
  * grouped): one `TxrListSection` per saved set, in the sets list's order,
  * with the set's row keys (the set's models in the summaries list order)

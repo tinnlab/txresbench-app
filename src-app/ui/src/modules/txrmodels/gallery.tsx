@@ -705,7 +705,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-models-j',
       title: 'Your models (screen J)',
-      note: 'The inventory table over the server-filtered read: the board columns, the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the Open-a-model-file button, the footnotes with the real models root and no open-folder button (web mode).',
+      note: 'The inventory grouped by set over the server-filtered read: one section per set (newest first, facts line from the SetSummary — model count, run source, made date) plus the last "Not in a set" section for the imported row, the board columns, the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the Open-a-model-file button, the footnotes with the real models root and no open-folder button (web mode).',
       path: '/models',
       initialPath: '/models',
       component: lazy(() => Promise.resolve({ default: JStoryView })),

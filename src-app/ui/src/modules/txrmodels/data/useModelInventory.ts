@@ -27,7 +27,7 @@
  * nothing over a transient error) and surfaces the error line beside the
  * Retry; a failed read with NO response at all is the error state.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import type { ModelListResponse } from '@/api-client/types'
 
@@ -119,10 +119,16 @@ export function useModelInventory(
       })
   }, [query, setId, tick])
 
+  /** Re-issue the read for the current (query, set) view; a stable
+   *  identity (the page's refresh useCallback depends on it). */
+  const refresh = useCallback((): void => {
+    setTick(t => t + 1)
+  }, [])
+
   return {
     response,
     loading,
     error,
-    refresh: () => setTick(t => t + 1),
+    refresh,
   }
 }

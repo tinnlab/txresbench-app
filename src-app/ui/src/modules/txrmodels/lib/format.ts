@@ -140,7 +140,9 @@ export function formatPredicts(
 // `formatMade` / `formatTrainedOn` — the J "Made" and "Trained on" columns
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The pinned month-day-year formatter (the boards' day-month-year spelling). */
+/** The Made-column date formatter (the boards' day-month-year spelling;
+ *  the instant renders in the viewer's local time zone, like every other
+ *  date label in the app — only the locale is pinned, never the zone). */
 const MADE_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
   month: 'short',
@@ -266,6 +268,70 @@ export function formatTrainedDateShort(value: string | null | undefined): string
   const date = parseDate(value)
   if (date === null) return null
   return TRAINED_DATE_FORMAT.format(date)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatSetFacts` — screen J's section facts line (Models.dc.html)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The screen-J section facts line: one section per model set, the facts
+ * joined with the board's " · " separator, each part only when it applies:
+ *
+ * - `<N> models` / `1 model` — the section's count (the set's
+ *   `model_count`, singular at one; the caller passes the count);
+ * - `from the run “<source_label>”` — the set came from a training run
+ *   (`source_run_id` present) and carries a `source_label`;
+ * - `from the file “<imported_from>”` — the set is an import (no run) and
+ *   the rows carry the file they were opened from (`imported_from`);
+ * - `from “<source_label>”` — the honest fallback when the set has a
+ *   source label but it cannot be told apart as run or file (the
+ *   brief's degraded spelling);
+ * - `made <date>` — the set's `created_at` through the same en-GB
+ *   day-month-year formatter the Made column uses (the viewer's local time
+ *   zone, never a pinned zone);
+ * - `training files kept` — the set's `keep_training_files` fact.
+ *
+ * The caller decides run/file/ambiguous from the provider facts; this
+ * function only spells them. A not-in-a-set section calls it with only
+ * the count — the bare "1 model" / "N models" line (no other part
+ * applies to a row with no set).
+ */
+export interface ModelSetFactsInput {
+  /** The count (the set's `model_count`; the listed count for no set). */
+  count: number
+  /** The set's `created_at` (the "made" fact); null = omit. */
+  createdAt: string | null | undefined
+  /** The set's `keep_training_files`. */
+  keepTrainingFiles: boolean
+  /** The set's `source_label` ("patients.csv"-style); null = omit. */
+  sourceLabel: string | null | undefined
+  /** True when the set came from a run (`source_run_id` present). */
+  fromRun: boolean
+  /** The rows' own `imported_from` (the file an imported set was opened
+   *  from); null = omit. */
+  importedFrom: string | null | undefined
+}
+
+export function formatSetFacts(input: ModelSetFactsInput): string {
+  const parts: string[] = []
+  const count = input.count
+  if (Number.isFinite(count)) {
+    parts.push(`${count} ${count === 1 ? 'model' : 'models'}`)
+  }
+  const label = input.sourceLabel?.trim() ?? ''
+  const file = input.importedFrom?.trim() ?? ''
+  if (input.fromRun && label.length > 0) {
+    parts.push(`from the run \u201c${label}\u201d`)
+  } else if (!input.fromRun && file.length > 0) {
+    parts.push(`from the file \u201c${file}\u201d`)
+  } else if (!input.fromRun && label.length > 0) {
+    parts.push(`from \u201c${label}\u201d`)
+  }
+  const date = parseDate(input.createdAt)
+  if (date !== null) parts.push(`made ${MADE_DATE_FORMAT.format(date)}`)
+  if (input.keepTrainingFiles) parts.push('training files kept')
+  return parts.join(' \u00b7 ')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

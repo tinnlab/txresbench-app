@@ -36,6 +36,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  TXRMODELS_J_RESPONSE,
   TXRMODELS_PRETRAINED,
   TXRMODELS_PRETRAINED_ELIGIBILITY,
   TXRMODELS_SAVED,
@@ -43,7 +44,12 @@ import {
   TXRMODELS_SET_A,
   TXRMODELS_SET_B,
 } from '../fixtures'
-import { buildPretrainedRows, buildSavedRows, buildSavedSections } from './rows'
+import {
+  buildModelSetSections,
+  buildPretrainedRows,
+  buildSavedRows,
+  buildSavedSections,
+} from './rows'
 import type { ModelSummary, PretrainedListResponse } from '@/api-client/types'
 
 /** A local-noon instant, so the en-GB date rendering is zone-independent. */
@@ -299,5 +305,110 @@ describe('buildSavedSections — the I run groups (TEST-MOD-06, INV-2)', () => {
     )
     expect(built[0].rowKeys).toHaveLength(7)
     expect(built[0].rowKeys).not.toContain(orphan.id)
+  })
+})
+
+describe('buildModelSetSections — the J set groups (TEST-MOD-06)', () => {
+  it('groups one section per known set, newest first, with the not-in-a-set section last', () => {
+    const built = buildModelSetSections(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      TXRMODELS_J_RESPONSE.models,
+    )
+    expect(built.map(section => section.key)).toEqual(['set-a', 'set-b', '__none__'])
+    expect(built[0].title).toBe('CRC cohort, day 60')
+    // The set-a section holds the two rows whose set_id names set-a (the
+    // set's own model_count is the facts line's, never the listed count).
+    expect(built[0].models.map(model => model.method_id)).toEqual([
+      'landmark-cox-current',
+      'relchange-threshold',
+    ])
+    expect(built[0].models).toHaveLength(2)
+    expect(built[0].set).toEqual(TXRMODELS_SET_A)
+    expect(built[1].set).toEqual(TXRMODELS_SET_B)
+    expect(built[2].unsetted).toBe(true)
+    expect(built[2].title).toBe('Not in a set')
+    expect(built[2].set).toBeNull()
+    expect(built[2].models.map(model => model.id)).toEqual([
+      TXRMODELS_J_RESPONSE.models[2].id,
+    ])
+  })
+
+  it('sends a set_id the sets list does not know into the not-in-a-set section', () => {
+    const ghost = {
+      ...TXRMODELS_J_RESPONSE.models[0],
+      id: 'a0000000-0000-4000-8000-000000000099',
+      set_id: 'set-ghost',
+      set_name: 'Ghost set',
+    }
+    const built = buildModelSetSections([TXRMODELS_SET_A], [
+      ghost,
+      TXRMODELS_J_RESPONSE.models[0],
+    ])
+    expect(built.map(section => section.key)).toEqual(['set-a', '__none__'])
+    expect(built[1].models.map(model => model.id)).toEqual([ghost.id])
+    expect(built[1].unsetted).toBe(true)
+  })
+
+  it('omits sections with no listed model (the server-side q/set filters)', () => {
+    const built = buildModelSetSections(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      TXRMODELS_J_RESPONSE.models.filter(model => model.set_id === 'set-b'),
+    )
+    expect(built.map(section => section.key)).toEqual(['set-b'])
+  })
+
+  it('degrades to the rows\' own facts while the sets read has not answered (null), newest row first', () => {
+    const built = buildModelSetSections(null, TXRMODELS_J_RESPONSE.models)
+    expect(built.map(section => section.key)).toEqual(['set-a', 'set-b', '__none__'])
+    // The rows' own set_name names the section (never a fabricated title).
+    expect(built[0].title).toBe('CRC cohort, day 60')
+    expect(built[0].set).toBeNull()
+    expect(built[0].unsetted).toBe(false)
+    // Order by the groups' newest row: set-a's row 14 (4 Dec) over set-b's
+    // rows (9/29 Nov) — the set summaries are unknown here.
+    expect(built[0].models.map(model => model.id)).toEqual([
+      TXRMODELS_J_RESPONSE.models[0].id,
+      TXRMODELS_J_RESPONSE.models[3].id,
+    ])
+    expect(built[1].unsetted).toBe(false)
+    expect(built[2].unsetted).toBe(true)
+  })
+
+  it('sorts an unparseable created_at last in both comparators (never a NaN placement)', () => {
+    const undatedModel = {
+      ...TXRMODELS_J_RESPONSE.models[0],
+      id: 'a0000000-0000-4000-8000-0000000000e1',
+      set_id: 'set-undated',
+      set_name: 'Undated set',
+      created_at: 'not-a-date',
+    }
+    // The known-sets comparator: a set whose date does not parse sorts
+    // after every dated set (a NaN comparison would leave the position
+    // arbitrary).
+    const undatedSet = {
+      ...TXRMODELS_SET_B,
+      id: 'set-undated',
+      name: 'Undated set',
+      created_at: 'not-a-date',
+    }
+    const built = buildModelSetSections(
+      [undatedSet, TXRMODELS_SET_A, TXRMODELS_SET_B],
+      [undatedModel, ...TXRMODELS_J_RESPONSE.models],
+    )
+    expect(built.map(section => section.key)).toEqual([
+      'set-a',
+      'set-b',
+      'set-undated',
+      '__none__',
+    ])
+    // The fallback comparator (the sets read not answered): the undated
+    // group sorts after every dated group, still before not-in-a-set.
+    const fallback = buildModelSetSections(null, [undatedModel, ...TXRMODELS_J_RESPONSE.models])
+    expect(fallback.map(section => section.key)).toEqual([
+      'set-a',
+      'set-b',
+      'set-undated',
+      '__none__',
+    ])
   })
 })

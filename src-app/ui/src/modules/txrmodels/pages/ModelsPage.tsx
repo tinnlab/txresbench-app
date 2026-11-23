@@ -51,7 +51,7 @@
  * provider's `models_dir` remains in the API response; only its rendering
  * was removed, qa-fixes4 ITEM-1).
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiClient } from '@/api-client'
@@ -64,9 +64,17 @@ import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { runAction } from '@/core/actions/defineAction'
 import { Alert, Button, Input } from '@txresbench/kit'
 import { useModelInventory } from '../data/useModelInventory'
+import { useModelSets } from '../data/useModelSets'
 import { downloadModelExport, modelExportLabel } from '../lib/export'
 import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
-import { formatMade, formatModelSublines, formatPredicts, formatTrainedOn } from '../lib/format'
+import {
+  formatMade,
+  formatModelSublines,
+  formatPredicts,
+  formatSetFacts,
+  formatTrainedOn,
+} from '../lib/format'
+import { buildModelSetSections, type ModelSetSection } from '../lib/rows'
 import { TxrDeleteModelDialog } from '../components/TxrDeleteModelDialog'
 import { TxrRenameModelDialog } from '../components/TxrRenameModelDialog'
 
@@ -131,6 +139,39 @@ const TABLE_BOX: CSSProperties = {
   borderRadius: 10,
   background: 'var(--txr-surface)',
   minWidth: 0,
+}
+
+/** One set's section (the header + the same table the flat page had). */
+const SECTION: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  minWidth: 0,
+}
+
+/** The section header (title + facts, one wrapping line — phone width). */
+const SECTION_HEADER: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'baseline',
+  gap: '2px 12px',
+  padding: '0 2px',
+  minWidth: 0,
+}
+
+/** The section title (the board's model-set heading). */
+const SECTION_TITLE: CSSProperties = {
+  margin: 0,
+  fontFamily: "'Source Serif 4', Georgia, serif",
+  fontWeight: 600,
+  fontSize: 18,
+  lineHeight: 1.3,
+}
+
+/** The section facts line (muted, one line — the I run-facts precedent). */
+const SECTION_FACTS: CSSProperties = {
+  fontSize: 13.5,
+  color: 'var(--txr-muted)',
 }
 
 const TABLE: CSSProperties = {
@@ -228,6 +269,10 @@ const SET_FOCUS: CSSProperties = {
 /** The empty/loading/muted line inside the table box. */
 const BOX_LINE: CSSProperties = { padding: '14px', fontSize: 13.5, color: 'var(--txr-muted)' }
 
+/** The sets-read failure line (muted — the rows stay grouped, the facts
+ *  fall back to the rows' own; only the failure is announced). */
+const SETS_ERROR_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-muted)' }
+
 /** The empty state's lead sentence. */
 const EMPTY_LINE = 'No models yet.'
 
@@ -262,6 +307,44 @@ function errorText(error: unknown): string {
   return ACTION_FAILED_LINE
 }
 
+/**
+ * One section's facts line from the section's provider facts (the pure
+ * `formatSetFacts` — the section header reads ONLY engine facts, never a
+ * constant):
+ *
+ * - a set section: the set's `model_count`, its run/file/source fact, its
+ *   `created_at` and `keep_training_files`; the import file is the rows'
+ *   own `imported_from` (the subline's fact — a set imported from a file
+ *   has no `source_run_id`, and the rows carry the file they were opened
+ *   from);
+ * - the not-in-a-set section: the bare count line (no set facts exist).
+ */
+function setFactsLine(section: ModelSetSection): string {
+  if (section.unsetted) {
+    return formatSetFacts({
+      count: section.models.length,
+      createdAt: null,
+      keepTrainingFiles: false,
+      sourceLabel: null,
+      fromRun: false,
+      importedFrom: null,
+    })
+  }
+  const set = section.set
+  const importedFrom =
+    section.models
+      .map(model => model.imported_from?.trim() ?? '')
+      .find(value => value.length > 0) ?? null
+  return formatSetFacts({
+    count: set?.model_count ?? section.models.length,
+    createdAt: set?.created_at ?? null,
+    keepTrainingFiles: set?.keep_training_files ?? false,
+    sourceLabel: set?.source_label ?? null,
+    fromRun: set?.source_run_id !== undefined && set?.source_run_id !== null,
+    importedFrom,
+  })
+}
+
 /** The one row dialog at a time (rename or delete; the plan's per-action confirmations). */
 type RowDialog = { kind: 'rename' | 'delete'; model: ModelSummary } | null
 
@@ -279,6 +362,10 @@ export function ModelsPage() {
 
   const [search, setSearch] = useState('')
   const inventory = useModelInventory({ query: search, setId })
+  // The sets read is the section headers' facts source (model_count,
+  // source_label, created_at, keep_training_files) — loaded and refreshed
+  // with the model list (a mutation can change a set's rows/count).
+  const sets = useModelSets()
   const [rowDialog, setRowDialog] = useState<RowDialog>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   // Where the desktop app's Save dialog put an exported model file.
@@ -294,7 +381,28 @@ export function ModelsPage() {
    *  name). */
   const focusedSetName = setId === null ? null : (models[0]?.set_name ?? setId)
 
-  const refresh = inventory.refresh
+  /** The section view: one section per set, newest first, the not-in-a-set
+   *  section last; the builder omits sections with no listed model (the
+   *  server-side `q`/`?set=` filters leave only the matching sections).
+   *
+   *  A sets re-read IN FLIGHT passes `null` (the fallback grouping): while
+   *  the refresh is pending, a model of a brand-new set (an import just
+   *  created it) is grouped by its own `set_name` — the sets list may not
+   *  know it yet, and the not-in-a-set section must never flash it. */
+  const sections = useMemo(
+    () => buildModelSetSections(sets.loading ? null : (sets.response?.sets ?? null), models),
+    [sets.loading, sets.response, models],
+  )
+
+  /** The post-mutation refresh: the model list AND the sets (the section
+   *  headers' facts are the sets read's — a rename/import/delete can
+   *  change both). */
+  const { refresh: refreshInventory } = inventory
+  const { refresh: refreshSets } = sets
+  const refresh = useCallback((): void => {
+    refreshInventory()
+    refreshSets()
+  }, [refreshInventory, refreshSets])
 
   /** Use — the DEC-10 handoff: intent reuse + the pending model id, then
    *  the N screen (the user adds the predict file; the I screen preselects
@@ -366,7 +474,11 @@ export function ModelsPage() {
 
   // The pending first read is the only in-flight state the page shows as a
   // line; later re-reads keep the table (the hook keeps the last response).
-  const firstLoading = inventory.loading && inventory.response === null
+  // The sets read rides the same gate: the section headers need it, so the
+  // first paint waits for BOTH first responses (they fire in parallel).
+  const firstLoading =
+    (inventory.loading && inventory.response === null) ||
+    (sets.loading && sets.response === null)
 
   return (
     <main
@@ -459,6 +571,11 @@ export function ModelsPage() {
                 </Button>
               </div>
             ) : null}
+            {inventory.error === null && sets.error !== null ? (
+              <div data-testid="txr-models-j-sets-error" style={SETS_ERROR_LINE}>
+                The set details could not be loaded.
+              </div>
+            ) : null}
             {importError !== null ? (
               <Alert tone="error" data-testid="txr-models-j-import-error" title={importError} />
             ) : null}
@@ -473,35 +590,53 @@ export function ModelsPage() {
         body={
           <ScrollRegion label="Your models" className="txr-models-j-region">
             <div style={REGION_CONTENT}>
-              <div style={TABLE_BOX}>
         {firstLoading ? (
-          <div data-testid="txr-models-j-loading" style={BOX_LINE}>
-            Loading models…
+          <div style={TABLE_BOX}>
+            <div data-testid="txr-models-j-loading" style={BOX_LINE}>
+              Loading models…
+            </div>
           </div>
         ) : models.length === 0 ? (
-          <div
-            data-testid={search.trim().length > 0 || setId !== null ? 'txr-models-j-no-match' : 'txr-models-j-empty'}
-            style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 20, alignItems: 'flex-start' }}
-          >
-            <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
-              {search.trim().length > 0 || setId !== null ? NO_MATCH_LINE : EMPTY_LINE}
-            </p>
-            {search.trim().length === 0 && setId === null ? (
-              <>
-                <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }}>{EMPTY_NOTE}</p>
-                {!isDemo ? (
-                  <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
-                    {IMPORT_LABEL}
-                  </Button>
-                ) : null}
-              </>
-            ) : null}
+          <div style={TABLE_BOX}>
+            <div
+              data-testid={search.trim().length > 0 || setId !== null ? 'txr-models-j-no-match' : 'txr-models-j-empty'}
+              style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 20, alignItems: 'flex-start' }}
+            >
+              <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
+                {search.trim().length > 0 || setId !== null ? NO_MATCH_LINE : EMPTY_LINE}
+              </p>
+              {search.trim().length === 0 && setId === null ? (
+                <>
+                  <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }}>{EMPTY_NOTE}</p>
+                  {!isDemo ? (
+                    <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
+                      {IMPORT_LABEL}
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
           </div>
         ) : (
+          sections.map(section => (
+            <section
+              key={section.key}
+              data-testid={`txr-models-j-section-${section.key}`}
+              style={SECTION}
+              aria-labelledby={`txr-models-j-title-${section.key}`}
+            >
+              <header style={SECTION_HEADER}>
+                <h2 id={`txr-models-j-title-${section.key}`} style={SECTION_TITLE}>
+                  {section.title}
+                </h2>
+                <span style={SECTION_FACTS}>{setFactsLine(section)}</span>
+              </header>
+              <div style={TABLE_BOX}>
           <table
             data-testid="txr-models-j-table"
             className="txr-models-j-table"
             style={TABLE}
+            aria-labelledby={`txr-models-j-title-${section.key}`}
           >
             <thead>
               <tr>
@@ -517,7 +652,7 @@ export function ModelsPage() {
               </tr>
             </thead>
             <tbody>
-              {models.map(model => {
+              {section.models.map(model => {
                 const setName =
                   model.set_name !== null &&
                   model.set_name !== undefined &&
@@ -610,11 +745,13 @@ export function ModelsPage() {
                     </td>
                   </tr>
                 )
-              })}
+                })}
             </tbody>
           </table>
-        )}
               </div>
+            </section>
+          ))
+        )}
             </div>
           </ScrollRegion>
         }

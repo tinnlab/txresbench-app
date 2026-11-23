@@ -355,16 +355,35 @@ test.describe('txr-models-i — choose the saved models (TEST-MOD-18)', () => {
 })
 
 test.describe('txr-models-j — your models (TEST-MOD-18)', () => {
-  test('the inventory table, the imported row, the footnotes, web-mode open-folder', async ({
+  test('the set sections, the inventory table, the imported row, the footnotes, web-mode open-folder', async ({
     page,
   }) => {
     await page.goto(`${GALLERY}txr-models-j`)
 
     await expect(page.getByTestId('txr-models-j')).toBeVisible()
-    await expect(page.getByTestId('txr-models-j-table')).toBeVisible()
+    await expect(page.getByTestId('txr-models-j-table').first()).toBeVisible()
+
+    // ── the two set sections (newest first) + the not-in-a-set section ──
+    const setA = page.getByTestId('txr-models-j-section-set-a')
+    await expect(setA).toContainText('CRC cohort, day 60')
+    await expect(setA).toContainText(
+      '7 models · from the run \u201cpatients.csv\u201d · made 29 Nov 2026',
+    )
+    const setB = page.getByTestId('txr-models-j-section-set-b')
+    await expect(setB).toContainText('Lung pilot, day 35')
+    await expect(setB).toContainText(
+      '3 models · from the run \u201clung-pilot.csv\u201d · made 9 Oct 2026',
+    )
+    const none = page.getByTestId('txr-models-j-section-__none__')
+    await expect(none).toContainText('Not in a set')
+    await expect(none).toContainText('1 model')
 
     // ── the board columns + a run-trained row's subline ──
-    const header = await page.getByTestId('txr-models-j-table').locator('thead').textContent()
+    const header = await page
+      .getByTestId('txr-models-j-table')
+      .first()
+      .locator('thead')
+      .textContent()
     for (const column of ['Model', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made']) {
       expect(header, `column ${column}`).toContain(column)
     }
