@@ -31,6 +31,8 @@ const WAIT: Duration = Duration::from_secs(30);
 const E2E_CONTAINER_ENV: &str = "TXR_GUEST_AGENT_E2E_CONTAINER";
 /// Set by the method in [`SCRIPT`] to make [`vsock_probe`] probe.
 const VSOCK_PROBE_ENV: &str = "TXR_VSOCK_PROBE";
+/// Set by the method in [`AFFINITY_SCRIPT`] to make [`affinity_probe`] probe.
+const AFFINITY_PROBE_ENV: &str = "TXR_AFFINITY_PROBE";
 
 // ---- the vsock probe ----------------------------------------------------
 
@@ -91,6 +93,74 @@ fn vsock_probe() {
     for (call, answer) in vsock_answers() {
         println!("{call}={answer}");
     }
+}
+
+// ---- the affinity probe -------------------------------------------------
+
+/// The caller's allowed CPUs from `sched_getaffinity(0, ..)`, ascending;
+/// raw libc only, like [`vsock_answers`]. This is what the agent computes
+/// too (it is started from the same process and inherits the mask).
+fn own_allowed_cpus() -> Vec<usize> {
+    let size = std::mem::size_of::<libc::cpu_set_t>();
+    let mut set = std::mem::MaybeUninit::<libc::cpu_set_t>::zeroed();
+    // SAFETY: on success `sched_getaffinity` writes exactly `size` bytes into
+    // `set`; it is called with the size of the very type it fills.
+    let rc = unsafe { libc::sched_getaffinity(0, size, set.as_mut_ptr()) };
+    assert_eq!(
+        rc,
+        0,
+        "sched_getaffinity: {}",
+        std::io::Error::last_os_error()
+    );
+    let set = unsafe { set.assume_init() };
+    cpus_of(&set)
+}
+
+/// The CPUs set in `set`, ascending.
+fn cpus_of(set: &libc::cpu_set_t) -> Vec<usize> {
+    (0..libc::CPU_SETSIZE as usize)
+        .filter(|&cpu| unsafe { libc::CPU_ISSET(cpu, set) })
+        .collect()
+}
+
+/// `cpus` comma-separated, as a CPU set is reported (`1,3-4` style ranges
+/// are not expanded here: the lists are always one number per CPU).
+fn format_cpus(cpus: &[usize]) -> String {
+    cpus.iter()
+        .map(|c| c.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Not a test of its own: the program the method in [`AFFINITY_SCRIPT`] runs
+/// inside the sandbox (this test binary, bound at `/opt/vsock-probe`). With
+/// `TXR_AFFINITY_PROBE=1` it prints three lines — the CPUs it is allowed on,
+/// what the widest `sched_setaffinity(2)` a method could ask for returned,
+/// and the CPUs it is allowed on afterwards; without, it does nothing.
+#[test]
+fn affinity_probe() {
+    if std::env::var_os(AFFINITY_PROBE_ENV).is_none() {
+        return;
+    }
+    // libtest has printed `test affinity_probe ... ` with no newline.
+    println!();
+    let allowed = own_allowed_cpus();
+    // The widest set a method could ask for: every bit set (the kernel keeps
+    // only the CPUs that exist).
+    let mut all = std::mem::MaybeUninit::<libc::cpu_set_t>::zeroed();
+    // SAFETY: CPU_ZERO initializes the whole set, and each `cpu` below
+    // `CPU_SETSIZE` is within CPU_SET's domain.
+    unsafe {
+        libc::CPU_ZERO(&mut *all.as_mut_ptr());
+        for cpu in 0..libc::CPU_SETSIZE as usize {
+            libc::CPU_SET(cpu, &mut *all.as_mut_ptr());
+        }
+    }
+    let all = unsafe { all.assume_init() };
+    let rc = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &all) };
+    println!("allowed={}", format_cpus(&allowed));
+    println!("widen-rc={rc}");
+    println!("after={}", format_cpus(&own_allowed_cpus()));
 }
 
 // ---- without root -------------------------------------------------------
@@ -658,6 +728,12 @@ echo result > /output/out.txt
 mkdir -p /output/sub && printf y > /output/sub/y
 exit 7"#;
 
+/// The method for the CPU-affinity e2e tests: runs the affinity probe, keeps
+/// its three `allowed=`/`widen-rc=`/`after=` lines (the surrounding libtest
+/// chatter is filtered out), and exits 0.
+const AFFINITY_SCRIPT: &str = r#"TXR_AFFINITY_PROBE=1 /opt/vsock-probe --exact affinity_probe --nocapture --test-threads=1 | grep -E '^(allowed|widen-rc|after)='
+exit 0"#;
+
 /// Mount point -> (fs type, mount options) for the mounts at `points` in a
 /// process's mount namespace.
 fn mounts_of(pid: &str, points: &[&str]) -> Vec<(String, String, String)> {
@@ -976,6 +1052,69 @@ fn e2e_a_request_of_another_protocol_version_exits_4_and_runs_nothing() {
     assert_eq!(code, Some(4), "{stderr}");
     assert!(rest.is_empty(), "no frame: {rest:?}");
     assert_nothing_left(&fx);
+}
+
+/// Run [`AFFINITY_SCRIPT`] with `req` (whose `cpu_slots` the caller set) and
+/// return the stdout the method printed. The script writes no progress line
+/// and needs no `/input/go`: the harness here reads straight to
+/// [`Frame::ArtifactsDone`] and insists the method exited 0.
+fn run_affinity_method(req: ExecRequest) -> String {
+    let fx = Fixture::new();
+    let mut agent = Agent::start(&fx.args(), Start::Direct);
+    agent.send(&encode(&Frame::Exec(req)));
+    let frames = agent.frames_until(|f| matches!(f, Frame::ArtifactsDone));
+    let (code, rest, stderr) = agent.finish();
+    assert_eq!(code, Some(0), "agent stderr:\n{stderr}");
+    assert!(
+        frames.contains(&Frame::Exit(ExitStatus {
+            code: 0,
+            timed_out: false
+        })),
+        "the method exited 0: {frames:?}"
+    );
+    assert!(rest.is_empty(), "nothing after ArtifactsDone: {rest:?}");
+    assert_nothing_left(&fx);
+    stdout_text(&frames, true)
+}
+
+/// A method pinned to CPU slot 1 — the agent's second allowed CPU — runs on
+/// that CPU only, and the widening `sched_setaffinity(2)` the WSL filter
+/// answers with success is a no-op: the mask does not change.
+#[test]
+#[ignore = "needs root in a privileged container: sdk/scripts/test-guest-agent-linux.sh"]
+fn e2e_a_pinned_method_stays_on_its_cpus() {
+    // The agent is started from this test and inherits its CPU set, so the
+    // slot resolution (`slot s` → the agent's `s % n`-th allowed CPU) is
+    // computed from what the test itself is allowed on.
+    let agent_cpus = own_allowed_cpus();
+    if agent_cpus.len() < 2 {
+        eprintln!("SKIPPED: needs at least 2 CPUs");
+        return;
+    }
+    let mut req = exec_request(AFFINITY_SCRIPT);
+    req.cpu_slots = Some(vec![1]);
+    let pin = agent_cpus[1].to_string();
+    assert_eq!(
+        run_affinity_method(req),
+        format!("allowed={pin}\nwiden-rc=0\nafter={pin}\n"),
+        "the pin must hold and the sched_setaffinity no-op must not widen it"
+    );
+}
+
+/// Without CPU slots the method keeps the agent's whole allowed CPU set; the
+/// widening call is still answered with success and changes nothing.
+#[test]
+#[ignore = "needs root in a privileged container: sdk/scripts/test-guest-agent-linux.sh"]
+fn e2e_an_unpinned_method_runs_on_every_cpu_of_the_agent() {
+    let agent_cpus = own_allowed_cpus();
+    let mut req = exec_request(AFFINITY_SCRIPT);
+    req.cpu_slots = None;
+    let all = format_cpus(&agent_cpus);
+    assert_eq!(
+        run_affinity_method(req),
+        format!("allowed={all}\nwiden-rc=0\nafter={all}\n"),
+        "without slots the method keeps the agent's whole CPU set"
+    );
 }
 
 #[test]
