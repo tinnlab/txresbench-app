@@ -377,10 +377,18 @@ mod tests {
         //   view, declared in stepTrail.ts),
         // - `methods.applyPreset` on `txr.method-picker` (the choose-methods
         //   page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
+        // - `methods.setTicked` on `txr.method-picker` (the choose-methods
+        //   page's method picker: one card's tick, and the automatic untick
+        //   when Extra inputs are turned off,
+        //   `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
         // - `models.run` on `txr.model-list` (the run button of the saved and
         //   ready-made model lists, `src-app/ui/src/modules/txrmodels/lib/modelRun.ts`),
         // - `flow.setLastDrawDay` on `txr.step` (the last-draw day of the
         //   questions step),
+        // - `runSettings.setCovariates` on `txr.run-settings` (the
+        //   choose-methods page's Extra inputs switch, also turned on by
+        //   itself when a chosen method needs it,
+        //   `src-app/ui/src/modules/txrrun/lib/settings.ts`),
         // - `runSettings.setDay` on `txr.run-settings` (the choose-methods
         //   page's day settings, `src-app/ui/src/modules/txrrun/lib/settings.ts`),
         // - and `sandbox.setupWsl` on `txr.wsl-setup` (active while the app
@@ -406,8 +414,10 @@ mod tests {
                 ("flow.setLastDrawDay", "txr.step"),
                 ("help.backToStep", "txr.helpFromStep"),
                 ("methods.applyPreset", "txr.method-picker"),
+                ("methods.setTicked", "txr.method-picker"),
                 ("models.run", "txr.model-list"),
                 ("models.switchList", "txr.modelStep"),
+                ("runSettings.setCovariates", "txr.run-settings"),
                 ("runSettings.setDay", "txr.run-settings"),
                 ("sandbox.setupWsl", "txr.wsl-setup"),
             ],
