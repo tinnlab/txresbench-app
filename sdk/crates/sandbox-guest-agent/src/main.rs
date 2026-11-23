@@ -641,10 +641,11 @@ where
 
     // CPU pinning (the host gives each concurrent run its own CPU slots, only
     // in WSL: the macOS host never sends them, and the macOS VM is sized by
-    // its vCPU count instead). Best-effort: a pinning failure or an empty CPU
-    // list leaves the command unpinned — pinning is a resource control and
-    // must never stop a run — and is reported as one stderr line.
-    if let Some(slots) = req.cpu_slots.as_deref() {
+    // its vCPU count instead). Best-effort: a pinning failure leaves the
+    // command unpinned — pinning is a resource control and must never stop a
+    // run — and is reported as one stderr line. `None` and an empty list both
+    // mean "no pinning" (the protocol doc says so), so neither is reported.
+    if let Some(slots) = req.cpu_slots.as_deref().filter(|s| !s.is_empty()) {
         match allowed_cpus().map(|allowed| pinned_cpus(&allowed, slots)) {
             Ok(cpus) if !cpus.is_empty() => {
                 pin_command(&mut cmd, &cpus);
@@ -2109,6 +2110,31 @@ mod tests {
         req.cpu_slots = None;
         let (listed, _) = run_cpu_report(&mut req).await;
         assert_eq!(listed, allowed, "unpinned child has the agent's own mask");
+    }
+
+    #[tokio::test]
+    async fn exec_with_empty_cpu_slots_runs_on_the_agents_own_allowed_cpus() {
+        // An empty list means "no pinning" exactly like `None` (the protocol
+        // doc says so): the child inherits the agent's mask, and the agent
+        // sends no "CPU pinning skipped" stderr line for it.
+        let allowed = allowed_cpus().expect("sched_getaffinity succeeds");
+        let mut req = echo_exec(vec!["-c", "grep Cpus_allowed_list /proc/self/status"]);
+        req.cpu_slots = Some(vec![]);
+        let (listed, frames) = run_cpu_report(&mut req).await;
+        assert_eq!(listed, allowed, "unpinned child has the agent's own mask");
+        let stderr: Vec<u8> = frames
+            .iter()
+            .filter_map(|f| match f {
+                Frame::Stderr(b) => Some(b.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let msg = String::from_utf8_lossy(&stderr);
+        assert!(
+            !msg.contains("CPU pinning skipped"),
+            "an empty slot list is no pinning, not a skip: {msg:?}"
+        );
     }
 
     #[test]

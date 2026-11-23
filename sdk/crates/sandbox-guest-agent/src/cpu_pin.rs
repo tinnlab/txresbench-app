@@ -28,15 +28,15 @@ pub fn pinned_cpus(allowed: &[usize], slots: &[u32]) -> Vec<usize> {
 /// ascending list, one entry per CPU in the mask.
 #[cfg(target_os = "linux")]
 pub fn allowed_cpus() -> std::io::Result<Vec<usize>> {
-    let mut set = std::mem::MaybeUninit::<libc::cpu_set_t>::uninit();
+    let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::cpu_set_t>();
-    // SAFETY: `set` is uninitialized but `sched_getaffinity` writes exactly
-    // `size` bytes on success; on failure (rc < 0) it is never read.
-    let rc = unsafe { libc::sched_getaffinity(0, size, set.as_mut_ptr()) };
+    // SAFETY: `set` is a valid, all-zero (empty) cpu_set_t; `sched_getaffinity`
+    // writes exactly `size` bytes over it on success, and on failure (rc < 0)
+    // the set is never read.
+    let rc = unsafe { libc::sched_getaffinity(0, size, &mut set) };
     if rc < 0 {
         return Err(std::io::Error::last_os_error());
     }
-    let set = unsafe { set.assume_init() };
     let mut cpus = Vec::new();
     for cpu in 0..libc::CPU_SETSIZE as usize {
         // SAFETY: `cpu < CPU_SETSIZE`, the domain `CPU_ISSET` is defined on.
@@ -53,21 +53,25 @@ pub fn allowed_cpus() -> std::io::Result<Vec<usize>> {
 /// already carry a pre_exec (e.g. the seccomp fd); closures run in order.
 #[cfg(target_os = "linux")]
 pub fn pin_command(cmd: &mut tokio::process::Command, cpus: &[usize]) {
-    let mut set = std::mem::MaybeUninit::<libc::cpu_set_t>::uninit();
-    // SAFETY: CPU_ZERO initializes the whole set; CPU_SET operates in the
-    // domain the set covers (`cpu < CPU_SETSIZE`), so no bit is out of range.
+    // Start from an all-zero (empty) cpu_set_t, then CPU_ZERO (no-op here,
+    // but the canonical clears-it call) and CPU_SET add the bits, all BEFORE
+    // spawn; a `pre_exec` closure sets the child's affinity between fork and
+    // exec. A cmd may already carry a pre_exec (e.g. the seccomp fd);
+    // closures run in order.
+    let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `set` is a valid, fully initialized cpu_set_t; `CPU_ZERO`
+    // clears it and every `CPU_SET` uses `cpu < CPU_SETSIZE`, the domain
+    // `CPU_ZERO`/`CPU_SET` are defined on.
     unsafe {
-        let ptr = set.as_mut_ptr();
-        libc::CPU_ZERO(&mut *ptr);
+        libc::CPU_ZERO(&mut set);
         for &cpu in cpus {
             // A CPU at or past CPU_SETSIZE cannot be represented; skip it.
             // (Callers only pass CPUs from `allowed_cpus()`, all under it.)
             if cpu < libc::CPU_SETSIZE as usize {
-                libc::CPU_SET(cpu, &mut *ptr);
+                libc::CPU_SET(cpu, &mut set);
             }
         }
     }
-    let set = unsafe { set.assume_init() };
     // SAFETY: the closure runs in the child, between fork and exec: only
     // async-signal-safe code may run there, and it makes exactly one syscall
     // — no allocation, no logging. The `sched_setaffinity` return value is

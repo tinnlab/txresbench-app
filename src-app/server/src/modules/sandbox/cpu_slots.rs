@@ -88,6 +88,14 @@ impl Drop for CpuLease {
 /// macOS VM path mirrors that clamp (`service.rs`: vCPUs clamped to the host
 /// CPU count), so slot allocation can never be asked for more distinct slots
 /// than the machine has CPUs.
+///
+/// The slot count is the WINDOWS CPU count (the host DEC-12 uses): WSL may
+/// expose fewer CPUs (`.wslconfig processors=`), and the agent then maps slot
+/// `s` to its `s % n`-th allowed CPU (`n` = WSL's exposed count). So when WSL
+/// exposes fewer CPUs than there are slots, concurrent leases can share a CPU
+/// and a run may end up on fewer CPUs than `n_cpu` — still bounded by what the
+/// host asked for, and the agent's pinning is best-effort, so a shortage never
+/// fails a run.
 pub fn global() -> &'static Arc<CpuSlots> {
     static GLOBAL: OnceLock<Arc<CpuSlots>> = OnceLock::new();
     GLOBAL.get_or_init(|| {
