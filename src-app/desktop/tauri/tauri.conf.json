@@ -29,7 +29,12 @@
     ],
     "resources": ["resources/pretrained-bundled"],
     "externalBin": ["binaries/oras"],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "linux": {
+      "deb": {
+        "depends": ["libseccomp2"]
+      }
+    }
   },
   "plugins": {
     "updater": {
