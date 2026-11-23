@@ -9,6 +9,9 @@ use crate::common::TestServer;
 
 mod dev_registry_test;
 mod method_env_layer_test;
+// The real Linux stack (bwrap, squashfuse, docker, oras) with Unix file modes and
+// symbolic links: not built on Windows, where methods run in WSL instead.
+#[cfg(unix)]
 mod method_stack_test;
 mod settings_test;
 mod wsl_setup_test;
