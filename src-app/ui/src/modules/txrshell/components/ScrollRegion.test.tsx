@@ -134,6 +134,53 @@ describe('ScrollRegion render (TEST-AS-1)', () => {
     expect(onKey.defaultPrevented).toBe(false)
   })
 
+  it('a marked inner table box keeps its own PageDown (results-table-height — the box scrolls itself)', () => {
+    render(
+      <MemoryRouter initialEntries={['/files']}>
+        <ScrollRegion label="The two file cards">
+          <div className="txr-results-table-box">
+            <div data-txr-table-scroll="" tabIndex={0}>
+              <span>a row</span>
+            </div>
+          </div>
+        </ScrollRegion>
+      </MemoryRouter>,
+    )
+    const region = screen.getByTestId('txr-scroll-region')
+    // jsdom has no layout: the region would scroll if the handler acted.
+    Object.defineProperties(region, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 2000 },
+    })
+    // Focus (and dispatch) INSIDE the marked box: the region must do
+    // NOTHING and must not prevent — the browser scrolls the box itself
+    // (the region's handler only answers keys whose target is not inside a
+    // `data-txr-table-scroll` box that is not the region itself).
+    const row = screen.getByText('a row')
+    const down = new KeyboardEvent('keydown', {
+      key: 'PageDown',
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      row.dispatchEvent(down)
+    })
+    expect(down.defaultPrevented).toBe(false)
+    expect(region.scrollTop).toBe(0)
+    // The marked box itself as the target: still untouched by the region.
+    const box = region.querySelector<HTMLElement>('[data-txr-table-scroll]')!
+    const onBox = new KeyboardEvent('keydown', {
+      key: 'PageDown',
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      box.dispatchEvent(onBox)
+    })
+    expect(onBox.defaultPrevented).toBe(false)
+    expect(region.scrollTop).toBe(0)
+  })
+
   it('a scroll updates the cache under the route+label key', () => {
     renderRegion()
     const region = screen.getByTestId('txr-scroll-region')

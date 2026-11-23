@@ -557,8 +557,11 @@ html.txr-shell-mode-shell #root {
    * mid-word. Below 640 px the card scrolls sideways inside itself (the J
    * table precedent — the R2-03 "table without a value column" and the
    * one-method tab keep the same box), so nothing is cut without a
-   * scrollport. The sticky patient column sticks to this box; the desktop
-   * and shell-mode layouts keep the region as the scrollport. */
+   * scrollport. The sticky patient column sticks to this box — the box is
+   * the table's own scrollport in every mode (results-table-height: the
+   * per-patient tables scroll inside their OWN bounded box of
+   * RESULTS_TABLE_MAX_HEIGHT; the page's ScrollRegion scrolls the page
+   * around the boxes). */
   .txr-results-table-box {
     max-width: 100%;
     overflow-x: auto;

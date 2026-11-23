@@ -15,8 +15,12 @@ import { expect, test } from '@playwright/test'
  *    story frame — see the ITEM-2/3 specs' note);
  *  · the header's bounding box is identical before and after scrolling
  *    EVERY region (not only the first scrollable one);
- *  · every route with more content than fits has at least one region and at
- *    most two;
+ *  · every route with more content than fits has at least one PAGE region
+ *    and at most two (the audit's "at most two"; the per-patient results
+ *    tables' own bounded scroll boxes of `RESULTS_TABLE_MAX_HEIGHT` —
+ *    results-table-height — are regions too and carry the
+ *    `data-txr-table-scroll` marker, so they are excluded from this
+ *    page-region count);
  *  · nothing extends beyond the viewport (the story frame's horizontal
  *    scrollWidth byte + the routed area's own);
  *  · the run bar is visible at all times on `/choose-methods`;
@@ -27,9 +31,11 @@ import { expect, test } from '@playwright/test'
  *    `txr-shell-app.spec.ts`: the gallery mounts stories under a
  *    MemoryRouter, so the browser history is not the app's);
  *  · the long-table byte: after scrolling a table region by 500 px the
- *    thead top equals the region top — on the 300-row heatmap and the
+ *    thead top equals the scroll box top — on the 300-row heatmap and the
  *    95-row compare / one-method fixtures (the four routes the audit
- *    measured holding long tables);
+ *    measured holding long tables; results-table-height: the tables'
+ *    OWN bounded scroll boxes are the scrollports now, the page regions
+ *    scroll the page around them);
  *  · at 390x844 (flow mode) on all fourteen routes: the document scrolls
  *    normally, the header is sticky and ONE 56 px row.
  *
@@ -159,14 +165,22 @@ for (const route of ROUTES) {
         `${route.label}@${size.width}x${size.height} routed-area overflow px`,
       ).toBeLessThanOrEqual(routed!.clientHeight + 1)
 
-      // One or two regions (the audit's region-count byte).
-      const labels = await regionLabels(page)
+      // One or two PAGE regions (the audit's region-count byte; the
+      // per-patient results tables' own bounded scroll boxes — the
+      // `data-txr-table-scroll` markers, results-table-height — are regions
+      // too and are excluded here by that exact marker, never by a suffix
+      // guess on the test id).
+      const pageLabels = await page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLElement>('[role="region"]'))
+          .filter(el => !el.hasAttribute('data-txr-table-scroll'))
+          .map(el => el.getAttribute('aria-label') ?? ''),
+      )
       expect(
-        labels.length,
+        pageLabels.length,
         `${route.label}@${size.width}x${size.height} region count`,
       ).toBeGreaterThanOrEqual(1)
       expect(
-        labels.length,
+        pageLabels.length,
         `${route.label}@${size.width}x${size.height} region count`,
       ).toBeLessThanOrEqual(2)
 
@@ -190,10 +204,11 @@ for (const route of ROUTES) {
       ).toBeLessThanOrEqual(1)
 
       // The header never moves while EVERY region scrolls (the audit says
-      // "before and after scrolling every region", not only the first).
+      // "before and after scrolling every region", not only the first — the
+      // per-patient table scroll boxes included).
       const headerBefore = await page.locator('.txr-shell-header').boundingBox()
       expect(headerBefore).not.toBeNull()
-      for (const label of labels) {
+      for (const label of await regionLabels(page)) {
         const facts = await regionScroll(page, label)
         if (!facts || !facts.overflow) continue
         await scrollRegionTo(page, label, 500)
@@ -222,7 +237,7 @@ for (const route of ROUTES) {
 
 // ── TEST-AS-3: the long-table byte (95 / 300 rows) ──────────────────────────
 
-test('route Results: the 300-row heatmap — 500 px scroll, thead sticks to the region top', async ({
+test('route Results: the 300-row heatmap — 500 px scroll, thead sticks to the box top', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -230,31 +245,40 @@ test('route Results: the 300-row heatmap — 500 px scroll, thead sticks to the 
   await page.waitForTimeout(SETTLE)
   await sizeFrame(page, 900)
 
-  const label = 'Patient predictions'
-  const region = await regionScroll(page, label)
-  expect(region, 'the region exists').not.toBeNull()
-  expect(region!.overflow, 'the 300-row heatmap overflows the region').toBe(true)
-  await scrollRegionTo(page, label, 500)
+  // results-table-height: the table scrolls inside its own bounded box
+  // (`txr-heatmap` — the box IS the heatmap test id, as on main); the page
+  // region scrolls the page around it.
+  const box = page.getByTestId('txr-heatmap')
+  const boxScroll = await box.evaluate(el => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    overflow: el.scrollHeight > el.clientHeight + 1,
+  }))
+  expect(boxScroll.overflow, 'the 300-row heatmap overflows its box').toBe(true)
+  await box.evaluate(el => {
+    el.scrollTop = 500
+    el.dispatchEvent(new Event('scroll'))
+  })
   const sticky = await page.evaluate(() => {
-    const regionEl = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')!
-    const table = regionEl.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
-    const regionTop = regionEl.getBoundingClientRect().top
+    const boxEl = document.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
+    const table = boxEl.querySelector<HTMLElement>('table')!
+    const boxTop = boxEl.getBoundingClientRect().top
     const headerCells = Array.from(table.querySelectorAll<HTMLElement>('thead th, thead td'))
     const rowHeader = table.querySelector<HTMLElement>('tbody th[scope="row"]')!
     return {
-      scrollTop: regionEl.scrollTop,
+      scrollTop: boxEl.scrollTop,
       headerCells: headerCells.length,
-      stuck: headerCells.filter(th => Math.abs(th.getBoundingClientRect().top - regionTop) <= 2).length,
+      stuck: headerCells.filter(th => Math.abs(th.getBoundingClientRect().top - boxTop) <= 2).length,
       rowHeaderPosition: getComputedStyle(rowHeader).position,
     }
   })
-  expect(sticky.scrollTop, 'the region scrolled 500').toBe(500)
+  expect(sticky.scrollTop, 'the box scrolled 500').toBe(500)
   expect(sticky.headerCells, 'the heatmap has its header cells').toBeGreaterThan(0)
-  expect(sticky.stuck, 'every header cell sticks to the region top').toBe(sticky.headerCells)
+  expect(sticky.stuck, 'every header cell sticks to the box top').toBe(sticky.headerCells)
   expect(sticky.rowHeaderPosition, 'the patient column is the pinned one').toBe('sticky')
 })
 
-test('route Compare: the 95-row bars table — thead sticks to the region top after 500 px', async ({
+test('route Compare: the 95-row bars table — thead sticks to the box top after 500 px', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -262,26 +286,34 @@ test('route Compare: the 95-row bars table — thead sticks to the region top af
   await page.waitForTimeout(SETTLE)
   await sizeFrame(page, 900)
 
-  const label = 'Methods'
-  expect((await regionScroll(page, label))!.overflow, 'the 95-row table overflows').toBe(true)
-  await scrollRegionTo(page, label, 500)
+  const box = page.getByTestId('txr-bars-scroll')
+  const boxScroll = await box.evaluate(el => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    overflow: el.scrollHeight > el.clientHeight + 1,
+  }))
+  expect(boxScroll.overflow, 'the 95-row table overflows its box').toBe(true)
+  await box.evaluate(el => {
+    el.scrollTop = 500
+    el.dispatchEvent(new Event('scroll'))
+  })
   const sticky = await page.evaluate(() => {
-    const regionEl = document.querySelector<HTMLElement>('[aria-label="Methods"]')!
-    const table = regionEl.querySelector<HTMLElement>('[data-testid="txr-bars"]')!
-    const regionTop = regionEl.getBoundingClientRect().top
+    const boxEl = document.querySelector<HTMLElement>('[data-testid="txr-bars-scroll"]')!
+    const table = boxEl.querySelector<HTMLElement>('table')!
+    const boxTop = boxEl.getBoundingClientRect().top
     const headerCells = Array.from(table.querySelectorAll<HTMLElement>('thead th, thead td'))
     return {
-      scrollTop: regionEl.scrollTop,
+      scrollTop: boxEl.scrollTop,
       headerCells: headerCells.length,
-      stuck: headerCells.filter(th => Math.abs(th.getBoundingClientRect().top - regionTop) <= 2).length,
+      stuck: headerCells.filter(th => Math.abs(th.getBoundingClientRect().top - boxTop) <= 2).length,
     }
   })
   expect(sticky.scrollTop).toBe(500)
   expect(sticky.headerCells).toBeGreaterThan(0)
-  expect(sticky.stuck, 'the bars thead sticks to the region top').toBe(sticky.headerCells)
+  expect(sticky.stuck, 'the bars thead sticks to the box top').toBe(sticky.headerCells)
 })
 
-test('route Method: the 95-row one-method table — thead sticks to the region top after 500 px', async ({
+test('route Method: the 95-row one-method table — thead sticks to the box top after 500 px', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -289,23 +321,31 @@ test('route Method: the 95-row one-method table — thead sticks to the region t
   await page.waitForTimeout(SETTLE)
   await sizeFrame(page, 900)
 
-  const label = 'Methods'
-  expect((await regionScroll(page, label))!.overflow, 'the 95-row table overflows').toBe(true)
-  await scrollRegionTo(page, label, 500)
+  const box = page.getByTestId('txr-bars-scroll')
+  const boxScroll = await box.evaluate(el => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    overflow: el.scrollHeight > el.clientHeight + 1,
+  }))
+  expect(boxScroll.overflow, 'the 95-row table overflows its box').toBe(true)
+  await box.evaluate(el => {
+    el.scrollTop = 500
+    el.dispatchEvent(new Event('scroll'))
+  })
   const sticky = await page.evaluate(() => {
-    const regionEl = document.querySelector<HTMLElement>('[aria-label="Methods"]')!
-    const table = regionEl.querySelector<HTMLElement>('[data-testid="txr-bars"]')!
-    const regionTop = regionEl.getBoundingClientRect().top
+    const boxEl = document.querySelector<HTMLElement>('[data-testid="txr-bars-scroll"]')!
+    const table = boxEl.querySelector<HTMLElement>('table')!
+    const boxTop = boxEl.getBoundingClientRect().top
     const headerCells = Array.from(table.querySelectorAll<HTMLElement>('thead th, thead td'))
     return {
-      scrollTop: regionEl.scrollTop,
+      scrollTop: boxEl.scrollTop,
       headerCells: headerCells.length,
-      stuck: headerCells.filter(th => Math.abs(th.getBoundingClientRect().top - regionTop) <= 2).length,
+      stuck: headerCells.filter(th => Math.abs(th.getBoundingClientRect().top - boxTop) <= 2).length,
     }
   })
   expect(sticky.scrollTop).toBe(500)
   expect(sticky.headerCells).toBeGreaterThan(0)
-  expect(sticky.stuck, 'the bars thead sticks to the region top').toBe(sticky.headerCells)
+  expect(sticky.stuck, 'the bars thead sticks to the box top').toBe(sticky.headerCells)
 })
 
 // ── TEST-AS-3: the keyboard byte (Tab / PageDown / Space / Home / End) ──────

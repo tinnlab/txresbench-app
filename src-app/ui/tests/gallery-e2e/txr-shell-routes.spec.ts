@@ -16,7 +16,11 @@ import { expect, test } from '@playwright/test'
  *  · the page's frame fills the shell's routed area — `#txr-main` has
  *    nothing to scroll (the intermediate body scroller is unused by the
  *    pages, DEC-3's "the pages own their regions");
- *  · ONE OR TWO scroll regions (the audit's "no more than two");
+ *  · ONE OR TWO page-level scroll regions (the audit's "no more than two";
+ *    the per-patient results tables' own bounded scroll boxes of
+ *    `RESULTS_TABLE_MAX_HEIGHT` — results-table-height — carry the
+ *    `data-txr-table-scroll` marker and are excluded from this page-region
+ *    count);
  *  · the regions have usable height: together at least 40 % of the routed
  *    area (`MIN_REGION_SHARE`; a region that CAN scroll but is a few pixels
  *    tall passed every other leg);
@@ -30,13 +34,16 @@ import { expect, test } from '@playwright/test'
  *    bar is visible at all times" leg, asserted positionally since the
  *    gallery host clips the frame's bottom).
  *
- * ITEM-3's half (the part-2 pages): the results heatmap's pinned patient
- * column + sticky header ride the region, the H bars table's sticky thead,
- * the J inventory table's sticky thead, the D/I shared-list frames (toolbar
- * fixed above the region, counters + Run pinned), the history list frame
- * (its footer bar pinned), and the help article — the rail's spy follows
- * the region, an anchor lands flush at its top (scroll-margin 0 in shell
- * mode) and the print byte prints the whole article.
+ * ITEM-3's half (the part-2 pages, results-table-height updated): the
+ * results heatmap's pinned patient column + sticky header ride the table's
+ * OWN bounded scroll box (the box is the scrollport again — the page's
+ * ScrollRegion scrolls the page around the boxes), likewise the H bars
+ * table's sticky thead, the J inventory table's sticky thead, the D/I
+ * shared-list frames (toolbar fixed above the region, counters + Run
+ * pinned), the history list frame (its footer bar pinned), and the help
+ * article — the rail's spy follows the region, an anchor lands flush at
+ * its top (scroll-margin 0 in shell mode) and the print byte prints the
+ * whole article.
  *
  * The 390x844 flow-mode leg: the document scrolls, the header is sticky
  * and ONE 56 px row (the audit's flow byte).
@@ -229,8 +236,16 @@ for (const route of SURFACES) {
         `${route.label}@${size.width}x${size.height} routed-area overflow px`,
       ).toBeLessThanOrEqual(routed!.clientHeight + 1)
 
-      // The region count is the route's (1-2).
-      const regions = await regionLabels(page)
+      // The page-level region count is the route's (1-2). The per-patient
+      // results tables' OWN bounded scroll boxes (results-table-height —
+      // the `data-txr-table-scroll` markers, never a suffix guess on the
+      // test id) are regions too; they are counted in the share below but
+      // not as page regions (the audit's byte).
+      const regions = await page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLElement>('[role="region"]'))
+          .filter(el => !el.hasAttribute('data-txr-table-scroll'))
+          .map(el => el.getAttribute('aria-label') ?? ''),
+      )
       expect(
         regions.length,
         `${route.label}@${size.width}x${size.height} region count`,
@@ -789,63 +804,67 @@ test('route Start: Use example keeps its width while loading (and Try again whil
 
 // ── ITEM-3: the part-2 route bytes ──────────────────────────────────────────
 
-test('route Results: the heatmap corner header sticks to the region, the patient column pins while the table scrolls horizontally, the count + actions stay in the fixed bottom bar', async ({
+test('route Results: the heatmap corner header sticks to its own box, the patient column pins while the box scrolls horizontally, the count + actions stay in the fixed bottom bar', async ({
   page,
 }) => {
   // 768x768 (the shell floor's width): the ten-column table (773 px) is
-  // wider than the region here — the only shell size where the patient
+  // wider than the box here — the only shell size where the patient
   // column's pin actually engages (the vertical case is the corner
-  // header's top pin, measured after a 400 px scroll).
+  // header's top pin, measured after a 400 px box scroll).
   await page.setViewportSize({ width: 768, height: 768 })
   await page.goto(`${GALLERY}txr-shell-route-results`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(SETTLE)
   await sizeFrame(page, 768)
 
-  const label = 'Patient predictions'
-  await scrollRegionTo(page, label, 400)
+  // results-table-height: the heatmap scrolls inside its OWN bounded box
+  // (`txr-heatmap` — the box IS the heatmap test id, as on main) of
+  // `RESULTS_TABLE_MAX_HEIGHT`; the page region still scrolls the page
+  // around the boxes. The sticky cells pin to the BOX's edges.
   const sticky = await page.evaluate(() => {
-    const region = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')!
-    const table = region.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
+    const box = document.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
+    const table = box.querySelector<HTMLElement>('table')!
     const corner = table.querySelector<HTMLElement>('thead th')!
     const anyValue = table.querySelector<HTMLElement>('tbody td')!
-    const regionTop = region.getBoundingClientRect().top
+    const boxTop = box.getBoundingClientRect().top
+    box.scrollTop = 400
+    box.dispatchEvent(new Event('scroll'))
     return {
+      scrollTop: box.scrollTop,
       cornerPosition: getComputedStyle(corner).position,
-      cornerDelta: Math.abs(corner.getBoundingClientRect().top - regionTop),
+      cornerDelta: Math.abs(corner.getBoundingClientRect().top - boxTop),
       valuePosition: getComputedStyle(anyValue).position,
-      scrollTop: region.scrollTop,
     }
   })
   expect(sticky.scrollTop).toBeGreaterThan(0)
   expect(sticky.cornerPosition, 'the corner header is sticky').toBe('sticky')
-  expect(sticky.cornerDelta, 'the corner header sticks to the region top').toBeLessThanOrEqual(2)
+  expect(sticky.cornerDelta, 'the corner header sticks to the box top').toBeLessThanOrEqual(2)
   expect(sticky.valuePosition, 'the row values never stick').not.toBe('sticky')
 
-  // The pinned patient column: while the table scrolls 200 px right, the
-  // patient column pins at the REGION's left edge (sticky left:0 against the
-  // scrollport — it leaves the card's edge behind) and a method value
-  // travels with the table.
+  // The pinned patient column: while the box scrolls 200 px right, the
+  // patient column pins at the BOX's left edge (sticky left:0 against the
+  // scrollport) and a method value travels with the table.
   const pin = await page.evaluate(() => {
-    const region = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')!
-    const card = region.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
-    const table = card.querySelector<HTMLElement>('table')!
+    const box = document.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
+    const table = box.querySelector<HTMLElement>('table')!
+    box.scrollTop = 0
+    box.dispatchEvent(new Event('scroll'))
     const patientCol = table.querySelector<HTMLElement>('tbody th[scope="row"]')!
     const value = table.querySelector<HTMLElement>('td[data-testid$="-direct-on"]')!
     const valueX = value.getBoundingClientRect().left
-    region.scrollLeft = 200
+    box.scrollLeft = 200
     return {
-      hOverflow: region.scrollWidth > region.clientWidth,
-      scrollLeft: region.scrollLeft,
-      pinDelta: Math.abs(patientCol.getBoundingClientRect().left - region.getBoundingClientRect().left),
+      hOverflow: box.scrollWidth > box.clientWidth,
+      scrollLeft: box.scrollLeft,
+      pinDelta: Math.abs(patientCol.getBoundingClientRect().left - box.getBoundingClientRect().left),
       valueMoved: value.getBoundingClientRect().left - valueX,
     }
   })
-  expect(pin.hOverflow, 'at 768 the heatmap overflows horizontally').toBe(true)
+  expect(pin.hOverflow, 'at 768 the heatmap box overflows horizontally').toBe(true)
   expect(pin.scrollLeft).toBeGreaterThan(0)
-  expect(pin.pinDelta, 'the patient column pins at the region left').toBeLessThanOrEqual(3)
+  expect(pin.pinDelta, 'the patient column pins at the box left').toBeLessThanOrEqual(3)
   expect(pin.valueMoved, 'the method columns travel with the table').toBeLessThan(-50)
 
-  // The count/Show-all + actions never leave the frame while the region
+  // The count/Show-all + actions never leave the frame while the box
   // scrolls (the audit's "Showing n of N" + download + save byte).
   const bar = await page.getByTestId('txr-results-bar').boundingBox()
   const frame = await page.locator('[data-gallery-frame]').boundingBox()
@@ -855,41 +874,73 @@ test('route Results: the heatmap corner header sticks to the region, the patient
     frame!.y + frame!.height + 1,
   )
   expect(await page.getByTestId('txr-heatmap-count').textContent()).toContain('Showing')
+
+  // The page region still scrolls the PAGE around the boxes (the
+  // results-table-height byte: the table's box is the table's scroller, the
+  // page's ScrollRegion is the page's — both exist, neither replaced the
+  // other). The results page's content (the capped heatmap box, its footer
+  // and the run notes) is taller than the 768-height region, so the region
+  // really scrolls.
+  await scrollRegionTo(page, 'Patient predictions', 300)
+  const pageRegionTop = await page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')
+    return el === null ? -1 : el.scrollTop
+  })
+  expect(pageRegionTop, 'the page region scrolls the page').toBeGreaterThan(0)
 })
 
-test('route Compare: the bars table thead sticks to the region top, the actions stay pinned', async ({
+test('route Compare: the 95-row bars thead sticks to its own box under the REAL max height, the 8-row box keeps its natural height, the actions stay pinned', async ({
   page,
 }) => {
-  // 640 px of shell height (the 520 floor still holds): the region actually
-  // overflows, so the thead pin engages (900 fits the fixture table).
+  // 640 px of shell height (the 520 floor still holds). The 95-row LONG
+  // fixture is far taller than the box's real `RESULTS_TABLE_MAX_HEIGHT`
+  // (60vh at 640 ≈ 384 px) — the scrollport engages WITHOUT any test-side
+  // maxHeight override: the byte is the real fixed-height box.
   await page.setViewportSize({ width: 1440, height: 640 })
-  await page.goto(`${GALLERY}txr-shell-route-compare`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`${GALLERY}txr-shell-route-compare-long`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(SETTLE)
   await sizeFrame(page, 640)
 
-  await scrollRegionTo(page, 'Methods', 400)
   const sticky = await page.evaluate(() => {
-    const region = document.querySelector<HTMLElement>('[aria-label="Methods"]')!
-    const table = region.querySelector<HTMLElement>('[data-testid="txr-bars"]')!
+    const box = document.querySelector<HTMLElement>('[data-testid="txr-bars-scroll"]')!
+    const table = box.querySelector<HTMLElement>('table')!
     const th = table.querySelector<HTMLElement>('thead th')!
     const anyValue = table.querySelector<HTMLElement>('tbody td')!
-    const regionTop = region.getBoundingClientRect().top
+    const boxTop = box.getBoundingClientRect().top
+    box.scrollTop = 100
+    box.dispatchEvent(new Event('scroll'))
     return {
-      overflow: table.scrollHeight > region.clientHeight,
+      overflow: box.scrollHeight > box.clientHeight,
+      scrollTop: box.scrollTop,
       thPosition: getComputedStyle(th).position,
-      thDelta: Math.abs(th.getBoundingClientRect().top - regionTop),
+      thDelta: Math.abs(th.getBoundingClientRect().top - boxTop),
       valuePosition: getComputedStyle(anyValue).position,
     }
   })
-  expect(sticky.overflow, 'the 640-frame region scrolls').toBe(true)
+  expect(sticky.overflow, 'the 95-row table overflows the real RESULTS_TABLE_MAX_HEIGHT box').toBe(true)
+  expect(sticky.scrollTop).toBeGreaterThan(0)
   expect(sticky.thPosition, 'the bars thead is sticky').toBe('sticky')
-  expect(sticky.thDelta, 'the thead sticks to the region top').toBeLessThanOrEqual(2)
+  expect(sticky.thDelta, 'the thead sticks to the box top').toBeLessThanOrEqual(2)
   expect(sticky.valuePosition).not.toBe('sticky')
 
   const bar = await page.getByTestId('txr-results-bar').boundingBox()
   const frame = await page.locator('[data-gallery-frame]').boundingBox()
   expect(bar).not.toBeNull()
   expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
+
+  // The 8-row route: the short table keeps its NATURAL height — the box
+  // does NOT overflow (max-height only, no forced scrollport for a table
+  // that fits).
+  await page.goto(`${GALLERY}txr-shell-route-compare`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 640)
+  const short = await page.evaluate(() => {
+    const box = document.querySelector<HTMLElement>('[data-testid="txr-bars-scroll"]')!
+    return {
+      overflow: box.scrollHeight > box.clientHeight + 1,
+    }
+  })
+  expect(short.overflow, 'the 8-row box keeps its natural height').toBe(false)
 })
 
 test('route Method: the one-method frame pins its Heading in the fixed top and Save this model in the bar', async ({

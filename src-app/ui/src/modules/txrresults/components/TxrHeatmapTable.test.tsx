@@ -18,7 +18,10 @@
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import type { TxrHeatmapColumn, TxrHeatmapRow, TxrHeatmapView } from '../types'
+import { RESULTS_TABLE_MAX_HEIGHT } from '../lib/format'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import {
   CHANCE_ALPHA_MIN,
   CHANCE_ALPHA_SPAN,
@@ -155,7 +158,12 @@ function largeView(patientCount: number, methodCount: number): { view: TxrHeatma
   return { view: viewFixture(columns, rows), columns }
 }
 
+/** The table's own scroll box (the user's fixed-height box — results-table-height).
+ *  The box IS `txr-heatmap` (as on main — the page tests and the e2e specs
+ *  look for `txr-heatmap` in the no-match state too, where the inner table
+ *  is not rendered); the table keeps no test id. */
 const BOX = () => screen.getByTestId('txr-heatmap')
+const TABLE = () => BOX().querySelector('table')
 const rowId = (id: string) => screen.queryByTestId(`txr-heatmap-row-${id}`)
 
 /** The view's row elements currently mounted (data rows only, not the spacers). */
@@ -271,23 +279,68 @@ describe('heatmapWindowOf (TEST-UR-5 — the bounded row window)', () => {
     expect(heatmapWindowOf(-1, total)).toEqual(heatmapWindowOf(0, total))
     expect(heatmapWindowOf(Number.NaN, total)).toEqual(heatmapWindowOf(0, total))
   })
+
+  it('covers every row in view when the box is taller than the 12-row floor (results-table-height)', () => {
+    // A max(320px, 60vh) box on a tall window is 600 px → 17 visible rows at
+    // the 36 px pitch (ceil(600 / 36)); the window grows with the viewport,
+    // so the rows in view are never left to the blank spacer below.
+    const visible = Math.ceil(600 / HEATMAP_ROW_HEIGHT)
+    expect(visible).toBe(17)
+    expect(heatmapWindowOf(0, 500, visible)).toEqual({
+      start: 0,
+      end: visible + HEATMAP_OVERSCAN_ROWS * 2,
+    })
+    const windowed = heatmapWindowOf(3600, 500, visible)
+    const firstVisible = Math.floor(3600 / HEATMAP_ROW_HEIGHT)
+    expect(windowed.start).toBeLessThanOrEqual(firstVisible)
+    expect(windowed.end).toBeGreaterThanOrEqual(firstVisible + visible)
+    expect(windowed.end - windowed.start).toBe(visible + HEATMAP_OVERSCAN_ROWS * 2)
+    // The floor still holds for the old (short-box) callers.
+    expect(heatmapWindowOf(3600, 500)).toEqual(heatmapWindowOf(3600, 500, HEATMAP_VIEWPORT_ROWS))
+  })
 })
 
 // ── The board's visibility contract, at scale (EXAMPLE-UR-2 geometry) ────────
 
 describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => {
-  it('renders the table card with no inner scrollport (ITEM-3: the region scrolls)', () => {
+  it('renders the table’s own bounded scroll box (results-table-height — the user’s fixed-height byte)', () => {
     const { view } = smallView()
     render(<TxrHeatmapTable view={view} />)
     const box = BOX()
-    // app-shell ITEM-3: the card sits in the page's ScrollRegion — the
-    // REGION is the two-axis scrollport, so the box itself declares no
-    // overflow and no capped height (an inner bounded scroller would nest —
-    // DEC-3; the RES-07 viewport-adaptive budget was the old box byte).
-    expect(box.style.overflow).not.toBe('auto')
-    expect(box.style.maxHeight).toBe('')
+    // results-table-height: the table scrolls inside its OWN box of
+    // RESULTS_TABLE_MAX_HEIGHT (the old ITEM-3 "the region is the scrollport"
+    // byte is reversed — the page's ScrollRegion still scrolls the page, the
+    // box scrolls the table). Max-height only: a short table keeps its
+    // natural height.
+    expect(box.style.maxHeight).toBe(RESULTS_TABLE_MAX_HEIGHT)
+    expect(box.style.overflow).toBe('auto')
+    expect(box.getAttribute('role')).toBe('region')
+    expect(box.getAttribute('aria-label')).toBe('Chances per patient')
+    expect(box.getAttribute('tabindex')).toBe('0')
+    expect(screen.getByRole('region', { name: 'Chances per patient' })).toBe(box)
     expect(box.getAttribute('style')).toContain('border-radius: 10px')
-    expect(box.querySelector('table')).not.toBeNull()
+    expect(box.classList.contains('txr-results-table-box')).toBe(true)
+    // The box IS the scroller around the (id-less) table — like main, the
+    // row/header test ids ride the table's own cells.
+    expect(TABLE()).not.toBeNull()
+    expect(box.querySelector('table')).toBe(TABLE())
+  })
+  it('a short table (2 patients) has no height/minHeight on the box and no padding rows', () => {
+    const columns = [methodCol(0, 'Dynamic risk'), methodCol(1, 'Static risk')]
+    const rows: GivenRow[] = [
+      { patientId: 'S0000', cells: [0.33, 0.52], average: 42 },
+      { patientId: 'S0001', cells: [0.52, 0.2], average: 36 },
+    ]
+    render(<TxrHeatmapTable view={viewFixture(columns, rows)} />)
+    const box = BOX()
+    // Max-height only: no fixed height, no minimum (the natural table height
+    // is the short table's own).
+    expect(box.style.height).toBe('')
+    expect(box.style.minHeight).toBe('')
+    expect(box.style.maxHeight).toBe(RESULTS_TABLE_MAX_HEIGHT)
+    // No spacer rows: the window is the whole 2-row table, nothing padded.
+    expect(spacerRows().length).toBe(0)
+    expect(mountedRows().length).toBe(2)
   })
 
   it('pins the patient column left and the header top, under vertical AND horizontal scroll', () => {
@@ -424,9 +477,8 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
     const style = getComputedStyle(header)
     expect(parseFloat(style.minWidth)).toBeGreaterThanOrEqual(112)
     expect(style.overflowWrap).toBe('break-word')
-    // The phone box: the class the index.css phone rules make the card's
-    // own scrollport (the region stays the desktop scroller — the box
-    // keeps no inline overflow, the ITEM-3 pin above).
+    // The phone box: the class the index.css phone rules target (the box is
+    // the table's own scroll container — the ITEM-3 pin above).
     expect(screen.getByTestId('txr-heatmap').className).toContain('txr-results-table-box')
   })
 
@@ -527,6 +579,30 @@ describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM at any row count)
     expect(rowId('S0499')).not.toBeNull()
     expect(mountedRows().length).toBe(HEATMAP_WINDOW_ROWS)
   })
+
+  it('scrolls the OWN box even inside a page ScrollRegion (results-table-height — the box is the scrollport)', () => {
+    const { view } = largeView(500, 24)
+    render(
+      <MemoryRouter>
+        <ScrollRegion label="Patient predictions">
+          <TxrHeatmapTable view={view} />
+        </ScrollRegion>
+      </MemoryRouter>,
+    )
+    const pageRegion = screen.getByRole('region', { name: 'Patient predictions' })
+    // The windowing reads the box, never the region: scrolling the REGION
+    // does not move the window...
+    pageRegion.scrollTop = 2000
+    fireEvent.scroll(pageRegion)
+    expect(rowId('S0000')).not.toBeNull()
+    expect(rowId('S0024')).toBeNull()
+    // ...while scrolling the box re-windows (the overscan window follows).
+    scrollBoxTo(3600)
+    const firstVisible = Math.floor(3600 / HEATMAP_ROW_HEIGHT)
+    expect(rowId(`S${String(firstVisible).padStart(4, '0')}`)).not.toBeNull()
+    expect(rowId('S0000')).toBeNull()
+    expect(mountedRows().length).toBe(HEATMAP_WINDOW_ROWS)
+  })
 })
 
 // ── qa-fixes ITEM-4 — the measured footer, the no-match state, the abstain dash ──
@@ -552,6 +628,28 @@ describe('TxrHeatmapTable qa-fixes ITEM-4 (RES-03/06/07/08)', () => {
       'No patient matches your search.',
     )
     expect(screen.getByTestId('txr-heatmap-footer').textContent).toBe('')
+  })
+
+  it('in the no-match state txr-heatmap exists with the box styles + the region name (results-table-height)', () => {
+    const { view } = smallView()
+    render(
+      <TxrHeatmapTable
+        view={{ ...view, rows: [], shownCount: 0, totalCount: 0 }}
+      />,
+    )
+    // The box IS `txr-heatmap` (as on main): the empty-search state renders
+    // the box with the message inside it — the page tests and the e2e specs
+    // query `txr-heatmap` here, where the inner <table> is never mounted.
+    const box = BOX()
+    expect(box.getAttribute('role')).toBe('region')
+    expect(box.getAttribute('aria-label')).toBe('Chances per patient')
+    expect(box.style.maxHeight).toBe(RESULTS_TABLE_MAX_HEIGHT)
+    expect(box.style.overflow).toBe('auto')
+    expect(box.style.height).toBe('')
+    expect(box.getAttribute('data-txr-table-scroll')).toBe('')
+    expect(box.getAttribute('tabindex')).toBe('0')
+    expect(screen.getByText('No patient matches your search.')).not.toBeNull()
+    expect(box.querySelector('table')).toBeNull()
   })
 
   it('renders a visible dash for an abstain cell that carries a note (RES-08)', () => {

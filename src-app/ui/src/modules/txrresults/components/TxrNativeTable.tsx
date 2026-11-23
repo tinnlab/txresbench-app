@@ -16,8 +16,10 @@
  * colours, a score does not (each method uses its own), so the values are
  * plain text and the intro line says the scores cannot be compared across
  * methods. The table is the heatmap's native-table twin (DEC-11: a sticky
- * header, pinned patient column, tokens only) inside the page's ONE
- * scroll region; it is not row-windowed — it renders the page's row window
+ * header, pinned patient column, tokens only) in its own bounded scroll box
+ * of `RESULTS_TABLE_MAX_HEIGHT` (results-table-height — the user's
+ * fixed-height byte); the page's ScrollRegion still scrolls the page around
+ * the boxes. It is not row-windowed — it renders the page's row window
  * (default 100 patients, "Show all" raises it), like the H bars table.
  *
  * A column without own results recorded (a run from before they were kept, a
@@ -35,6 +37,7 @@ import {
   OWN_RESULTS_TITLE,
   OWN_RETURNED_CALLS,
   OWN_RETURNED_SCORE,
+  RESULTS_TABLE_MAX_HEIGHT,
   formatOwnCall,
   formatOwnNotRecordedNote,
   formatOwnScore,
@@ -64,11 +67,17 @@ const LINE: CSSProperties = {
   color: 'var(--txr-text-2)',
 }
 
-/** The table card (the region scrolls it — no inner scrollport). */
+/**
+ * The table's OWN scroll box (results-table-height — the user's fixed-height
+ * byte): the border/radius card is bounded to `RESULTS_TABLE_MAX_HEIGHT` and
+ * scrolls on both axes; the page's ScrollRegion still scrolls the page.
+ */
 const BOX: CSSProperties = {
   border: '1px solid var(--txr-border)',
   borderRadius: 10,
   minWidth: 0,
+  maxHeight: RESULTS_TABLE_MAX_HEIGHT,
+  overflow: 'auto',
 }
 
 const TABLE: CSSProperties = {
@@ -183,7 +192,15 @@ export function TxrNativeTable({ columns, rows, patients, withHeading = true }: 
           {OWN_RESULTS_NONE_RECORDED}
         </p>
       ) : (
-        <div style={BOX} className="txr-results-table-box">
+        <div
+          data-testid="txr-own-table-scroll"
+          data-txr-table-scroll=""
+          role="region"
+          aria-label="Methods' own results per patient"
+          tabIndex={0}
+          style={BOX}
+          className="txr-results-table-box"
+        >
           <table data-testid="txr-own-table" style={TABLE}>
             <thead>
               <tr>
