@@ -605,7 +605,8 @@ fn read_state(path: &Path) -> Option<PretrainedDownloadStatus> {
 // manager's state machine, verify-then-cache, cancel + prune, restart
 // persistence, the concurrency cap and the INV-5/INV-4 refusals, against a
 // REAL loopback server that streams 4 MiB in 64 KiB chunks and counts
-// concurrent connections (no framework, no extra dependency; the fixtures
+// concurrent in-flight response bodies (the MAX_CONCURRENT_DOWNLOADS cap is
+// asserted against the wire; no framework, no extra dependency; the fixtures
 // are synthetic opaque bytes, never real model data).
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
@@ -693,8 +694,8 @@ mod tests {
     /// The fixture loopback server: binds 127.0.0.1:0, streams the fixed
     /// body in 64 KiB chunks (the polled staged-file growth is observable),
     /// RECORDS every request line + headers (the INV-4 assertions), and
-    /// counts concurrent connections (the MAX_CONCURRENT_DOWNLOADS cap is
-    /// asserted against the wire).
+    /// counts concurrent in-flight response bodies (the
+    /// MAX_CONCURRENT_DOWNLOADS cap is asserted against the wire).
     struct ChunkServer {
         port: u16,
         requests: Arc<Mutex<Vec<String>>>,
@@ -736,8 +737,6 @@ mod tests {
                     );
                     tokio::spawn(async move {
                         let mut stream = stream;
-                        conc.fetch_add(1, Ordering::SeqCst);
-                        maxc.fetch_max(conc.load(Ordering::SeqCst), Ordering::SeqCst);
                         let mut buf = Vec::new();
                         let mut tmp = [0u8; 1024];
                         loop {
@@ -769,20 +768,30 @@ mod tests {
                              application/octet-stream\r\nconnection: close\r\n\r\n",
                             body.len()
                         );
+                        // Count responses whose BODY is being streamed — not
+                        // open connections. The cap is about in-flight
+                        // transfers: a finished-but-still-closing (or pooled
+                        // keep-alive) connection of a completed download must
+                        // not count as a download still in flight.
+                        conc.fetch_add(1, Ordering::SeqCst);
+                        maxc.fetch_max(conc.load(Ordering::SeqCst), Ordering::SeqCst);
                         if stream.write_all(head.as_bytes()).await.is_err() {
                             conc.fetch_sub(1, Ordering::SeqCst);
-                            return;
+                            return; // the client went away before the body
                         }
                         for chunk in body.chunks(CHUNK) {
                             if stream.write_all(chunk).await.is_err() {
-                                break;
+                                break; // the client went away mid-body
                             }
                             if !per_chunk_delay.is_zero() {
                                 tokio::time::sleep(per_chunk_delay).await;
                             }
                         }
-                        let _ = stream.shutdown().await;
+                        // The body is done (or the client went away) — the
+                        // in-flight count ends here, before the closing
+                        // shutdown yields the task.
                         conc.fetch_sub(1, Ordering::SeqCst);
+                        let _ = stream.shutdown().await;
                     });
                 }
             });

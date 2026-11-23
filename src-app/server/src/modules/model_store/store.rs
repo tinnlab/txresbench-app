@@ -1994,7 +1994,22 @@ mod tests {
     /// framework's `filetime_set` pattern — `File::set_modified` on an opened
     /// fd; a read-only open suffices for directories too).
     fn backdate(path: &Path, when: SystemTime) {
+        // Unix: the plain read-only open works for files and directories.
+        #[cfg(unix)]
         let f = fs::File::open(path).expect("open for backdating");
+        // Windows: `File::open` on a DIRECTORY is "Access is denied" without
+        // FILE_FLAG_BACKUP_SEMANTICS, and `set_modified` needs
+        // FILE_WRITE_ATTRIBUTES on the handle.
+        #[cfg(windows)]
+        let f = {
+            use std::os::windows::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(0x0200_0000) // FILE_FLAG_BACKUP_SEMANTICS: open a directory
+                .access_mode(0x100) // FILE_WRITE_ATTRIBUTES: set_modified may write
+                .open(path)
+                .expect("open for backdating")
+        };
         f.set_modified(when).expect("backdate mtime");
     }
 

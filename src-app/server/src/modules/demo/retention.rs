@@ -983,7 +983,21 @@ mod tests {
             std::fs::write(dir.join("demo-model.json"), "{}").unwrap();
             if digest != &fresh_digest {
                 let two_days_ago = chrono::Utc::now() - chrono::TimeDelta::days(2);
+                // Unix: the plain read-only open works for a directory.
+                #[cfg(unix)]
                 let f = std::fs::File::open(&dir).unwrap();
+                // Windows: a directory needs FILE_FLAG_BACKUP_SEMANTICS to
+                // open and FILE_WRITE_ATTRIBUTES for `set_modified`.
+                #[cfg(windows)]
+                let f = {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .custom_flags(0x0200_0000) // FILE_FLAG_BACKUP_SEMANTICS: open a directory
+                        .access_mode(0x100) // FILE_WRITE_ATTRIBUTES: set_modified may write
+                        .open(&dir)
+                        .expect("open the tree dir for backdating")
+                };
                 f.set_modified(two_days_ago.into()).expect("backdate the tree");
             }
         }

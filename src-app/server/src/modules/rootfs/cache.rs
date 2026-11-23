@@ -626,7 +626,27 @@ mod tests {
             std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o555)).unwrap();
         }
 
+        // On Windows the real-world reason a digest dir cannot be moved is a
+        // run holding the image open (`wsl_run`'s `ImageHold` opens
+        // `rootfs.squashfs` with FILE_SHARE_READ only), so hold the squashfs
+        // the same way across the eviction: a directory containing an open
+        // file without FILE_SHARE_DELETE cannot be renamed (verified on
+        // Windows: "Access to the path ... is denied").
+        #[cfg(windows)]
+        let _hold = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(1) // FILE_SHARE_READ — the ImageHold share shape
+                .open(&sqfs)
+                .expect("open the squashfs to hold it across the eviction")
+        };
+
         let removed = evict_digests(&base, std::slice::from_ref(&victim));
+
+        // The hold must not outlive the eviction it simulates.
+        #[cfg(windows)]
+        drop(_hold);
 
         #[cfg(unix)]
         {
