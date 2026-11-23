@@ -265,7 +265,17 @@ test('TEST-7 each leg’s stdout and stderr reach the aggregate output, failing 
 // build-wsl-rootfs + installer/surface + e2e_demo carry pre-existing code-state reds —
 // NAMED reds per file (TEST-26 keeps the coverage claim machine-checked), never
 // skipped, never edited.
-const MIN_LEGS_FLOOR = 18;
+// 18 -> 20 (seccomp gate, task 3): TWO legs added — `server-seccomp-test` (the
+// server's `sandbox::` unit tests with the off-by-default `sandbox_seccomp` feature ON,
+// so the `Loaded` path with a real compiled BPF filter is built and run) and
+// `guest-agent-unit-test` (`cargo test -p sandbox-guest-agent --bins`: the crate is
+// bin-only, so `--lib --bins` is a cargo error and `--bins` is the closest form that
+// never compiles the privileged WSL-mode e2e tests/wsl_stdio.rs — that suite stays in
+// sdk/scripts/test-guest-agent-linux.sh). A pure ADD, made possible by the gate image
+// now shipping libseccomp-dev 2.5.4, which is also why `sdk-crates-test` DROPS its
+// `--exclude sandbox-seccomp` (the crate's 10 tests, the AF_VSOCK pin included, run in
+// the workspace leg). Raised in the same diff as `--min-legs` and AGGREGATE_FLOORS.
+const MIN_LEGS_FLOOR = 20;
 
 /**
  * The body of a `just` recipe, delimited the way JUST delimits it: every following line
@@ -764,12 +774,26 @@ const EXPECTED_GATES = [
   // recorded form that can work in the gate image — the default-feature SDK workspace
   // cannot even resolve (its PG driver needs a build-time Postgres cluster; the lock pins
   // postgresql_embedded 0.20.4, rustc >= 1.94, the image has 1.90), so the leg runs the
-  // sqlite-backend variant and excludes the two crates whose test binaries need
-  // `libseccomp-dev` (see the justfile comment). Frozen here by exact string so the leg
-  // cannot silently drop the feature/exclude set. `desktop-crate-test` needs no
-  // adjustment — it links and its 103 tests pass.
-  'cargo test --workspace --no-default-features --features sqlite-backend,routes,module --exclude sandbox-guest-agent --exclude sandbox-seccomp --no-fail-fast -- --test-threads=1',
+  // sqlite-backend variant and excludes sandbox-guest-agent ONLY (its tests are split:
+  // the unit tests run in `guest-agent-unit-test` below, and tests/wsl_stdio.rs needs
+  // root + bwrap + privilege, staying in sdk/scripts/test-guest-agent-linux.sh).
+  // sandbox-seccomp is INCLUDED since the gate image ships libseccomp-dev 2.5.4 (see
+  // the justfile comment). Frozen here by exact string so the leg cannot silently drop
+  // the feature/exclude set. `desktop-crate-test` needs no adjustment — it links and
+  // its 103 tests pass.
+  'cargo test --workspace --no-default-features --features sqlite-backend,routes,module --exclude sandbox-guest-agent --no-fail-fast -- --test-threads=1',
   'cargo test -p txresbench-desktop',
+  // seccomp gate (task 3): the gate image now ships libseccomp-dev, so the filter the
+  // Linux server refuses to run without is tested, not only compiled. `server-seccomp-test`
+  // enables the server's off-by-default `sandbox_seccomp` feature and runs the `sandbox::`
+  // unit tests — the `Loaded` path with a real compiled BPF filter, unreachable from the
+  // default no-feature build (206 tests, measured on the gate image).
+  'cargo test -p txresbench --lib --features sandbox_seccomp sandbox:: -- --test-threads=1',
+  // `guest-agent-unit-test` is `--bins` because the crate is bin-only: `--lib --bins`
+  // is a cargo error ("no library targets found"), and `--bins` deliberately never
+  // compiles tests/wsl_stdio.rs, whose `#[ignore]`d tests need root + bwrap + privilege
+  // and stay in sdk/scripts/test-guest-agent-linux.sh (32 unit tests, measured).
+  'cargo test -p sandbox-guest-agent --bins',
   // gate-tests phase 3: the JS/TS legs. `sdk-ts-test` runs the npm `test` script of the
   // five SDK packages that declare one, in ONE npm invocation from the repo root (npm
   // runs every named workspace even when one fails, so a red package cannot hide the
@@ -984,8 +1008,19 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // and MIN_LEGS_FLOOR; both legs are expected RED today for path-only + pre-existing
 // code-state reasons — NAMED reds per failing suite (the justfile comment and TEST-26
 // list them), never excluded.
+// seccomp gate — 'check': 18 -> 20. Two legs added: `server-seccomp-test` (`cargo test
+// -p txresbench --lib --features sandbox_seccomp sandbox:: -- --test-threads=1`: the
+// server's Loaded path with a real compiled BPF filter, which the default no-feature
+// build cannot reach) and `guest-agent-unit-test` (`cargo test -p sandbox-guest-agent
+// --bins`: the bin-only crate's unit tests — `--lib` is a cargo error here and `--bins`
+// never compiles the privileged WSL-mode e2e tests/wsl_stdio.rs, which stays in
+// sdk/scripts/test-guest-agent-linux.sh). The gate image ships libseccomp-dev 2.5.4,
+// which also lets `sdk-crates-test` drop `--exclude sandbox-seccomp` (its AF_VSOCK pin
+// and built-filter socket rule run in the workspace leg). A pure ADD (both populations
+// were covered by no leg before), raised in the SAME diff as `--min-legs` and
+// MIN_LEGS_FLOOR.
 const AGGREGATE_FLOORS = {
-  check: 18,
+  check: 20,
   'check-invariants': 9,
   'check-guards': 6,
 };
@@ -1470,6 +1505,30 @@ const REACHABLE_FROM_CHECK = [
  * removed, no leg repointed, no floor lowered. FIX: the recipe now does what its
  * comment claimed, not a weakening.
  *
+ * ── CHECK MOVES AGAIN AGAIN AGAIN AGAIN AGAIN AGAIN AGAIN (seccomp gate, THIS-CHANGE) ──
+ * `check` f3401cff -> b6b05077: the gate image now ships libseccomp-dev 2.5.4, so the
+ * seccomp filter the Linux server is gated on (task 1) is TESTED, not merely compiled.
+ *  - `sdk-crates-test` DROPS `--exclude sandbox-seccomp`: the seccomp crate's 10 tests
+ *    (the AF_VSOCK pin `deny_socket_families_pins_af_vsock` and the built-filter socket
+ *    rule) link `-lseccomp` and run in the workspace leg again. The
+ *    `--exclude sandbox-guest-agent` STAYS: its tests are split — the unit tests run in
+ *    the new `guest-agent-unit-test` leg, and tests/wsl_stdio.rs (the WSL-mode e2e)
+ *    needs root + bwrap + privilege, staying in sdk/scripts/test-guest-agent-linux.sh, a
+ *    lane the gate image cannot provide.
+ *  - TWO legs are ADDED after `desktop-crate-test`: `server-seccomp-test` (`cargo test -p
+ *    txresbench --lib --features sandbox_seccomp sandbox:: -- --test-threads=1` — the
+ *    server's `Loaded` path with a real compiled BPF filter, unreachable from the default
+ *    no-feature build; 206 tests pass, measured on the gate image) and
+ *    `guest-agent-unit-test` (`cargo test -p sandbox-guest-agent --bins` —
+ *    `--lib --bins` is a cargo error on this bin-only crate (measured), so `--bins` is
+ *    the closest form, and it never compiles the privileged e2e; 32 tests pass, measured).
+ *  - `--min-legs` rises 18 -> 20 with them, and AGGREGATE_FLOORS / MIN_LEGS_FLOOR move
+ *    to 20 in this same diff, so the recipe cannot be edited into agreement with itself.
+ * Nothing removed, no leg repointed, no floor lowered — the floor moved UP with the set.
+ * STRENGTHENING: the seccomp tests the task-1 gate depends on now run in the default gate
+ * (in NO leg before), and the two new leg commands are frozen by exact string in
+ * EXPECTED_GATES (TEST-17/18/19) so they cannot silently drop back to a weaker form.
+ *
  * ── THE ANCHOR IS a9bc4c1c, NOT 2caaa6e9 ────────────────────────────────────────────────
  *
  * Stated exactly, because the first draft of this block said "unmoved since the pins were
@@ -1482,12 +1541,13 @@ const REACHABLE_FROM_CHECK = [
  * `-lt {{R_REGIME_SUITE_FLOOR}}`. Since a9bc4c1c exactly four recipes have moved: `check-guards`
  * once, `check-invariants` twice, `check-processor-versions` once and `check` six
  * times (gate-tests phase 1, its phase-1 `ui-tsc` leg fix, the phase-2 crate-test
- * legs, the phase-3 JS/TS legs, the phase-4 scripts/ suites, and the phase-4 fix
- * that exports TMPDIR in both new legs — the six blocks above) — the
+ * legs, the phase-3 JS/TS legs, the phase-4 scripts/ suites, the phase-4 fix
+ * that exports TMPDIR in both new legs, and the seccomp gate's two new legs — the seven
+ * blocks above) — the
  * rows above.
  */
 const RECIPE_PINS = {
-  "check": "f3401cffe28d2b50e738a2768c8d54d1e8b38065441d1fc43c8f75e82b3e5fc1",
+  "check": "b6b05077c0fba33d9ee6b6fe445579806afe9d1d15981afeb7404fce44ca59ee",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",

@@ -61,6 +61,21 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Linux desktop builds enable the server's sandbox seccomp filter. libseccomp
+# is Linux-only and the `sandbox_seccomp` feature is off in the base edge
+# above; this target-gated edge is enabled for linux only, and Cargo feature
+# unification turns the feature on exactly when this table applies (a macOS/
+# Windows `--target` resolution never sees it). Because of feature unification,
+# `cargo check --workspace` and `cargo test -p txresbench-desktop` on Linux also
+# build the server with `sandbox_seccomp`, so any Linux dev or CI machine that
+# builds the workspace needs `libseccomp-dev`. The build machine needs
+# libseccomp-dev (libseccomp-sys links `dylib` per its build.rs unless
+# LIBSECCOMP_LINK_TYPE says otherwise); a Linux user needs libseccomp2 at
+# runtime (declared in tauri.conf.json's bundle.linux.deb.depends and checked
+# by scripts/txr-sandbox-preflight.sh).
+[target.'cfg(target_os = "linux")'.dependencies]
+txresbench = { path = "../../server", features = ["sandbox_seccomp"] }
+
 [dev-dependencies]
 # TEST-31 (sqlite-store ITEM-24): the desktop `ensure_owner` test provisions
 # an ISOLATED SQLITE FILE (the node's store — the baseline test's cluster DB is

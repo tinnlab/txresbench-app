@@ -24,11 +24,16 @@
 #   4. a fresh `/proc` in a NEW PID namespace (`unshare -Urpf --mount-proc`),
 #      with any masked `/proc` over-mount named when the probe fails — the
 #      sandbox REFUSES a no-PID-ns fallback (host /proc secret-exfil vector)
+#   5. `libseccomp2` — the runtime library behind the method sandbox's syscall
+#      filter. Release builds link it (with the filter, a method run that
+#      breaks out is blocked at the syscall); a release build without the
+#      filter REFUSES to run methods. `ldconfig -p` reports the cache on a
+#      glibc host; the Debian/Ubuntu package installs it.
 #
 # Every missing/blocked item prints its EXACT remediation; the script exits
 # non-zero when any REQUIRED item is missing or blocked, 0 when the host is
-# ready. It runs only `unshare`/`sysctl`/`command -v` reads — no sudo, no
-# config change, safe to run at any time.
+# ready. It runs only `unshare`/`sysctl`/`command -v`/`ldconfig` reads — no
+# sudo, no config change, safe to run at any time.
 #
 # The server's own boot line is `sandbox: stack = { … }` (the same facts
 # `GET /api/sandbox/envs`' `stack` section reports); this script is the
@@ -47,7 +52,7 @@ printf 'app data dir: %s  (oras lookup: %s/bin/oras, then PATH)\n\n' "$APP_DATA"
 # ---------------------------------------------------------------------------
 # 1. host tools
 # ---------------------------------------------------------------------------
-printf '[1/4] host tools (bwrap, squashfuse, fusermount3, oras)\n'
+printf '[1/5] host tools (bwrap, squashfuse, fusermount3, oras)\n'
 
 tool_ok() {
   local name="$1" found
@@ -85,7 +90,7 @@ printf '\n'
 # ---------------------------------------------------------------------------
 # 2. /etc/fuse.conf
 # ---------------------------------------------------------------------------
-printf '[2/4] fuse: user_allow_other in /etc/fuse.conf\n'
+printf '[2/5] fuse: user_allow_other in /etc/fuse.conf\n'
 FUSE_LINE=""
 if [ -r /etc/fuse.conf ]; then
   while IFS= read -r line; do
@@ -107,7 +112,7 @@ printf '\n'
 # ---------------------------------------------------------------------------
 # 3. unprivileged userns sysctls (advisory — check 4 is the proof)
 # ---------------------------------------------------------------------------
-printf '[3/4] unprivileged userns sysctls (advisory; the /proc probe below is the proof)\n'
+printf '[3/5] unprivileged userns sysctls (advisory; the /proc probe below is the proof)\n'
 sysctl_warn() {
   local key="$1" want="$2" cur
   cur="$(sysctl -n "$key" 2>/dev/null || true)"
@@ -126,7 +131,7 @@ printf '\n'
 # ---------------------------------------------------------------------------
 # 4. fresh /proc in a new PID namespace (the sandbox refuses without it)
 # ---------------------------------------------------------------------------
-printf '[4/4] userns: fresh /proc in a new PID namespace\n'
+printf '[4/5] userns: fresh /proc in a new PID namespace\n'
 if command -v unshare >/dev/null 2>&1; then
   if unshare -Urpf --mount-proc true 2>/dev/null; then
     printf '  [ok]   fresh /proc       unshare -Urpf --mount-proc succeeded\n'
@@ -143,6 +148,48 @@ if command -v unshare >/dev/null 2>&1; then
   fi
 else
   printf '  [note] fresh /proc       unshare not found (install util-linux) — probe not run\n'
+fi
+printf '\n'
+
+# ---------------------------------------------------------------------------
+# 5. libseccomp2 — the syscall filter's runtime library
+# ---------------------------------------------------------------------------
+printf '[5/5] seccomp: the syscall filter runtime library (libseccomp.so.2)\n'
+# `ldconfig` often is NOT in a non-root user's PATH on Debian/Ubuntu (it lives in
+# /sbin), so a bare `ldconfig -p` alone would false-MISS a healthy host. Try the
+# bare name, then the usual absolute locations, then a filesystem glob over the
+# usual dirs for a file named exactly `libseccomp.so.2`.
+SECCOMP_LINE=""
+for ldc in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
+  # bash-only line scan (the script may run with a PATH that hides grep/head):
+  # keep the FIRST `ldconfig -p` line naming the library, exactly as printed.
+  while IFS= read -r line; do
+    case "$line" in
+      *libseccomp.so.2*)
+        SECCOMP_LINE="$line"
+        break
+        ;;
+    esac
+  done <<< "$("$ldc" -p 2>/dev/null)"
+  [ -n "$SECCOMP_LINE" ] && break
+done
+if [ -z "$SECCOMP_LINE" ]; then
+  # nullglob-safe: the script runs `set -u` only, so a no-match glob stays
+  # literal — test each candidate path and take only a real file.
+  for dir in /lib* /usr/lib* /lib/*-linux-gnu /usr/lib/*-linux-gnu; do
+    if [ -f "$dir/libseccomp.so.2" ]; then
+      SECCOMP_LINE="$dir/libseccomp.so.2"
+      break
+    fi
+  done
+fi
+if [ -n "$SECCOMP_LINE" ]; then
+  SECCOMP_LINE="${SECCOMP_LINE#"${SECCOMP_LINE%%[![:space:]]*}"}"
+  printf '  [ok]   libseccomp2     %s\n' "$SECCOMP_LINE"
+else
+  printf '  [MISS] libseccomp2     install it: sudo apt install libseccomp2\n'
+  printf '         (a release build without the filter REFUSES to run methods; Debian/Ubuntu runtime package)\n'
+  FAIL=1
 fi
 printf '\n'
 
