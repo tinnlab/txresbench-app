@@ -24,6 +24,7 @@ import {
 } from '@/modules/txrintake'
 import {
   countSelected,
+  METHODS_SET_TICKED,
   recheckFailedLine,
   recheckLine,
   recommendedSelection,
@@ -63,12 +64,20 @@ import { buildFilesSummary } from '../lib/filesSummary'
 import { formatRunBarTime } from '../lib/runBar'
 import {
   mergeRunSettings,
+  RUN_SETTINGS_SET_COVARIATES,
   RUN_SETTINGS_SET_DAY,
   TXR_RUN_SETTINGS_CONTEXT,
   type RunSettings,
 } from '../lib/settings'
 import { buildRunRequest } from '../lib/runRequest'
-import { buildCovariates, covariatesUseLine } from '../lib/covariates'
+import {
+  buildCovariates,
+  covariatesAutoOnLine,
+  covariatesAutoOnText,
+  covariatesUntickText,
+  covariatesUseLine,
+  requiredTickedCards,
+} from '../lib/covariates'
 import { useKeepCopies } from '../data/useKeepCopies'
 import { useRunConfig } from '../data/useRunConfig'
 import { predictFilesPath, runningPath } from '../routes'
@@ -267,6 +276,7 @@ function TxrMethodPickerFrame({
   initialPreset,
   onPresetChosen,
   treatmentClassLabels,
+  onInstanceId,
   demo = false,
 }: {
   inventory: InventoryEligibilityRequest
@@ -289,6 +299,9 @@ function TxrMethodPickerFrame({
   initialPreset: TxrMethodPreset | null
   /** A preset was applied: the page keeps it with the ticks. */
   onPresetChosen(preset: TxrMethodPreset): void
+  /** The mounted picker's `view_id` (the page addresses the automatic
+   *  `methods.setTicked` step at it). */
+  onInstanceId(viewId: string): void
   /** The vocabulary's treatment-class labels (step2-filters): the reason
    *  lines render the names the vocabulary carries, never the raw ids. */
   treatmentClassLabels: ReadonlyArray<{ id: string; label: string }>
@@ -392,6 +405,7 @@ function TxrMethodPickerFrame({
       recheckResult={recheckResult}
       initialPreset={initialPreset}
       onPresetChosen={onPresetChosen}
+      onInstanceId={onInstanceId}
     />
   )
 }
@@ -485,7 +499,13 @@ export function ChooseMethodsPage() {
   // decision day back (the render closure only turns over on a re-render).
   const settingsRef = useRef(settings)
   settingsRef.current = settings
-  const covariates = patients === null ? null : buildCovariates(patients.inspection)
+  // The patients file's Extra-inputs facts (memoized: the settings card and
+  // the eligibility request both read them; the object is rebuilt only when
+  // the file object changes).
+  const covariates = useMemo(
+    () => (patients === null ? null : buildCovariates(patients.inspection)),
+    [patients],
+  )
 
   const change = (next: RunSettings): void => {
     // The ref is the newest settings even when two change calls land in one
@@ -542,12 +562,104 @@ export function ChooseMethodsPage() {
       dayVersioned.set(daySnapshot)
     }
   })
+
+  // ── AOC part 2: the Extra-inputs switch's two automatic steps ──────────────
+  // Auto-on: a ticked runnable method with requirement `required`, the file's
+  // extra-input columns present, and the switch off → the switch turns itself
+  // on through `runSettings.setCovariates` and ONE plain line says why. The
+  // line stays until the switch changes or the set of required ticked methods
+  // changes. A manual (or agent) switch-off with required methods ticked
+  // unticks them through `methods.setTicked` and shows its own line; the
+  // switch stays off (the auto-on fires only when a required method BECOMES
+  // ticked while the switch is off — the untick runs in the same handler, so
+  // the auto-on effect never sees switch-off + required-ticked: no loop).
+  // Optional or none methods never trigger either step.
+  const [pickerViewId, setPickerViewId] = useState<string | null>(null)
+  const pickerViewIdRef = useRef<string | null>(null)
+  pickerViewIdRef.current = pickerViewId
+  /** The latched one-plain-line result (the switch's automatic steps). */
+  const [covariatesLine, setCovariatesLine] = useState<{
+    kind: 'auto' | 'untick'
+    keys: string[]
+    text: string
+  } | null>(null)
+  /** The auto-on's own switch change: `setCovariates` consumes the mark on
+   *  an on-transition so the line it just set survives that transition. */
+  const autoOnPending = useRef(false)
+  /** The latest cards/selection/picker id the action handlers read (the
+   *  handler closures are fresh per render, but a second call in one tick
+   *  must never read the previous tick's values). */
+  const cardsRef = useRef<ReadonlyArray<TxrMethodCard>>(NO_CARDS)
+  const selectedRef = useRef<ReadonlySet<string>>(new Set())
+  /** The required ticked keys of the previous render: the auto-on fires on a
+   *  required method BECOMING ticked, not merely being ticked. */
+  const prevRequiredKeys = useRef<string[]>([])
+
+  /** The Extra-inputs switch's handler (`runSettings.setCovariates`): the
+   *  switch's click, the AI invoke and the automatic steps all run it. */
+  const setCovariates = (on: boolean): void => {
+    if (isDemo) throw new Error(DEMO_SETTINGS_NOTE)
+    const latest = settingsRef.current
+    if (on) {
+      // Turning the switch on needs a file with extra-input columns. The UI
+      // switch is already disabled there; this refusal is the ASSISTANT path
+      // (the automatic auto-on never gets here: it only fires when the
+      // columns are present). A refused call changes nothing.
+      const problem =
+        covariates === null
+          ? 'There is no patients file, so Extra inputs cannot be turned on.'
+          : covariates.availability === 'absent'
+            ? 'The file has no extra-input columns, so Extra inputs cannot be turned on.'
+            : null
+      if (problem !== null) throw new Error(problem)
+      // An on-transition: the auto-on's own change keeps the line it set;
+      // any other change (the person or the agent) ends the latched line's
+      // lifetime ("stays until the switch changes").
+      if (autoOnPending.current) autoOnPending.current = false
+      else setCovariatesLine(null)
+    } else {
+      // A manual (or agent) switch-off: the ticked required methods are
+      // unticked and the one line says so — never leave the switch off with
+      // required methods ticked. The untick runs through the SAME registered
+      // `methods.setTicked` the card click uses; while the picker's view id
+      // is not known yet (no mounted list to address), the page's own
+      // selection path (`updateSelection`) gives the same result. The untick
+      // is synchronous inside the action call, so the auto-on step below
+      // never observes switch-off + required-ticked — no loop.
+      const required = requiredTickedCards(cardsRef.current, selectedRef.current)
+      const keys = required.map(card => card.key)
+      if (required.length > 0) {
+        const text = covariatesUntickText(required)
+        if (text !== null) setCovariatesLine({ kind: 'untick', keys, text })
+        if (pickerViewIdRef.current !== null) {
+          void runAction(METHODS_SET_TICKED, {
+            view_id: pickerViewIdRef.current,
+            keys,
+            ticked: false,
+          }).catch((error: unknown) => {
+            message.error(error instanceof Error ? error.message : 'Could not untick the methods.')
+          })
+        } else {
+          const unticked = new Set(keys)
+          updateSelection(current => new Set([...current].filter(key => !unticked.has(key))), false)
+        }
+      } else {
+        setCovariatesLine(null)
+      }
+    }
+    change({ ...latest, covariates: on })
+  }
+
   useAction(settingsViewId, {
     type: TXR_RUN_SETTINGS_CONTEXT,
     handlers: {
       [RUN_SETTINGS_SET_DAY]: params => {
         const { field, day } = params as { field: 'decision_day' | 'look_ahead_day'; day: number }
         return setDay(field, day)
+      },
+      [RUN_SETTINGS_SET_COVARIATES]: params => {
+        const { on } = params as { on: boolean }
+        return setCovariates(on)
       },
     },
     getSnapshot: () => dayVersioned.snapshot(),
@@ -564,6 +676,23 @@ export function ChooseMethodsPage() {
     },
     [settingsViewId],
   )
+  /** The switch's click: the registered action (the AI drives the same one);
+   *  a refusal (the demo's locked step) is shown, never silent. */
+  const chooseCovariates = useCallback(
+    (on: boolean): void => {
+      void runAction(RUN_SETTINGS_SET_COVARIATES, { view_id: settingsViewId, on }).catch(
+        (error: unknown) => {
+          message.error(error instanceof Error ? error.message : 'Could not set the extra inputs.')
+        },
+      )
+    },
+    [settingsViewId],
+  )
+  /** The mounted method picker reports its `view_id`: the page's automatic
+   *  `methods.setTicked` step (the switch-off untick) addresses it. */
+  const onPickerInstanceId = useCallback((viewId: string): void => {
+    setPickerViewId(viewId)
+  }, [])
   const lookAheadBlocked = isDemo
     ? null
     : checkLookAhead(dayFacts, settings.decision_day, settings.look_ahead_day, settings.endpoint, lookAheadMax)
@@ -596,6 +725,7 @@ export function ChooseMethodsPage() {
     () => new Set(ownPicks?.selected ?? []),
     [ownPicks],
   )
+  selectedRef.current = selected
   const updateSelection = useCallback(
     (next: (current: ReadonlySet<string>) => ReadonlySet<string>, byUser: boolean): void => {
       if (picksKey === null) return
@@ -647,6 +777,17 @@ export function ChooseMethodsPage() {
   // block (step2-filters) — answered fields only; the block itself is
   // omitted for an unanswered question group (the request without it is
   // exactly the "any" verdicts).
+  //
+  // AOC part 2 (option A): the EXTRA-INPUT COLUMN NAMES ride the request
+  // whenever the file's inspection says they are there (availability
+  // `present`), whatever the switch says — a `required` method is tickable
+  // with the switch off, and the switch then only decides whether the run
+  // uses the columns. A file with no extra-input columns (`absent`) keeps
+  // `[]`: the required methods are cannot-run with COVARIATE_REQUIRED_UNMET
+  // exactly as before. When the screen CANNOT say yet (availability
+  // `unknown` — no resolved inspection), today's rule is kept: the names
+  // ride when the switch is on, `[]` when it is off (the request's verdict
+  // then follows the switch exactly as before the option-A change).
   const settingsInventory = useMemo(
     () =>
       inventory === null
@@ -654,10 +795,17 @@ export function ChooseMethodsPage() {
         : {
             ...inventory,
             decision_day: settings.decision_day,
-            covariates: settings.covariates ? inventory.covariates : [],
+            covariates:
+              covariates !== null && covariates.availability === 'present'
+                ? inventory.covariates
+                : covariates !== null &&
+                    covariates.availability === 'unknown' &&
+                    settings.covariates
+                  ? inventory.covariates
+                  : [],
             ...(hasMethodFilters(methodFilters) ? { filters: methodFilters } : {}),
           },
-    [inventory, settings.decision_day, settings.covariates, methodFilters],
+    [inventory, settings.decision_day, covariates, settings.covariates, methodFilters],
   )
   const [cardsState, setCards] = useState<TxrMethodCard[]>([])
   // While the validation is null (Change files has just changed a file),
@@ -665,6 +813,7 @@ export function ChooseMethodsPage() {
   // cards: the page counts nothing then (the Extra-inputs help falls back to
   // its general line), until the new files' first answer arrives.
   const cards = settingsInventory === null ? NO_CARDS : cardsState
+  cardsRef.current = cards
   // The method list the cards on screen come from: a run request sends it back, so a
   // selection made on one list never starts a run on another (409 METHOD_LIST_CHANGED).
   // Never the latest status read: that moves ahead of the cards until they reload.
@@ -673,6 +822,57 @@ export function ChooseMethodsPage() {
     cardsListSequence.current = sequence
     setCards(next)
   }, [])
+
+  // The mount-time seed and the eligibility prune can both make a required
+  // method ticked while the switch is off; the auto-on and the latched
+  // line's lifetime (the switch or the required ticked set changing) are
+  // this effect's one place.
+  useEffect(() => {
+    if (isDemo) return
+    const requiredNow = requiredTickedCards(cards, selected).map(card => card.key)
+    const previous = prevRequiredKeys.current
+    const became = requiredNow.filter(key => !previous.includes(key))
+    const lost = previous.filter(key => !requiredNow.includes(key))
+    const availability = covariates?.availability ?? 'unknown'
+    const autoOn = covariatesAutoOnLine(cards, selected, availability, settings.covariates)
+
+    // Auto-on: a required method BECAME ticked while the switch is off and
+    // the file has the extra-input columns (the decision function already
+    // gates the switch + availability + a required ticked method). The step
+    // needs ONLY the settings action (`runSettings.setCovariates` on
+    // `settingsViewId`) — never the method picker's view id.
+    //
+    // The previous set records ONLY transitions the step actually consumed:
+    // the auto-on itself, or a required method that was unticked. A BECAME
+    // the conditions still block (the switch is on, or the columns are not
+    // known to be present) is NOT recorded — the auto-on fires when the
+    // conditions turn, never recorded as done and lost for good.
+    if (became.length > 0 && autoOn !== null) {
+      prevRequiredKeys.current = requiredNow
+      autoOnPending.current = true
+      setCovariatesLine({ kind: 'auto', keys: requiredNow, text: autoOn })
+      void runAction(RUN_SETTINGS_SET_COVARIATES, { view_id: settingsViewId, on: true }).catch(
+        (error: unknown) => {
+          autoOnPending.current = false
+          message.error(error instanceof Error ? error.message : 'Could not turn the extra inputs on.')
+        },
+      )
+      return
+    }
+    // A latched AUTO line follows the required ticked set (a tick, an
+    // untick, a re-check that made a card cannot-run): it recomputes or
+    // clears. The UNTICK line stays (its methods were already unticked; a
+    // new required tick takes the auto-on path above).
+    if (became.length > 0 || lost.length > 0) {
+      if (became.length === 0 && lost.length > 0) prevRequiredKeys.current = requiredNow
+      setCovariatesLine(current => {
+        if (current === null || current.kind !== 'auto') return current
+        if (requiredNow.length === 0) return null
+        const text = covariatesAutoOnText(requiredTickedCards(cards, selected))
+        return text === null ? null : { kind: 'auto', keys: requiredNow, text }
+      })
+    }
+  }, [cards, selected, settings.covariates, covariates, settingsViewId, isDemo])
   const estimate = useListEstimate([...selected], {
     patients: inventory?.patients ?? 0,
     cpus: settings.cpus ?? undefined,
@@ -879,6 +1079,8 @@ export function ChooseMethodsPage() {
                       value={settings}
                       covariates={covariates}
                       onChange={change}
+                      onCovariatesChange={chooseCovariates}
+                      covariatesAutoLine={covariatesLine?.text ?? null}
                       onMoreSettings={next => change({ ...settings, ...next })}
                       collapsed={short}
                       locked={isDemo}
@@ -918,6 +1120,7 @@ export function ChooseMethodsPage() {
                   initialPreset={ownPicks?.preset ?? null}
                   onPresetChosen={rememberPreset}
                   treatmentClassLabels={treatmentClasses}
+                  onInstanceId={onPickerInstanceId}
                   demo={isDemo}
                 />
               )}

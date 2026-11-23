@@ -198,6 +198,50 @@ describe('TxrSettingsBlock (E settings rows, TEST-RUN-15)', () => {
     expect(onChange).toHaveBeenCalledWith({ ...fixtureValue, covariates: true })
   })
 
+  it('with onCovariatesChange the switch reports through it (the registered action drives the change), never onChange', async () => {
+    const onChange = vi.fn()
+    const onCovariatesChange = vi.fn()
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={onChange}
+        onCovariatesChange={onCovariatesChange}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    await clickKit(screen.getByTestId('txr-run-settings-covariates'))
+    expect(onCovariatesChange).toHaveBeenCalledWith(true)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('renders the auto/untick one-plain-line under the switch (txr-run-settings-covariates-auto)', () => {
+    const { rerender } = render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        covariatesAutoLine="Turned on because Dynamic random forest needs them."
+      />,
+    )
+    const line = screen.getByTestId('txr-run-settings-covariates-auto')
+    expect(line.textContent).toBe('Turned on because Dynamic random forest needs them.')
+    expect(line.getAttribute('role')).toBe('status')
+
+    // No line by default (the slot stays empty; the help keeps its place).
+    rerender(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    expect(screen.queryByTestId('txr-run-settings-covariates-auto')).toBeNull()
+    expect(screen.getByTestId('txr-run-settings-covariates-help')).toBeTruthy()
+  })
+
   it('suggests the days of the checked files, with the coverage lines, and reports a choice', async () => {
     const onChooseDay = vi.fn()
     render(

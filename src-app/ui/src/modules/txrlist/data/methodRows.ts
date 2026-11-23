@@ -86,7 +86,14 @@ function needsOf(summary: MethodSummary): TxrMethodNeeds {
     summary.covariates === 'optional' ? 'covariates optional'
     : summary.covariates === 'required' ? 'covariates required'
     : null
-  return { markers, covariates, draws: `${summary.min_draws}+ draws` }
+  return {
+    markers,
+    covariates,
+    // The raw catalogue mode rides beside the display string (the Extra-inputs
+    // switch's auto-on / untick decisions read it, never the words).
+    covariatesMode: summary.covariates,
+    draws: `${summary.min_draws}+ draws`,
+  }
 }
 
 /** The first missing marker's display name, or null (the fix then falls back). */

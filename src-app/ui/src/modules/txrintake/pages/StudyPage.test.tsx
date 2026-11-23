@@ -1140,6 +1140,159 @@ describe('step2-filters brief 5b — the disease picker and the treatment multi-
 })
 
 
+describe('aoc1 — the Any outcome pill (the unanswered state)', () => {
+  const anyPill = () => screen.getByTestId('txr-intake-study-outcome-any')
+  const groupPill = (value: string) => screen.getByTestId(`txr-intake-study-outcome-${value}`)
+
+  it('Any is pressed (and FIRST) when no outcome is chosen, and clicking it changes nothing', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    const pills = screen.getByRole('group', { name: 'What you want to predict' })
+    // The row order: Any first, then the four board pills unchanged.
+    expect(
+      within(pills)
+        .getAllByRole('button')
+        .map(b => b.getAttribute('data-testid')),
+    ).toEqual([
+      'txr-intake-study-outcome-any',
+      'txr-intake-study-outcome-binary-response',
+      'txr-intake-study-outcome-response-probability',
+      'txr-intake-study-outcome-progression-by-day',
+      'txr-intake-study-outcome-dynamic-risk',
+    ])
+    expect(anyPill().textContent).toBe('Any')
+    expect(anyPill().getAttribute('aria-pressed')).toBe('true')
+    for (const value of [
+      'binary-response',
+      'response-probability',
+      'progression-by-day',
+      'dynamic-risk',
+    ]) {
+      expect(groupPill(value).getAttribute('aria-pressed')).toBe('false')
+    }
+    // Clicking Any while it is already selected: the outcome stays null.
+    await act(async () => {
+      fireEvent.click(anyPill())
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBeNull())
+    expect(anyPill().getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('picking a group deselects Any and presses the group', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    expect(anyPill().getAttribute('aria-pressed')).toBe('true')
+    await act(async () => {
+      fireEvent.click(groupPill('binary-response'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBe('binary-response'))
+    expect(anyPill().getAttribute('aria-pressed')).toBe('false')
+    expect(groupPill('binary-response').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('clicking Any clears a chosen outcome (and the group pill is no longer pressed)', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    await act(async () => {
+      fireEvent.click(groupPill('progression-by-day'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBe('progression-by-day'))
+    expect(groupPill('progression-by-day').getAttribute('aria-pressed')).toBe('true')
+    await act(async () => {
+      fireEvent.click(anyPill())
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBeNull())
+    expect(groupPill('progression-by-day').getAttribute('aria-pressed')).toBe('false')
+    expect(anyPill().getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('clicking the selected group pill clears it and Any is pressed again', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    await act(async () => {
+      fireEvent.click(groupPill('dynamic-risk'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBe('dynamic-risk'))
+    expect(anyPill().getAttribute('aria-pressed')).toBe('false')
+    // The second click is the clearing one (today's behaviour): Any again.
+    await act(async () => {
+      fireEvent.click(groupPill('dynamic-risk'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBeNull())
+    expect(groupPill('dynamic-risk').getAttribute('aria-pressed')).toBe('false')
+    expect(anyPill().getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('with Any the preview request carries no method_group', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    api.eligibility.mockClear()
+    // Answer a marker group + an outcome: the request then carries the task.
+    fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
+    await act(async () => {
+      fireEvent.click(groupPill('binary-response'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBe('binary-response'))
+    await waitFor(() => {
+      expect(
+        api.eligibility.mock.calls.some(
+          call =>
+            (call[0] as { preview?: Record<string, unknown> }).preview?.method_group ===
+            'response-call',
+        ),
+      ).toBe(true)
+    })
+    // Clear to Any: the request omits the task filter entirely (the
+    // marker-group answer still rides).
+    await act(async () => {
+      fireEvent.click(anyPill())
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().study.outcome).toBeNull())
+    await waitFor(() => {
+      const last = api.eligibility.mock.calls.at(-1)?.[0] as {
+        preview?: Record<string, unknown>
+      }
+      expect(last.preview).toBeDefined()
+      expect(last.preview?.method_group).toBeUndefined()
+      expect(last.preview?.marker_groups).toEqual(expect.objectContaining({ ctdna: true }))
+    })
+  })
+
+  it('with Any the sentence has no "that predict" clause', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    // A marker group + an outcome: the outcome clause appears with it.
+    fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
+    await act(async () => {
+      fireEvent.click(groupPill('progression-by-day'))
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+        'Methods that predict the risk by a set day, using ctDNA. This updates as you answer.',
+      ),
+    )
+    await act(async () => {
+      fireEvent.click(anyPill())
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+        'Methods using ctDNA. This updates as you answer.',
+      ),
+    )
+    expect(screen.getByTestId('txr-intake-panel-sentence').textContent).not.toContain('that predict')
+  })
+})
+
 describe('the heading block lines up with the body at every window width', () => {
   it('the step line block starts at the body row\'s left edge: same side padding, never centred', () => {
     renderStudy()

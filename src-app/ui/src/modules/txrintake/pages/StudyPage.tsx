@@ -16,6 +16,7 @@ import {
   DRAWS_OPTIONS,
   EXCLUDED_LIST_LIMIT,
   FILTER_OPTIONS_UNAVAILABLE_LINE,
+  OUTCOME_ANY_LABEL,
   OUTCOME_OPTIONS,
   leftOutHeading,
   someFitLine,
@@ -427,6 +428,18 @@ export function StudyPage() {
                 <div style={QUESTION_GROUP}>
                   <div style={QUESTION_LABEL}>What you want to predict</div>
                   <div style={PILLS} className="txr-intake-pills" role="group" aria-label="What you want to predict">
+                    {/* aoc1: the "Any" pill is the unanswered state FIRST — the
+                        same button/attrs as the outcome pills, pressed when
+                        `study.outcome` is null (no task filter). */}
+                    <Button
+                      data-testid="txr-intake-study-outcome-any"
+                      variant="outline"
+                      aria-pressed={study.outcome === null}
+                      style={study.outcome === null ? PILL_SELECTED : PILL}
+                      onClick={() => applyAnswer({ outcome: null })}
+                    >
+                      {OUTCOME_ANY_LABEL}
+                    </Button>
                     {OUTCOME_OPTIONS.map(option => {
                       const selected = study.outcome === option.value
                       return (

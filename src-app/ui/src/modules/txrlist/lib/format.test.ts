@@ -494,7 +494,7 @@ describe('the E-picker copy formatters (qa-fixes3 ITEM-1)', () => {
   })
 
   it('formatMethodNeedsLine joins the needs facts and prefixes the coverage for some-patients rows', () => {
-    const needs: TxrMethodNeeds = { markers: '3 markers', covariates: 'covariates optional', draws: '3+ draws' }
+    const needs: TxrMethodNeeds = { markers: '3 markers', covariates: 'covariates optional', covariatesMode: 'optional', draws: '3+ draws' }
     expect(formatMethodNeedsLine(needs, null)).toBe('Needs: 3 markers · covariates optional · 3+ draws')
     expect(formatMethodNeedsLine(needs, 'Runs on 120 of 151 patients')).toBe(
       'Runs on 120 of 151 patients · Needs: 3 markers · covariates optional · 3+ draws',

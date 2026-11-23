@@ -5,7 +5,11 @@ import { InstanceHandlerMissingError, InstanceNotFoundError } from '../instanceE
 import { TxrIntake, useTxrIntakeStore } from '@/modules/txrintake/stores/TxrIntake.store'
 import { TXR_STEP_CONTEXT, useStepTrailStore } from '@/modules/txrintake/lib/stepTrail'
 import { drawDayError } from '@/modules/txrintake/lib/dayChoices'
-import { RUN_SETTINGS_SET_DAY, TXR_RUN_SETTINGS_CONTEXT } from '@/modules/txrrun/lib/settings'
+import {
+  RUN_SETTINGS_SET_COVARIATES,
+  RUN_SETTINGS_SET_DAY,
+  TXR_RUN_SETTINGS_CONTEXT,
+} from '@/modules/txrrun/lib/settings'
 
 // The day choices of a new analysis: the questions step's "Last draw you will
 // use" and step 4's decision day and look-ahead day. A suggested day button and
@@ -86,5 +90,37 @@ defineAction({
     const handler = settings.handlers[RUN_SETTINGS_SET_DAY]
     if (handler === undefined) throw new InstanceHandlerMissingError(view_id, RUN_SETTINGS_SET_DAY)
     return handler({ field, day }, ctx)
+  },
+})
+
+// The Extra-inputs switch of step 4's settings (AOC part 2): the switch's
+// click and the automatic steps (auto-on, untick-on-manual-off) all run this
+// action, so the AI drives the same handler. Same instance / context /
+// permission shape as `runSettings.setDay`; `stateful: false` — the switch
+// reads one boolean, and the handler's auto-untick makes the outcome
+// independent of what the caller last read.
+defineAction({
+  id: RUN_SETTINGS_SET_COVARIATES,
+  title: 'Turn the extra inputs on or off',
+  permission: Permissions.McpUse,
+  mutating: true,
+  kind: 'instance',
+  stateful: false,
+  context: TXR_RUN_SETTINGS_CONTEXT,
+  group: 'Analysis',
+  aliases: ['extra inputs', 'covariates'],
+  keywords: ['extra inputs', 'covariates'],
+  description:
+    "On the choose-methods step, turn the Extra-inputs switch on or off. The switch decides whether the run uses the file's extra-input columns; a method that REQUIRES them is still tickable with the switch off. Turning it off by hand while a required method is ticked unticks that method (it needs extra inputs) and keeps the switch off.",
+  params: z.object({
+    view_id: z.string().describe('The run settings (views.list, type txr.run-settings).'),
+    on: z.boolean().describe('Turn the switch on or off.'),
+  }),
+  run: ({ view_id, on }, ctx) => {
+    const settings = ctx.instance(TXR_RUN_SETTINGS_CONTEXT, view_id)
+    if (settings === undefined) throw new InstanceNotFoundError(view_id)
+    const handler = settings.handlers[RUN_SETTINGS_SET_COVARIATES]
+    if (handler === undefined) throw new InstanceHandlerMissingError(view_id, RUN_SETTINGS_SET_COVARIATES)
+    return handler({ on }, ctx)
   },
 })

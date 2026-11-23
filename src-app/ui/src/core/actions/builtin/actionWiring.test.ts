@@ -26,6 +26,7 @@ const NEW_IDS = [
   'features.setAccountFlag',
   'features.clearAccountOverride',
   'methods.applyPreset',
+  'methods.setTicked',
   'flow.back',
   'help.backToStep',
   'models.switchList',
@@ -35,6 +36,7 @@ const NEW_IDS = [
   'sandbox.setupWsl',
   'flow.setLastDrawDay',
   'runSettings.setDay',
+  'runSettings.setCovariates',
   'intake.setStudyAnswers',
 ]
 

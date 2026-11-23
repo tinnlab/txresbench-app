@@ -46,7 +46,7 @@ function card(id: string, group: TxrMethodCard['group'], groupLabel: string, sec
     paperDoi: '10.0000/txr.demo',
     estimate: { seconds, quality: 'measured' },
     rank: null,
-    needs: { markers: '1 marker', covariates: null, draws: '1+ draws' },
+    needs: { markers: '1 marker', covariates: null, covariatesMode: 'none', draws: '1+ draws' },
     run: {
       status: 'can',
       coverageLine: 'all 18 patients',

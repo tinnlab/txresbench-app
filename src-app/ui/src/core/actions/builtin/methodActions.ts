@@ -3,6 +3,7 @@ import { Permissions } from '@/api-client/permissions'
 import { defineAction } from '../defineAction'
 import { InstanceHandlerMissingError, InstanceNotFoundError } from '../instanceErrors'
 import {
+  METHODS_SET_TICKED,
   METHODS_APPLY_PRESET,
   TXR_METHOD_PICKER_CONTEXT,
   TXRMETHOD_PRESETS,
@@ -65,5 +66,37 @@ defineAction({
     const handler = picker.handlers[METHODS_APPLY_PRESET]
     if (handler === undefined) throw new InstanceHandlerMissingError(view_id, METHODS_APPLY_PRESET)
     return handler({ preset }, ctx)
+  },
+})
+
+// The card-checkbox tick (AOC part 2): a card click calls it with ONE key,
+// and the choose-methods page's automatic steps (untick-on-manual-off) call
+// it with the required methods' keys. Same instance / context / permission
+// shape as `methods.applyPreset`; `stateful: false` — the tick is atomic
+// and the result does not depend on the selection the caller last read.
+defineAction({
+  id: METHODS_SET_TICKED,
+  title: 'Tick or untick methods',
+  permission: Permissions.McpUse,
+  mutating: true,
+  kind: 'instance',
+  stateful: false,
+  context: TXR_METHOD_PICKER_CONTEXT,
+  group: 'Analysis',
+  aliases: ['select a method', 'deselect a method', 'tick a method'],
+  keywords: ['methods', 'tick', 'selected methods'],
+  description:
+    "On the choose-methods page, tick or untick the named methods (one key per click; the Extra-inputs switch's automatic untick passes all of them at once). Refused until the method list has loaded, and refused for a method that cannot run with these files.",
+  params: z.object({
+    view_id: z.string().describe('The method picker (views.list, type txr.method-picker).'),
+    keys: z.array(z.string()).describe('The method keys to tick or untick.'),
+    ticked: z.boolean().describe('Tick (true) or untick (false).'),
+  }),
+  run: ({ view_id, keys, ticked }, ctx) => {
+    const picker = ctx.instance(TXR_METHOD_PICKER_CONTEXT, view_id)
+    if (picker === undefined) throw new InstanceNotFoundError(view_id)
+    const handler = picker.handlers[METHODS_SET_TICKED]
+    if (handler === undefined) throw new InstanceHandlerMissingError(view_id, METHODS_SET_TICKED)
+    return handler({ keys, ticked }, ctx)
   },
 })

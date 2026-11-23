@@ -54,6 +54,10 @@ export const TXR_METHOD_PICKER_CONTEXT = 'txr.method-picker'
 /** The preset action's id (the picker's instance handler key). */
 export const METHODS_APPLY_PRESET = 'methods.applyPreset'
 
+/** The card-tick action's id (the picker's instance handler key; one key per
+ *  click, several keys for the switch's automatic untick). */
+export const METHODS_SET_TICKED = 'methods.setTicked'
+
 /** The picker's sort order. */
 export type TxrMethodSort = 'recommended' | 'fastest' | 'name' | 'year'
 
