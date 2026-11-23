@@ -185,6 +185,23 @@ pub fn classify(facts: &WslFacts) -> WslStatus {
     }
 }
 
+/// The probe's sentence for the cases decided before `wsl --version` runs,
+/// in the installer's words (TXR_MSG_POLICY, TXR_MSG_NO_WSL_EXE): the app
+/// cannot use WSL here whatever WSL does, so nothing more is asked.
+pub fn early_probe_sentence(status: WslStatus) -> Option<&'static str> {
+    match status {
+        WslStatus::Policy => Some(
+            "WSL 2, which methods run in, is turned off on this computer by your organization: ask your IT \
+             department to allow WSL",
+        ),
+        WslStatus::NoWslExe => Some(
+            "methods run in WSL 2, which this version of Windows cannot install by itself: to install WSL, \
+             see https://learn.microsoft.com/windows/wsl/install-manual",
+        ),
+        _ => None,
+    }
+}
+
 /// The WSL version from `wsl --version`: the first `a.b.c[.d]` number on the
 /// first line (`WSL version: 2.6.1.0`; the label is translated on other
 /// Windows languages, the number is not).
@@ -343,6 +360,78 @@ mod tests {
         // 1 is what a crashed or refused program commonly returns: never a status.
         assert!(!codes.contains(&1));
         assert_eq!(WslStatus::Ready.code(), 0);
+    }
+
+    /// The probe's early sentences: only the cases decided before `wsl
+    /// --version` runs (the organization turned WSL off, no wsl.exe) get one.
+    #[test]
+    fn the_early_probe_sentence_is_only_for_policy_and_no_wsl_exe() {
+        let all: Vec<(WslStatus, Option<&'static str>)> =
+            WslStatus::ALL.iter().map(|&s| (s, early_probe_sentence(s))).collect();
+        assert_eq!(
+            all,
+            [
+                (WslStatus::Ready, None),
+                (WslStatus::Unsupported, None),
+                (WslStatus::ReadyAfterRestart, None),
+                (WslStatus::Missing, None),
+                (WslStatus::Old, None),
+                (WslStatus::Legacy, None),
+                (
+                    WslStatus::NoWslExe,
+                    Some(
+                        "methods run in WSL 2, which this version of Windows cannot install by itself: to \
+                         install WSL, see https://learn.microsoft.com/windows/wsl/install-manual"
+                    )
+                ),
+                (WslStatus::Emulated, None),
+                (
+                    WslStatus::Policy,
+                    Some(
+                        "WSL 2, which methods run in, is turned off on this computer by your organization: \
+                         ask your IT department to allow WSL"
+                    )
+                ),
+            ]
+        );
+    }
+
+    /// Neither early sentence tells the user to run `wsl --install` from a
+    /// PowerShell prompt: the no-wsl.exe case cannot install WSL by itself
+    /// (the very reason it is early), and the policy case needs their IT
+    /// department.
+    #[test]
+    fn no_early_sentence_names_the_install_command() {
+        for &status in &WslStatus::ALL {
+            if let Some(sentence) = early_probe_sentence(status) {
+                assert!(!sentence.contains("wsl --install"), "{status:?}: {sentence}");
+            }
+        }
+    }
+
+    /// The no-wsl.exe sentence names exactly the install manual the
+    /// installer's hook points at (`TXR_MSG_NO_WSL_EXE`,
+    /// installer-hooks.nsh), found the way the desktop crate's own test finds
+    /// that file.
+    #[test]
+    fn the_no_wsl_exe_sentence_names_the_installers_install_manual() {
+        let hooks = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../desktop/tauri/windows/installer-hooks.nsh"
+        ))
+        .expect("read the desktop crate's installer hooks");
+        let line = hooks.lines().find(|l| l.contains("TXR_MSG_NO_WSL_EXE")).expect("the message define");
+        let url = format!(
+            "https://{}",
+            line.split("https://")
+                .nth(1)
+                .expect("the message's URL")
+                .split(|c: char| c == '"' || c.is_whitespace())
+                .next()
+                .expect("the URL")
+        );
+        let sentence = early_probe_sentence(WslStatus::NoWslExe).expect("the sentence");
+        assert!(sentence.contains(&url), "{sentence:?} names not {url}");
     }
 
     /// A stand-in PC for [`gather_facts`]: its registry values and keys, its
