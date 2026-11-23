@@ -276,7 +276,10 @@ pub fn estimate_for_runtime_calibrated(
     // REAL method problem, in request order (the pure core's own
     // first-failure-wins convention): an id the catalogue does not know is
     // UNKNOWN_METHOD even when it also has no published environment; a known
-    // id with no env is METHOD_NOT_RUNNABLE.
+    // id with no env is METHOD_NOT_RUNNABLE — as is a known id when THIS
+    // computer cannot run methods at all (Windows without a usable WSL 2; the
+    // boot flags' OnceLock, read once per request, never a `wsl.exe` spawn).
+    let runner_unavailable = crate::modules::sandbox::config::methods_cannot_run_here().is_some();
     validate_estimate_request(req)?;
     for id in &req.method_ids {
         if cat.method(id).is_none() {
@@ -284,7 +287,9 @@ pub fn estimate_for_runtime_calibrated(
                 method_id: id.clone(),
             });
         }
-        if !crate::modules::method_catalogue::eligibility::runtime_env_available(images, id) {
+        if runner_unavailable
+            || !crate::modules::method_catalogue::eligibility::runtime_env_available(images, id)
+        {
             return Err(EstimateError::MethodNotRunnable {
                 method_id: id.clone(),
             });

@@ -3906,6 +3906,18 @@ fn reason_line(reason: &crate::modules::method_catalogue::types::Reason) -> Stri
     }
 }
 
+/// The run-row detail for `RUNNER_UNAVAILABLE`: the same one sentence the
+/// screens show ("Use example" says `runner_unavailable`), so the run row
+/// never shows a bare code when this computer cannot run methods. `why` is
+/// the probe's sentence (`methods_cannot_run_here` in `sandbox::config`, read
+/// ONCE per [`classify`]); the fallback stands in when it is somehow absent.
+fn runner_unavailable_detail(why: Option<&str>) -> String {
+    format!(
+        "This computer cannot run methods yet: {}",
+        why.unwrap_or("the method runner is unavailable")
+    )
+}
+
 /// Classify every selected method (train: the provider's eligibility verdict
 /// + the env entry; reuse: asset verification + the env entry) into the plan
 /// list — DEC-15's replay of the screens' one judgement; a runnable method
@@ -3930,6 +3942,10 @@ fn classify(
 ) -> Result<Vec<MethodPlan>, AppError> {
     let _ = config;
     let mut plans = Vec::new();
+    // The runner-unavailable sentence, read ONCE per classify (the boot
+    // flags' OnceLocks; never a per-method `wsl.exe` spawn). On Linux/macOS
+    // this is `None`, so the eligibility stage never emits the code.
+    let runner_unavailable_why = crate::modules::sandbox::config::methods_cannot_run_here();
     match mode {
         super::types::TxrRunMode::Train => {
             let verdicts = eligibility::eligibility(
@@ -3974,7 +3990,9 @@ fn classify(
                         // first for a method with no published environment —
                         // the SAME fact this branch used to discover itself
                         // and report as ENV_UNKNOWN; one vocabulary now, the
-                        // screens' verdict and the run row agree, CONS-EE-10).
+                        // screens' verdict and the run row agree, CONS-EE-10 —
+                        // and RUNNER_UNAVAILABLE first when THIS computer
+                        // cannot run methods at all, with its own detail).
                         let reason = verdict
                             .reasons
                             .first()
@@ -3985,6 +4003,13 @@ fn classify(
                                     TxrRunReason::from_catalogue(
                                         r.code,
                                         format!("no published environment for method {id:?}"),
+                                    )
+                                } else if r.code
+                                    == crate::modules::method_catalogue::types::ReasonCode::RunnerUnavailable
+                                {
+                                    TxrRunReason::from_catalogue(
+                                        r.code,
+                                        runner_unavailable_detail(runner_unavailable_why.as_deref()),
                                     )
                                 } else {
                                     TxrRunReason::from_catalogue(r.code, reason_line(r))
@@ -5125,6 +5150,24 @@ mod tests {
     use crate::modules::sandbox::method_env::{EnvKind, MethodEnvState};
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
+
+    /// The run-row detail for `RUNNER_UNAVAILABLE` (the first reason the
+    /// eligibility stage pushes when this computer cannot run methods):
+    /// the probe's sentence, read once per classify — same words the screens
+    /// and "Use example" show, so the row never carries a bare code.
+    #[test]
+    fn runner_unavailable_detail_carries_the_probe_sentence() {
+        assert_eq!(
+            runner_unavailable_detail(Some("WSL 2 is not installed")),
+            "This computer cannot run methods yet: WSL 2 is not installed"
+        );
+        // Defensive: when the sentence is somehow absent the detail still
+        // reads as a sentence.
+        assert_eq!(
+            runner_unavailable_detail(None),
+            "This computer cannot run methods yet: the method runner is unavailable"
+        );
+    }
 
     // ── fixture tables (the board shape: four outcome columns, one marker
     //    with a baseline + two on-treatment draws per patient) ──────────────

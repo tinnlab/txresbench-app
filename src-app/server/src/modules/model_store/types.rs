@@ -704,6 +704,11 @@ pub enum ModelReasonCode {
     NotRunnable,
     #[serde(rename = "ENV_IMAGE_MISSING")]
     EnvImageMissing,
+    /// The provider's runner-unavailable code (this computer cannot run
+    /// methods — Windows: WSL 2; the store's saved models never receive it
+    /// today, but the wire language is the provider's — the 1:1 mapper).
+    #[serde(rename = "RUNNER_UNAVAILABLE")]
+    RunnerUnavailable,
     #[serde(rename = "TASK_INCOMPATIBLE")]
     TaskIncompatible,
     #[serde(rename = "RESPONSE_LABEL_MISSING")]
@@ -727,9 +732,9 @@ pub enum ModelReasonCode {
 }
 
 impl ModelReasonCode {
-    /// The closed code list, in documentation order (17 provider codes + the
+    /// The closed code list, in documentation order (18 provider codes + the
     /// store's own).
-    pub const ALL: [ModelReasonCode; 18] = [
+    pub const ALL: [ModelReasonCode; 19] = [
         ModelReasonCode::RequiredMarkerMissing,
         ModelReasonCode::MarkerGroupMissing,
         ModelReasonCode::DetectionCallMissing,
@@ -740,6 +745,7 @@ impl ModelReasonCode {
         ModelReasonCode::DecisionDayUnmet,
         ModelReasonCode::NotRunnable,
         ModelReasonCode::EnvImageMissing,
+        ModelReasonCode::RunnerUnavailable,
         ModelReasonCode::TaskIncompatible,
         ModelReasonCode::ResponseLabelMissing,
         ModelReasonCode::SurvivalOutcomeMissing,
@@ -763,6 +769,7 @@ impl ModelReasonCode {
             ModelReasonCode::DecisionDayUnmet => "DECISION_DAY_UNMET",
             ModelReasonCode::NotRunnable => "NOT_RUNNABLE",
             ModelReasonCode::EnvImageMissing => "ENV_IMAGE_MISSING",
+            ModelReasonCode::RunnerUnavailable => "RUNNER_UNAVAILABLE",
             ModelReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             ModelReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ModelReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
@@ -789,6 +796,7 @@ impl ModelReasonCode {
             ReasonCode::DecisionDayUnmet => ModelReasonCode::DecisionDayUnmet,
             ReasonCode::NotRunnable => ModelReasonCode::NotRunnable,
             ReasonCode::EnvImageMissing => ModelReasonCode::EnvImageMissing,
+            ReasonCode::RunnerUnavailable => ModelReasonCode::RunnerUnavailable,
             ReasonCode::TaskIncompatible => ModelReasonCode::TaskIncompatible,
             ReasonCode::ResponseLabelMissing => ModelReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => ModelReasonCode::SurvivalOutcomeMissing,
