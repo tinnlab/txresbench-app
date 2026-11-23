@@ -1164,6 +1164,10 @@ pub async fn run_method_in_stack(
 
     // ── run: live log frames + milestones, streamed outputs, timeout ────────
     let effective_timeout = clamp_timeout(req.timeout_secs, limits.timeout_secs);
+    // Each concurrent run gets CPUs of its own (DEC-12's thread rule, enforced
+    // in WSL by the agent's pinning): runs get different slots while there are
+    // enough, and share the least-used ones when there are not.
+    let cpu_lease = super::cpu_slots::global().take(req.n_cpu.max(1) as usize);
     let exec = sandbox_vm_protocol::ExecRequest {
         protocol_version: sandbox_vm_protocol::PROTOCOL_VERSION,
         request_id: 1,
@@ -1191,10 +1195,11 @@ pub async fn run_method_in_stack(
             scratch_dirs: vec![guest_home.clone()],
             total_cap_bytes: u64::from(OUTPUT_BUDGET_MIB) * 1024 * 1024,
         },
-        cpu_slots: None,
+        cpu_slots: Some(cpu_lease.slots().to_vec()),
     };
     let command_budget = std::time::Duration::from_secs(effective_timeout.saturating_add(60));
     let mut outcome = vx::AgentExec::exec(&agent, exec, command_budget, sink.as_ref(), &artifact_dirs).await?;
+    drop(cpu_lease);
     drop(image_hold);
     if !outcome.incomplete.is_empty() {
         if outcome.exit_code == 0 && !outcome.timed_out {
