@@ -291,8 +291,60 @@ mod tests {
             .join(rel)
     }
 
-    fn run_packer(dst: &Path) -> (u64, String) {
-        let out = Command::new("python3")
+    /// A usable Python 3 interpreter (the packer is a Python tool): the
+    /// command to spawn. `TXR_TEST_PYTHON` (when set and non-empty) is used
+    /// first — it may name a path, or a wrapper that already selects the
+    /// interpreter; otherwise the first of `python3`, `python`, and (on
+    /// Windows) the `py -3` launcher that answers `--version` successfully
+    /// with a Python 3. `None` means no Python 3 was found.
+    fn python3() -> Option<Vec<String>> {
+        let mut candidates: Vec<Vec<String>> = Vec::new();
+        if let Ok(v) = std::env::var("TXR_TEST_PYTHON") {
+            if !v.trim().is_empty() {
+                candidates.push(vec![v]);
+            }
+        }
+        candidates.push(vec!["python3".to_string()]);
+        candidates.push(vec!["python".to_string()]);
+        #[cfg(windows)]
+        candidates.push(vec!["py".to_string(), "-3".to_string()]);
+        for cmd in candidates {
+            let out = Command::new(&cmd[0]).args(&cmd[1..]).arg("--version").output();
+            if let Ok(out) = out {
+                if out.status.success() {
+                    let text = format!(
+                        "{}{}",
+                        String::from_utf8_lossy(&out.stdout),
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                    if text.to_ascii_lowercase().contains("python 3") {
+                        return Some(cmd);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Run the packer with a found Python 3. `None` only on Windows, when no
+    /// Python 3 interpreter exists — the caller is expected to print the
+    /// `SKIPPED` line and return early; on Linux/macOS the gate image has
+    /// python3, so a missing one is a loud failure (this function panics).
+    fn run_packer(dst: &Path) -> Option<(u64, String)> {
+        let py = match python3() {
+            Some(py) => py,
+            None => {
+                #[cfg(windows)]
+                {
+                    eprintln!("SKIPPED: no Python 3 on this machine (the packer is a Python tool)");
+                    return None;
+                }
+                #[cfg(not(windows))]
+                panic!("no Python 3 on this machine (the packer is a Python tool)");
+            }
+        };
+        let out = Command::new(&py[0])
+            .args(&py[1..])
             .arg(repo_root().join("scripts/pretrained-catalogue/pack_model_txr.py"))
             .args([
                 "--tree",
@@ -316,10 +368,10 @@ mod tests {
                 sha = Some(rest.trim().to_string());
             }
         }
-        (
+        Some((
             size.unwrap_or_else(|| panic!("no size line in: {text}")),
             sha.unwrap_or_else(|| panic!("no sha line in: {text}")),
-        )
+        ))
     }
 
     fn write_file(path: &Path, bytes: &[u8]) {
@@ -468,7 +520,10 @@ mod tests {
     async fn bundled_source_installs_and_second_install_is_idempotent() {
         let (root, _guard) = scratch("bundled");
         let packed = root.join("packed.txr");
-        let (size, sha) = run_packer(&packed);
+        let Some((size, sha)) = run_packer(&packed) else {
+            // No Python 3 on Windows: run_packer printed the SKIPPED line.
+            return;
+        };
         assert_eq!(sha, FIXTURE_SHA, "the pinned fixture sha");
         let bytes = std::fs::read(&packed).expect("packed bytes");
 
@@ -538,7 +593,10 @@ mod tests {
     async fn cache_source_installs_without_network() {
         let (root, _guard) = scratch("cache");
         let packed = root.join("packed.txr");
-        let (size, sha) = run_packer(&packed);
+        let Some((size, sha)) = run_packer(&packed) else {
+            // No Python 3 on Windows: run_packer printed the SKIPPED line.
+            return;
+        };
         let bytes = std::fs::read(&packed).expect("packed bytes");
         write_file(&downloader::cache_path(&root, &sha), &bytes);
 
@@ -579,7 +637,10 @@ mod tests {
     async fn mismatched_cache_is_not_used_and_download_starts() {
         let (root, _guard) = scratch("mismatch");
         let packed = root.join("packed.txr");
-        let (size, sha) = run_packer(&packed);
+        let Some((size, sha)) = run_packer(&packed) else {
+            // No Python 3 on Windows: run_packer printed the SKIPPED line.
+            return;
+        };
         let mut bytes = std::fs::read(&packed).expect("packed bytes");
         // Same length, different content: a stale cached copy of an updated
         // entry (the size verify would pass; the sha256 must not).
@@ -654,7 +715,10 @@ mod tests {
     async fn licence_less_entry_is_409_belt() {
         let (root, _guard) = scratch("licence");
         let packed = root.join("packed.txr");
-        let (size, sha) = run_packer(&packed);
+        let Some((size, sha)) = run_packer(&packed) else {
+            // No Python 3 on Windows: run_packer printed the SKIPPED line.
+            return;
+        };
         let bytes = std::fs::read(&packed).expect("packed bytes");
         write_file(
             &root.join("pretrained-bundled/fx-rule-001@1.0.0.txr"),
@@ -701,7 +765,10 @@ mod tests {
     async fn bundled_dir_override_points_the_source_order() {
         let (root, _guard) = scratch("dir-override");
         let packed = root.join("packed.txr");
-        let (size, sha) = run_packer(&packed);
+        let Some((size, sha)) = run_packer(&packed) else {
+            // No Python 3 on Windows: run_packer printed the SKIPPED line.
+            return;
+        };
         let bytes = std::fs::read(&packed).expect("packed bytes");
         let extra = root.join("extra-bundled");
         write_file(&extra.join("fx-rule-001@1.0.0.txr"), &bytes);
