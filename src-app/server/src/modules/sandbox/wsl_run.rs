@@ -50,7 +50,8 @@ use super::vm_exchange::{
 };
 use super::win_registry;
 use super::wsl_status::{
-    classify, gather_facts, parse_wsl_version, wsl_version_ok, FactReader, VersionRun, WslFacts, WslStatus,
+    classify, early_probe_sentence, gather_facts, parse_wsl_version, wsl_version_ok, FactReader, VersionRun,
+    WslFacts, WslStatus,
 };
 
 /// The app's own WSL distro.
@@ -371,13 +372,20 @@ fn probe() -> Result<HostCapabilities, (String, Option<WslStatus>)> {
             wsl_problem(None),
         ));
     }
+    // WSL off by policy, or no wsl.exe: decided before `wsl --version` runs
+    // (the same order as `classify`), in the installer's words
+    // (`early_probe_sentence`).
+    let early = wsl_problem(None);
+    if let Some(sentence) = early.and_then(early_probe_sentence) {
+        return Err((sentence.to_string(), early));
+    }
+    // Without wsl.exe in System32 this Windows cannot install WSL by itself
+    // (old Windows 10 / Server 2019, as the installer says): the manual, not a
+    // PowerShell prompt of its own. Same `early` status.
     if !wsl_exe().is_file() {
         return Err((
-            format!(
-                "methods run in WSL 2, which is not installed: open PowerShell as administrator, run \
-                 `{WSL_INSTALL_COMMAND}`, then restart Windows"
-            ),
-            wsl_problem(None),
+            early_probe_sentence(WslStatus::NoWslExe).expect("no wsl.exe always has its sentence").to_string(),
+            early,
         ));
     }
     let out = Wsl::system().run(&["--version"], WSL_QUERY_TIMEOUT).map_err(|e| (e, wsl_problem(None)))?;

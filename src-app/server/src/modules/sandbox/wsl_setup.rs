@@ -26,12 +26,13 @@
 //! a decline (in the dialog or in Windows' prompt) the setup is not offered again for [`DECLINE_PAUSE_SECS`], so that
 //! a caller cannot put the question up again and again.
 //!
-//! Only the desktop app offers a setup ([`mark_desktop_app`]). Its server is
-//! behind the local API lock (`modules::local_api_lock`: the app's own window,
-//! or a caller holding the app's per-run key), and its window is on this PC.
-//! A headless server (`serve_blocking`) never offers one: its key may be
-//! given to programs on other machines, and nobody may be at the PC it runs
-//! on to answer the question.
+//! Only the desktop app offers a setup ([`mark_desktop_app`]), and only
+//! outside demo mode (the demo gate blocks the setup route, `DEMO_MODE`). Its
+//! server is behind the local API lock (`modules::local_api_lock`: the app's
+//! own window, or a caller holding the app's per-run key), and its window is
+//! on this PC. A headless server (`serve_blocking`) never offers one: its key
+//! may be given to programs on other machines, and nobody may be at the PC it
+//! runs on to answer the question.
 //!
 //! One setup runs at a time; it ends as the installer's does: WSL is set up
 //! when the installer's check says it is ready afterwards, or, after wsl.exe
@@ -285,8 +286,9 @@ enum Earlier {
     Running,
     /// It is done and waits for Windows to restart, which it has not yet.
     WaitsForRestart(WslSetupResult),
-    /// It was declined, at this time ([`Machine::now`]).
-    Declined(u64),
+    /// It was declined, at this time ([`Machine::now`]), with its result: the
+    /// pause after the decline is shown in every app until it ends.
+    Declined { at: u64, result: WslSetupResult },
 }
 
 fn read_marker(path: &Path) -> Option<Marker> {
@@ -343,10 +345,20 @@ impl SetupState {
         // The pause after a decline: in this app, or in another app (beside
         // this one, or before it was reopened), whichever came last.
         let declined_at = match earlier {
-            Earlier::Declined(at) => inner.declined_at.max(Some(at)),
+            Earlier::Declined { at, .. } => inner.declined_at.max(Some(at)),
             _ => inner.declined_at,
         };
+        // Another app's decline is shown as the last result while its pause
+        // runs (the notice then says "declined" instead of an empty line
+        // above the offer); once the pause ends the plain offer is back. This
+        // app's own `last` always wins.
+        let now = self.machine.now();
         let last = match earlier {
+            Earlier::Declined { at, result }
+                if inner.last.is_none() && now >= at && now < at + DECLINE_PAUSE_SECS =>
+            {
+                Some(result)
+            }
             Earlier::WaitsForRestart(done) if inner.last.is_none() => Some(done),
             _ => inner.last.clone(),
         };
@@ -355,7 +367,6 @@ impl SetupState {
         } else {
             boot.and_then(offer_for)
         };
-        let now = self.machine.now();
         let retry_in_secs = declined_at
             .filter(|&at| now >= at && now < at + DECLINE_PAUSE_SECS)
             .map(|at| at + DECLINE_PAUSE_SECS - now);
@@ -387,9 +398,9 @@ impl SetupState {
             Some(result) if result.waits_for_a_restart() && self.same_boot(&marker) => {
                 Earlier::WaitsForRestart(result)
             }
-            Some(result) if result.outcome == WslSetupOutcome::Declined => {
-                marker.ended_at.map_or(Earlier::Nothing, Earlier::Declined)
-            }
+            Some(result) if result.outcome == WslSetupOutcome::Declined => marker
+                .ended_at
+                .map_or(Earlier::Nothing, |at| Earlier::Declined { at, result }),
             Some(_) => Earlier::Nothing,
         }
     }
@@ -667,8 +678,9 @@ fn state() -> Arc<SetupState> {
 static DESKTOP_APP: OnceLock<()> = OnceLock::new();
 
 /// This process is the desktop app: called once by its server at start
-/// (`boot_in_background`), and by nothing else (crate-private, so no other
-/// crate can). Only the desktop app offers a setup.
+/// (`boot_in_background`, only outside demo mode — the demo gate blocks the
+/// setup route), and by nothing else (crate-private, so no other crate can).
+/// Only the desktop app offers a setup.
 pub(crate) fn mark_desktop_app() {
     let _ = DESKTOP_APP.set(());
 }
@@ -1647,9 +1659,10 @@ mod tests {
 
     /// The desktop app's start (`boot_in_background`) marks the process, and
     /// nothing else does: the headless server (`serve_blocking`) offers no
-    /// setup. `mark_desktop_app` is crate-private, so only this crate's
-    /// sources can call it; they are read here, as no test can boot either
-    /// server.
+    /// setup. The mark happens only outside demo mode (the demo gate blocks
+    /// the setup route, `DEMO_MODE`), so a demo desktop app offers no setup.
+    /// `mark_desktop_app` is crate-private, so only this crate's sources can
+    /// call it; they are read here, as no test can boot either server.
     #[test]
     fn only_the_desktop_apps_start_marks_the_desktop_app() {
         fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -1688,9 +1701,16 @@ mod tests {
             let len = lib[start..].find("\n}\n").unwrap_or_else(|| panic!("the end of {name}"));
             &lib[start..start + len]
         };
-        assert_eq!(body("boot_in_background").matches("wsl_setup::mark_desktop_app();").count(), 1);
+        let boot = body("boot_in_background");
+        assert_eq!(boot.matches("wsl_setup::mark_desktop_app();").count(), 1);
         assert!(!body("serve_blocking").contains("mark_desktop_app"));
         assert_eq!(lib.matches("mark_desktop_app").count(), 1, "called once, in boot_in_background");
+        // The call sits inside the `if !demo.enabled` block: nothing between
+        // the guard and the call closes it.
+        let call = boot.find("wsl_setup::mark_desktop_app();").expect("the call in boot_in_background");
+        let guard = boot[..call].rfind("if !demo.enabled").expect("the call is behind the demo guard");
+        let inside = &boot[guard + "if !demo.enabled".len()..call];
+        assert!(!inside.contains('}'), "the call is inside the demo guard: {inside:?}");
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1978,18 +1998,26 @@ mod tests {
         let second = SetupState::new(beside.clone());
         let s = second.status(Some(WslStatus::Missing));
         assert_eq!((s.offer, s.running, s.retry_in_secs), (Some(WslSetupOffer::Install), false, Some(40)), "{s:?}");
+        assert_eq!(s.last, Some(WslSetupResult::of(WslSetupOutcome::Declined)), "{s:?}");
         let other = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
         let e = start(&second, Some(WslStatus::Missing), other.clone()).expect_err("declined in the first app");
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_DECLINED_RECENTLY_CODE));
         assert!(e.to_string().contains("in 40 s"), "{e}");
         assert!(other.questions().is_empty() && other.offers().is_empty(), "the second app asked and ran nothing");
-        // The first app reopened: paused too.
-        assert_eq!(SetupState::new(first.clone()).status(Some(WslStatus::Missing)).retry_in_secs, Some(40));
+        // The first app reopened: paused too, and shows the decline as last.
+        let reopened = SetupState::new(first.clone()).status(Some(WslStatus::Missing));
+        assert_eq!(reopened.retry_in_secs, Some(40));
+        assert_eq!(reopened.last, Some(WslSetupResult::of(WslSetupOutcome::Declined)), "{reopened:?}");
 
         // After the pause the second app asks, and gets a No: the first
         // app's own decline is over, the second app's pauses it.
         beside.pass(40);
-        assert_eq!(second.status(Some(WslStatus::Missing)).retry_in_secs, None);
+        let after = second.status(Some(WslStatus::Missing));
+        assert_eq!(
+            (after.offer, after.last.clone(), after.retry_in_secs),
+            (Some(WslSetupOffer::Install), None, None),
+            "{after:?}"
+        );
         let no = Arc::new(FakeHost { yes: false, ..FakeHost::new(exited(0, ""), WslStatus::Missing) });
         assert_eq!(run_on(&second, WslStatus::Missing, no.clone()).outcome, WslSetupOutcome::Declined, "offered again");
         assert_eq!(no.questions().len(), 1);
@@ -1999,6 +2027,76 @@ mod tests {
         assert_eq!(e.error_code(), WSL_SETUP_DECLINED_RECENTLY_CODE);
         first.pass(55);
         assert_eq!(run_on(&state, WslStatus::Missing, other).outcome, WslSetupOutcome::Done, "offered again");
+    }
+
+    /// After the pause from another app's decline has passed, the notice in
+    /// the app beside it is the plain offer again: the decline is not shown
+    /// as the last result any more.
+    #[test]
+    fn after_the_other_apps_decline_pause_the_offer_is_back() {
+        let dir = TestDir::new("declined-beside-expired");
+        let first = FakeMachine::new(Some(dir.marker()));
+        write_marker(
+            &dir.marker(),
+            &Marker {
+                started_at: T0,
+                boot_time: Some(BOOT),
+                boot_id: None,
+                app: Some(CLOSED_APP),
+                process: None,
+                result: Some(WslSetupResult::of(WslSetupOutcome::Declined)),
+                ended_at: Some(T0),
+            },
+        )
+        .unwrap();
+        let beside = first.beside();
+        let second = SetupState::new(beside.clone());
+        let s = second.status(Some(WslStatus::Missing));
+        assert_eq!(s.last, Some(WslSetupResult::of(WslSetupOutcome::Declined)), "{s:?}");
+        assert_eq!((s.offer, s.running, s.retry_in_secs), (Some(WslSetupOffer::Install), false, Some(DECLINE_PAUSE_SECS)), "{s:?}");
+
+        beside.pass(DECLINE_PAUSE_SECS);
+        let s = second.status(Some(WslStatus::Missing));
+        assert_eq!(
+            (s.offer, s.last.clone(), s.retry_in_secs),
+            (Some(WslSetupOffer::Install), None, None),
+            "{s:?}"
+        );
+    }
+
+    /// A reopened app (a new state on the same marker) after a decline in the
+    /// app before it: during the pause it shows the decline as the last
+    /// result, and once the pause ends the plain offer is back.
+    #[test]
+    fn a_reopened_app_shows_a_previous_decline_until_the_pause_ends() {
+        let dir = TestDir::new("reopened-declined");
+        let machine = FakeMachine::new(Some(dir.marker()));
+        write_marker(
+            &dir.marker(),
+            &Marker {
+                started_at: T0,
+                boot_time: Some(BOOT),
+                boot_id: None,
+                app: Some(CLOSED_APP),
+                process: None,
+                result: Some(WslSetupResult::of(WslSetupOutcome::Declined)),
+                ended_at: Some(T0),
+            },
+        )
+        .unwrap();
+
+        let reopened = SetupState::new(machine.clone());
+        let s = reopened.status(Some(WslStatus::Missing));
+        assert_eq!(s.last, Some(WslSetupResult::of(WslSetupOutcome::Declined)), "{s:?}");
+        assert_eq!((s.offer, s.running, s.retry_in_secs), (Some(WslSetupOffer::Install), false, Some(DECLINE_PAUSE_SECS)), "{s:?}");
+
+        machine.pass(DECLINE_PAUSE_SECS);
+        let s = reopened.status(Some(WslStatus::Missing));
+        assert_eq!(
+            (s.offer, s.last.clone(), s.retry_in_secs),
+            (Some(WslSetupOffer::Install), None, None),
+            "{s:?}"
+        );
     }
 
     /// The setup's thread that panics ends the setup as failed: the slot is

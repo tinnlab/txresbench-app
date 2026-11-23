@@ -33,6 +33,12 @@ github.com
 # user-opened paper link; the app never dials it (the same class as the
 # github.com documentation-link entry above — a browser-opened href).
 doi.org
+# Any https:// learn.microsoft.com literal is the WSL install manual named in
+# the Windows probe sentence for a PC whose Windows cannot install WSL by
+# itself (sandbox/wsl_status.rs early_probe_sentence; the installer hook
+# TXR_MSG_NO_WSL_EXE names the same page): a user-opened link, the app
+# never dials it (the same class as doi.org above).
+learn.microsoft.com
 # The pretrained-catalogue boot/on-demand catalogue refresh
 # (`https://tinnlab.github.io/txresbench-app/pretrained-catalogue.json` —
 # the GitHub Pages site hosting the served copy, PROV-landing-site-3).
