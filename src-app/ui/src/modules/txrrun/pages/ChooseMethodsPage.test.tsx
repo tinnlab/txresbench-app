@@ -446,13 +446,24 @@ async function settle(ms = 0): Promise<void> {
   })
 }
 
+/** Open a day field's number box first — study-step-ui-tweaks: with
+ *  suggestions the box is view state and shows only while the "Other
+ *  values" chip is pressed. A field without suggestions (or locked) shows
+ *  its box directly and has no chip. */
+function openDayField(testId: string): void {
+  const other = screen.queryByTestId(`${testId}-other`)
+  if (other !== null) fireEvent.click(other)
+}
+
 /** The value in a day field's number box. */
 function dayValue(testId: string): string {
+  openDayField(testId)
   return (screen.getByTestId(`${testId}-input`) as HTMLInputElement).value
 }
 
 /** Type a day into a day field's box and press Enter (inside an act). */
 function typeDayNow(testId: string, day: number): void {
+  openDayField(testId)
   const input = screen.getByTestId(`${testId}-input`)
   fireEvent.change(input, { target: { value: String(day) } })
   fireEvent.keyDown(input, { key: 'Enter' })
@@ -460,6 +471,10 @@ function typeDayNow(testId: string, day: number): void {
 
 /** Type a day into a day field and let the action and the page settle. */
 async function typeDay(testId: string, day: number): Promise<void> {
+  // Open the box in its own act, so it is rendered before typing.
+  act(() => {
+    openDayField(testId)
+  })
   await act(async () => {
     typeDayNow(testId, day)
     await Promise.resolve()

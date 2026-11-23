@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Button, Input } from '@txresbench/kit'
 
@@ -11,6 +11,12 @@ import { Button, Input } from '@txresbench/kit'
  * The field never stores a day itself: a suggestion click and a typed day
  * (on Enter or when the box loses focus) go to `onChoose`, which runs the
  * registered action, so the AI and the person take the same path.
+ *
+ * The number box is view state (study-step-ui-tweaks): after the suggestion
+ * chips one "Other values" chip opens it, and it stays open (showing the
+ * stored day) while the chosen day is outside the suggestions. Selecting it
+ * never calls `onChoose` — the box only READS and COMMITS days, it never
+ * stores one.
  */
 export interface TxrDayFieldProps {
   /** The test id prefix (`<id>-input`, `<id>-suggestion-<day>`, `<id>-coverage`, ...). */
@@ -90,6 +96,11 @@ export function TxrDayField({
 }: TxrDayFieldProps) {
   const [draft, setDraft] = useState(value === null ? '' : String(value))
   const [typedError, setTypedError] = useState<string | null>(null)
+  // The box's open/closed state is VIEW ONLY (study-step-ui-tweaks): the
+  // "Other values" chip presses it, and it never stores a day itself.
+  const [otherOpen, setOtherOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const focusBoxOnNextRender = useRef(false)
   // The lines under the box are the box's own messages: the input names the
   // ones shown (a screen reader hears why a typed day is refused or what the
   // day covers), each line has a stable id of its own.
@@ -113,6 +124,35 @@ export function TxrDayField({
     setTypedError(null)
   }, [value])
 
+  // "Other values" reads pressed while the user opened it, AND while the
+  // stored day is outside the suggestions (typed before or restored). A day
+  // that changed INTO a suggestion closes the box again. The effect depends
+  // on `outside` only: `suggestions` is a fresh array on most parent renders
+  // (step 4 maps its choices), so depending on it would close a box the user
+  // just opened even though nothing changed.
+  const outside = value !== null && !suggestions.includes(value)
+  useEffect(() => {
+    setOtherOpen(outside)
+  }, [outside])
+
+  const hasSuggestions = suggestions.length > 0 && !locked
+  // The box is shown directly when there is nothing to suggest or the field
+  // is locked (the old behaviour); with suggestions it opens only through
+  // the "Other values" chip.
+  const showBox = locked || !hasSuggestions || otherOpen
+  const otherPressed = hasSuggestions && otherOpen
+
+  // Opening the box (the chip click) moves focus into it, so a keyboard user
+  // can type at once. Gated on the click: an always-visible box (no
+  // suggestions, locked) never steals focus, and neither does a day restored
+  // from the store behind the user's back.
+  useEffect(() => {
+    if (showBox && focusBoxOnNextRender.current) {
+      focusBoxOnNextRender.current = false
+      inputRef.current?.focus()
+    }
+  }, [showBox])
+
   const commit = (): void => {
     const text = draft.trim()
     if (text === '') {
@@ -133,53 +173,85 @@ export function TxrDayField({
   return (
     <div data-testid={testId}>
       <div style={ROW}>
-        {suggestions.length > 0 && !locked ? (
-          <div style={ROW} role="group" aria-label={`Suggested days for ${label.toLowerCase()}`} data-testid={`${testId}-suggestions`}>
-            {suggestions.map(day => {
-              const selected = day === value
-              return (
-                <Button
-                  key={day}
-                  data-testid={`${testId}-suggestion-${day}`}
-                  variant="outline"
-                  aria-pressed={selected}
-                  style={selected ? CHIP_SELECTED : CHIP}
-                  onClick={() => {
-                    if (!selected) onChoose(day)
-                  }}
-                >
-                  {suggestionLabel(day)}
-                </Button>
-              )
-            })}
-          </div>
+        {hasSuggestions ? (
+          <>
+            <div style={ROW} role="group" aria-label={`Suggested days for ${label.toLowerCase()}`} data-testid={`${testId}-suggestions`}>
+              {suggestions.map(day => {
+                // A suggestion chip reads pressed only when it IS the chosen
+                // day AND the box is closed — so exactly one chip (the
+                // chosen suggestion, or "Other values") is pressed.
+                const selected = day === value && !otherPressed
+                return (
+                  <Button
+                    key={day}
+                    data-testid={`${testId}-suggestion-${day}`}
+                    variant="outline"
+                    aria-pressed={selected}
+                    style={selected ? CHIP_SELECTED : CHIP}
+                    onClick={() => {
+                      // A suggestion click closes the box; a NEW day still
+                      // goes to onChoose exactly as before. Even when the
+                      // clicked day equals the stored one (onChoose skipped)
+                      // the click clears a stale typed error and resets the
+                      // draft, so no red line stays under the hidden box.
+                      setOtherOpen(false)
+                      setTypedError(null)
+                      setDraft(value === null ? '' : String(value))
+                      if (day !== value) onChoose(day)
+                    }}
+                  >
+                    {suggestionLabel(day)}
+                  </Button>
+                )
+              })}
+            </div>
+            <Button
+              data-testid={`${testId}-other`}
+              variant="outline"
+              aria-pressed={otherPressed}
+              style={otherPressed ? CHIP_SELECTED : CHIP}
+              onClick={() => {
+                // Focus only when the click is what OPENS the box (an
+                // already-open box keeps its focus).
+                if (!otherOpen) focusBoxOnNextRender.current = true
+                setOtherOpen(true)
+              }}
+            >
+              Other values
+            </Button>
+          </>
         ) : null}
-        <Input
-          data-testid={`${testId}-input`}
-          type="number"
-          inputMode="numeric"
-          min={1}
-          step={1}
-          aria-label={label}
-          aria-describedby={describedBy}
-          aria-invalid={typedError !== null || blocked !== null}
-          invalid={typedError !== null || blocked !== null}
-          placeholder="Day"
-          size="sm"
-          readOnly={locked}
-          value={draft}
-          onChange={event => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={event => {
-            if (event.key === 'Enter') commit()
-          }}
-          style={BOX}
-          allowStyle
-        />
-        {beside !== null ? (
-          <span style={BESIDE} data-testid={`${testId}-beside`}>
-            {beside}
-          </span>
+        {showBox ? (
+          <>
+            <Input
+              ref={inputRef}
+              data-testid={`${testId}-input`}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              aria-label={label}
+              aria-describedby={describedBy}
+              aria-invalid={typedError !== null || blocked !== null}
+              invalid={typedError !== null || blocked !== null}
+              placeholder="Day"
+              size="sm"
+              readOnly={locked}
+              value={draft}
+              onChange={event => setDraft(event.target.value)}
+              onBlur={commit}
+              onKeyDown={event => {
+                if (event.key === 'Enter') commit()
+              }}
+              style={BOX}
+              allowStyle
+            />
+            {beside !== null ? (
+              <span style={BESIDE} data-testid={`${testId}-beside`}>
+                {beside}
+              </span>
+            ) : null}
+          </>
         ) : null}
       </div>
       {typedError !== null ? (

@@ -14,6 +14,7 @@
  * nothing a human can trigger here mutates the store.
  */
 import { useMemo, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@txresbench/kit'
 import type { CSSProperties } from 'react'
 import { groupExcludedMethods, type ExcludedGroupCode, type ExcludedMethod } from '../lib/preview'
@@ -47,9 +48,12 @@ const EXCLUDED_LI: CSSProperties = {
 /** The section heading trigger — a plain-word disclosure, not a kit Button
  *  (it is local view state, never a store mutation). Base UI's trigger
  *  renders an unstyled native button, so the page's own token styling is
- *  supplied here (the page's inline-style idiom). */
+ *  supplied here (the page's inline-style idiom). The chevron (study-step-
+ *  ui-tweaks) leads the heading; it turns down when the section opens. */
 const SECTION_TRIGGER: CSSProperties = {
-  display: 'block',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 5,
   width: '100%',
   padding: '6px 0 2px',
   background: 'none',
@@ -61,6 +65,10 @@ const SECTION_TRIGGER: CSSProperties = {
   color: 'var(--txr-brand)',
   cursor: 'pointer',
 }
+
+/** The heading's disclosure chevron (the study-step-ui-tweaks direction
+ *  marker: `data-state` follows the trigger's `aria-expanded`). */
+const CHEVRON: CSSProperties = { transition: 'transform 150ms', flexShrink: 0 }
 
 /** The "Show all N" link inside a long section (the same flush-link bytes
  *  the old single list's Show all carried — qa-fixes ITEM-6 S4). */
@@ -108,7 +116,10 @@ export function TxrExcludedSections({ excluded, limit }: TxrExcludedSectionsProp
   const [expanded, setExpanded] = useState<Partial<Record<ExcludedGroupCode, boolean>>>({})
 
   return (
-    <div data-testid="txr-intake-excluded-groups">
+    // study-step-ui-tweaks: the group list sits ~16 px in, so the headings
+    // read as parts of the "N methods are left out" heading above them; the
+    // method rows inside a group stay indented with their heading.
+    <div data-testid="txr-intake-excluded-groups" style={{ paddingLeft: 16 }}>
       {groups.map(group => {
         const isOpen = open[group.code] === true
         const showAll = expanded[group.code] === true
@@ -125,6 +136,15 @@ export function TxrExcludedSections({ excluded, limit }: TxrExcludedSectionsProp
               data-testid={`txr-intake-excluded-section-${key}`}
               style={SECTION_TRIGGER}
             >
+              <ChevronRight
+                aria-hidden
+                size={14}
+                data-state={isOpen ? 'open' : 'closed'}
+                style={{
+                  ...CHEVRON,
+                  transform: isOpen ? 'rotate(90deg)' : undefined,
+                }}
+              />
               {excludedSectionHeading(group.code, group.methods.length)}
             </CollapsibleTrigger>
             <CollapsibleContent>
