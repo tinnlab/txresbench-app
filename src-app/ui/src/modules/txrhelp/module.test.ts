@@ -560,6 +560,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // pinned bars, PageDown scrolls, and the 390x844 flow leg
       // (TEST-AS-2's browser half).
       'src-app/ui/tests/gallery-e2e/txr-shell-routes.spec.ts',
+      // results-table-height (its own DRIFT-1): the per-patient results
+      // tables scroll inside their own bounded box, so the app-shell
+      // ITEM-4 long-table legs (300-row heatmap, 95-row compare and
+      // one-method views) scroll and pin against the table's box, not the
+      // page region.
+      'src-app/ui/tests/gallery-e2e/txr-shell.spec.ts',
       // demo-mode ITEM-6/7 (their own DRIFT-1 entries): the demo tier's
       // two specs — the three-paths browser proof (ITEM-6; this item only
       // touched the pretrained leg's comment) and the part-2 pages' tier
