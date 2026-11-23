@@ -177,6 +177,32 @@ fn stack_boot_summary(
     )
 }
 
+/// The boot-failure path for an unsupported host — both the probe `Err` branch
+/// and the seccomp gate land here: record `HostUnsupported` + the plain reason
+/// for "Use example", log the technical reason, and print the one-line stack
+/// summary. `plain` is exactly what the user sees; `technical` is what the
+/// warn log shows. For the probe branch the plain text is derived with
+/// [`config::plain_probe_reason`]; for the seccomp gate `plain` IS the
+/// refusal's message, never rewritten.
+fn refuse_host_unsupported(plain: String, technical: &str) {
+    set_init_status(SandboxAvailability::HostUnsupported);
+    // The technical reason is logged; "Use example" shows the plain one
+    // (Windows keeps its own in `wsl_run`).
+    #[cfg(not(target_os = "windows"))]
+    config::set_probe_failure(plain);
+    #[cfg(target_os = "windows")]
+    let _ = plain;
+    tracing::warn!("sandbox: {technical}");
+    tracing::info!(
+        "{}",
+        stack_boot_summary(
+            init_status(),
+            method_env::tool_bin("oras").map(|p| p.display().to_string()),
+            &method_env::effective_base_prefix(),
+        )
+    );
+}
+
 pub struct SandboxModule;
 
 impl AppModule for SandboxModule {
@@ -221,22 +247,31 @@ impl AppModule for SandboxModule {
         #[cfg(target_os = "macos")]
         mac_vm_run::sweep_stale_dirs();
         let host = match probed {
-            Ok(h) => h,
+            Ok(h) => {
+                // Seccomp gate (Linux ONLY: the probe above is Linux-only, and
+                // on macOS/Windows the host caps report `NotLinked` because the
+                // guest agent applies the filter itself — never a host gate):
+                // a method run must be REFUSED when the filter cannot be
+                // built. `Disabled` is refused in every build; `NotLinked`
+                // (feature not compiled in) only in a RELEASE build — debug
+                // and dev builds stay unfiltered and keep working. A refusal
+                // is an unsupported host: the same boot-failure path as the
+                // probe `Err` branch, with the refusal's sentence as the
+                // user-facing plain reason VERBATIM (never rewritten through
+                // `plain_probe_reason`).
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                if let Err(refusal) = types::require_filter(&h.seccomp, types::RELEASE_BUILD) {
+                    let plain = refusal.message();
+                    refuse_host_unsupported(plain.clone(), &plain);
+                    return Ok(());
+                }
+                h
+            }
             Err(reason) => {
-                set_init_status(SandboxAvailability::HostUnsupported);
-                // The technical reason is logged; "Use example" shows the
-                // plain one (Windows keeps its own in `wsl_run`).
-                #[cfg(not(target_os = "windows"))]
-                config::set_probe_failure(config::plain_probe_reason(std::env::consts::OS, &reason));
-                tracing::warn!("sandbox: {reason}");
-                tracing::info!(
-                "{}",
-                stack_boot_summary(
-                    init_status(),
-                    method_env::tool_bin("oras").map(|p| p.display().to_string()),
-                    &method_env::effective_base_prefix(),
-                )
-            );
+                refuse_host_unsupported(
+                    config::plain_probe_reason(std::env::consts::OS, &reason),
+                    &reason,
+                );
                 return Ok(());
             }
         };

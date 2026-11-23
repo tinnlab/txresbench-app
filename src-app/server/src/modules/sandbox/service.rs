@@ -29,7 +29,11 @@ pub fn clamp_timeout(client: Option<u64>, cap_secs: i64) -> u64 {
     client.unwrap_or(cap).min(cap)
 }
 
-fn unavailable(detail: impl Into<String>) -> AppError {
+/// The environment-family typed refusal: 503 `SANDBOX_UNAVAILABLE` with a
+/// user-facing detail message. `pub(super)` so the Linux setup path
+/// (`sandbox::prepare`) reuses the same refusal for the seccomp gate instead
+/// of adding a second error code.
+pub(super) fn unavailable(detail: impl Into<String>) -> AppError {
     AppError::new(
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         "SANDBOX_UNAVAILABLE",

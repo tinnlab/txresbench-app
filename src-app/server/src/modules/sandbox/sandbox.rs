@@ -22,7 +22,7 @@ use txresbench_core::AppError;
 use super::settings::SandboxResourceLimits;
 use super::types::{HardeningCapabilities, MountMode, PidNsMode, SandboxContext, ExtraMount};
 #[cfg(target_os = "linux")]
-use super::types::{CgroupMode, SeccompMode};
+use super::types::{require_filter, CgroupMode, RELEASE_BUILD, SeccompMode};
 
 /// Per-call output cap (1 MiB).
 pub const OUTPUT_CAP_BYTES: usize = 1024 * 1024;
@@ -429,6 +429,12 @@ impl SandboxSetup {
     /// Build the identity + cgroup scope + seccomp pipe for one run. Fails only
     /// on a hard identity/seccomp error; a cgroup-create failure degrades to
     /// rlimits-only (logged), never aborting the run.
+    ///
+    /// SECURITY: the seccomp gate runs FIRST, before any identity/cgroup/pipe
+    /// work — when the filter cannot be built the run is REFUSED wholesale
+    /// (503 `SANDBOX_UNAVAILABLE`) and nothing is created. `Disabled` is
+    /// refused in every build; `NotLinked` (feature not compiled in) only in a
+    /// release build — debug/dev builds stay unfiltered as always.
     pub(crate) fn prepare(
         state: &super::config::SandboxState,
         ctx: &SandboxContext,
@@ -436,6 +442,8 @@ impl SandboxSetup {
         caps: &HardeningCapabilities,
     ) -> Result<Self, AppError> {
         use super::cgroup::CgroupScope;
+        require_filter(&caps.seccomp, RELEASE_BUILD)
+            .map_err(|refusal| super::service::unavailable(refusal.message()))?;
         let synthetic = SyntheticIdentity::ensure(&state.workspace_root)?;
         let cgroup_scope = match &caps.cgroup {
             CgroupMode::Delegated(parent) => CgroupScope::create(parent, ctx.job_id, limits)
@@ -446,6 +454,11 @@ impl SandboxSetup {
                 .ok(),
             CgroupMode::None => None,
         };
+        // The gate above has decided the policy: `Disabled` never reaches here
+        // (refused in every build) and `NotLinked` reaches here only in a
+        // debug build. So the `None` arm means exactly "this debug build runs
+        // unfiltered, as always" — and the match stays exhaustive so a future
+        // `SeccompMode` variant can never silently regain a filter-free run.
         let seccomp_pipe = match &caps.seccomp {
             SeccompMode::Loaded(bpf) => Some(SeccompPipe::install(bpf.clone())?),
             SeccompMode::NotLinked | SeccompMode::Disabled => None,
@@ -527,6 +540,8 @@ pub(crate) fn lossy_string_with_marker(buf: Vec<u8>, truncated: bool) -> String 
 mod tests {
     use super::*;
     use crate::modules::sandbox::types::{CgroupMode, SeccompMode};
+    #[cfg(target_os = "linux")]
+    use crate::modules::sandbox::types::{HostCapabilities, SeccompRefusal};
     use uuid::Uuid;
 
     fn caps(pid: PidNsMode) -> HardeningCapabilities {
@@ -710,5 +725,78 @@ mod tests {
         assert!(s.contains("[output truncated at"));
         let s2 = lossy_string_with_marker(b"ok".to_vec(), false);
         assert_eq!(s2, "ok");
+    }
+
+    // The seccomp gate at setup: a `Disabled` filter REFUSES the run with the
+    // typed 503 `SANDBOX_UNAVAILABLE` carrying the refusal's sentence, and NOTHING
+    // is created under the workspace root — not the synthetic identity, not a
+    // cgroup scope (the refusal predates every creation).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepare_refuses_disabled_seccomp_before_creating_anything() {
+        let root = crate::modules::method_list::test_scratch::dir("sandbox", "prepare-disabled");
+        let state = crate::modules::sandbox::config::SandboxState {
+            workspace_root: root.clone(),
+            staging_root: root.join("staging"),
+            host_caps: HostCapabilities {
+                bwrap_path: PathBuf::from("/usr/bin/bwrap"),
+                cgroup: CgroupMode::None,
+                seccomp: SeccompMode::Disabled,
+            },
+        };
+        let caps = HardeningCapabilities {
+            bwrap_path: PathBuf::from("/usr/bin/bwrap"),
+            pid_namespace: PidNsMode::Strict,
+            cgroup: CgroupMode::Delegated(root.join("cg")),
+            seccomp: SeccompMode::Disabled,
+        };
+        let err = match SandboxSetup::prepare(&state, &ctx(), &SandboxResourceLimits::defaults(), &caps)
+        {
+            Err(e) => e,
+            Ok(_) => panic!("a Disabled filter must refuse the run"),
+        };
+        assert_eq!(err.status_code(), 503, "{err}");
+        assert_eq!(err.error_code(), "SANDBOX_UNAVAILABLE", "{err}");
+        assert_eq!(err.to_string(), SeccompRefusal::Disabled.message(), "{err}");
+        let created: Vec<String> = std::fs::read_dir(&root)
+            .expect("read the workspace root")
+            .map(|e| e.expect("read dir entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            created.is_empty(),
+            "no identity/cgroup may be created on refusal, found: {created:?}"
+        );
+    }
+
+    // `NotLinked` in a debug test build (`RELEASE_BUILD == false`) keeps
+    // working exactly as before — the sandbox runs unfiltered. The release
+    // behaviour (`NotLinked` + release) is pinned through `require_filter(..,
+    // true)` in `types::tests`, which is what this same code path calls with
+    // the compiled `RELEASE_BUILD` const.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepare_succeeds_with_notlinked_in_a_debug_build() {
+        let root = crate::modules::method_list::test_scratch::dir("sandbox", "prepare-notlinked");
+        let state = crate::modules::sandbox::config::SandboxState {
+            workspace_root: root.clone(),
+            staging_root: root.join("staging"),
+            host_caps: HostCapabilities {
+                bwrap_path: PathBuf::from("/usr/bin/bwrap"),
+                cgroup: CgroupMode::None,
+                seccomp: SeccompMode::NotLinked,
+            },
+        };
+        let setup = SandboxSetup::prepare(
+            &state,
+            &ctx(),
+            &SandboxResourceLimits::defaults(),
+            &caps(PidNsMode::Strict),
+        )
+        .expect("NotLinked in a debug test build must succeed as before");
+        assert!(setup.seccomp_pipe.is_none(), "no filter is piped when NotLinked");
+        assert!(
+            root.join("identity").is_dir(),
+            "the synthetic identity is still created for the unfiltered debug run"
+        );
     }
 }
