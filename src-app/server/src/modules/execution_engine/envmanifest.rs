@@ -97,17 +97,39 @@ impl EnvArch {
         }
     }
 
+    /// The architecture the runtime DETECTS from the build target
+    /// (`std::env::consts::ARCH`): `x86_64` → [`EnvArch::Amd64`],
+    /// `aarch64` → [`EnvArch::Arm64`], `None` for anything else (the honest
+    /// answer on a host outside the published set).
+    pub fn detected() -> Option<EnvArch> {
+        match std::env::consts::ARCH {
+            "x86_64" => Some(EnvArch::Amd64),
+            "aarch64" => Some(EnvArch::Arm64),
+            _ => None,
+        }
+    }
+
     /// The architecture this BUILT runtime runs on (the lookup the engine
     /// performs at run start: a layer for another machine is a layer the app
     /// cannot mount, and `env_for` returning it would be a silent wrong
     /// artifact). `None` on a host outside the published set — every
     /// `env_for` call then reports the method as `ENV_UNKNOWN` (per-method
     /// `cannot_run`), which is the honest answer on an unsupported host.
+    ///
+    /// In the lib's own test builds (`#[cfg(test)]`) this is
+    /// [`EnvArch::Amd64`]: the unit tests describe a machine that can run the
+    /// built-in list's published environments, which are all amd64, so they
+    /// must not fail on an arm64 host (where `cannot_run`/`ENV_UNKNOWN`
+    /// would be the honest production answer but not what the tests
+    /// exercise). Production builds always use [`EnvArch::detected`].
     pub fn host() -> Option<EnvArch> {
-        match std::env::consts::ARCH {
-            "x86_64" => Some(EnvArch::Amd64),
-            "aarch64" => Some(EnvArch::Arm64),
-            _ => None,
+        #[cfg(test)]
+        {
+            Some(EnvArch::Amd64)
+        }
+        #[cfg(not(test))]
+        {
+            Self::detected()
         }
     }
 }
@@ -1104,6 +1126,25 @@ mod tests {
             b = fixture_env_json("beta-model", "arm64", "Python", "1.2.3"),
         )
         .into_bytes()
+    }
+
+    /// Host-vs-detected contract: inside the lib's test build `host()` is
+    /// the amd64 machine the unit tests describe (the built-in list publishes
+    /// only amd64 environments), while `detected()` still reports the real
+    /// build target — the two split the old single `host()` reading.
+    #[test]
+    fn host_is_amd64_in_tests_and_detection_maps_the_real_arch() {
+        assert_eq!(
+            EnvArch::host(),
+            Some(EnvArch::Amd64),
+            "the lib's unit tests describe an amd64 machine"
+        );
+        let expected = match std::env::consts::ARCH {
+            "x86_64" => Some(EnvArch::Amd64),
+            "aarch64" => Some(EnvArch::Arm64),
+            _ => None,
+        };
+        assert_eq!(EnvArch::detected(), expected, "detection reads the real build target");
     }
 
     /// TEST-EE-04 (embedded half): the COMMITTED manifest parses against

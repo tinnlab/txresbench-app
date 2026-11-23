@@ -2433,14 +2433,162 @@ mod tests {
         assert_eq!(base.registry_base, "ghcr.io/tinnlab/txresbench-env");
     }
 
-    /// Write an executable stub script into `<data>/bin/oras`.
-    fn stub_oras(root: &Path, script: &str) {
-        let path = root.join("bin").join("oras");
-        std::fs::write(&path, script).unwrap();
+    /// The fake `oras`'s behaviour, in one place. The test writes these keys
+    /// to `<root>/bin/oras.spec` (one `key=value` per line) and the stand-in
+    /// reads that file next to its own executable/script, so the SAME test
+    /// body drives both platforms. Unix runs a tiny `/bin/sh` interpreter;
+    /// Windows runs one native `oras.exe` (compiled once per test process
+    /// from the embedded std-only source, then copied next to each spec).
+    /// A native single process matters: `child.kill()` at `run_tool` kills
+    /// only the direct child, so a `.cmd`/PowerShell wrapper's grandchild
+    /// would keep the stdout pipe open and hang the cancel tests.
+    #[derive(Clone)]
+    struct OrasSpec {
+        /// `resolve` prints `sha256:<this>` to stdout and exits 0.
+        resolve: Option<String>,
+        /// `pull` copies this file to `<the -o staging dir>/rootfs.squashfs`.
+        payload: Option<PathBuf>,
+        /// `pull` sleeps this many seconds first; the stand-in becomes the
+        /// sleep (one process), and a completed sleep exits without copying
+        /// (matching the old `exec sleep` scripts — the cancel tests never
+        /// let a sleeping pull finish).
+        pull_sleep_s: u64,
+        /// `pull` writes `started` to this file before sleeping.
+        marker: Option<PathBuf>,
+        /// Log file for the calls. `calls_log_every` appends `$@`
+        /// (space-joined, newline) for every subcommand;
+        /// `calls_pull_overwrite` makes `pull` write it once (the
+        /// download-slot test's log).
+        calls: Option<PathBuf>,
+        calls_log_every: bool,
+        calls_pull_overwrite: bool,
+        /// Every call appends its own environment to this file (`env`-style
+        /// `NAME=VALUE` lines) — the tool-env test reads it back.
+        env_dump: Option<PathBuf>,
+        /// `blob fetch` answers from this dir: file `<blobs>/<sha256>` is
+        /// copied to `--output`.
+        blobs: Option<PathBuf>,
+        blob_hold_marker: Option<PathBuf>,
+        blob_hold_gate: Option<PathBuf>,
+        blob_hold_sleep_s: u64,
+        /// When set, the blob hold applies only to this fetched sha256
+        /// (the shell's `if [ "$d" = ... ]` condition).
+        blob_hold_digest: Option<String>,
+        /// Log (calls/env) and exit `fail_exit` without answering — the
+        /// offline stand-ins ("every oras call fails, and is logged").
+        fail_all: bool,
+        fail_exit: u32,
+        /// Exit code for a subcommand the stand-in does not implement.
+        unexpected_exit: u32,
+    }
+
+    impl Default for OrasSpec {
+        fn default() -> Self {
+            Self {
+                resolve: None,
+                payload: None,
+                pull_sleep_s: 0,
+                marker: None,
+                calls: None,
+                calls_log_every: false,
+                calls_pull_overwrite: false,
+                env_dump: None,
+                blobs: None,
+                blob_hold_marker: None,
+                blob_hold_gate: None,
+                blob_hold_sleep_s: 0,
+                blob_hold_digest: None,
+                fail_all: false,
+                fail_exit: 1,
+                unexpected_exit: 1,
+            }
+        }
+    }
+
+    impl OrasSpec {
+        /// The plain-text spec file: one `key=value` per line, a path as a
+        /// value taken verbatim (first `=` separates key and value).
+        fn to_spec_text(&self) -> String {
+            let mut s = String::new();
+            let mut kv = |k: &str, v: String| s.push_str(&format!("{k}={v}\n"));
+            if let Some(v) = &self.resolve {
+                kv("resolve", v.clone());
+            }
+            if let Some(v) = &self.payload {
+                kv("payload", v.display().to_string());
+            }
+            if self.pull_sleep_s > 0 {
+                kv("pull_sleep", self.pull_sleep_s.to_string());
+            }
+            if let Some(v) = &self.marker {
+                kv("marker", v.display().to_string());
+            }
+            if let Some(v) = &self.calls {
+                kv("calls", v.display().to_string());
+                if self.calls_log_every {
+                    kv("calls_mode", "append-all".into());
+                }
+                if self.calls_pull_overwrite {
+                    kv("calls_mode", "pull-overwrite".into());
+                }
+            }
+            if let Some(v) = &self.env_dump {
+                kv("env_dump", v.display().to_string());
+            }
+            if let Some(v) = &self.blobs {
+                kv("blobs", v.display().to_string());
+            }
+            if let Some(v) = &self.blob_hold_marker {
+                kv("blob_hold_marker", v.display().to_string());
+            }
+            if let Some(v) = &self.blob_hold_gate {
+                kv("blob_hold_gate", v.display().to_string());
+            }
+            if self.blob_hold_sleep_s > 0 {
+                kv("blob_hold_sleep", self.blob_hold_sleep_s.to_string());
+            }
+            if let Some(v) = &self.blob_hold_digest {
+                kv("blob_hold_digest", v.clone());
+            }
+            if self.fail_all {
+                kv("fail", "1".into());
+            }
+            if self.fail_exit != 1 {
+                kv("fail_exit", self.fail_exit.to_string());
+            }
+            if self.unexpected_exit != 1 {
+                kv("exit_code", self.unexpected_exit.to_string());
+            }
+            s
+        }
+    }
+
+    /// Write an executable stand-in into `<data>/bin/`:
+    /// `<data>/bin/oras.spec` (the spec) plus the stand-in itself
+    /// (`bin/oras` — a `/bin/sh` interpreter — on Unix,
+    /// `bin/oras.exe` — the once-compiled native exe — on Windows).
+    fn stub_oras(root: &Path, spec: &OrasSpec) {
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("oras.spec"), spec.to_spec_text()).unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+            let path = bin.join("oras");
+            std::fs::write(&path, ORAS_SH_INTERPRETER).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            let exe = bin.join("oras.exe");
+            if !exe.exists() {
+                std::fs::copy(native_oras_exe(), &exe).unwrap_or_else(|e| {
+                    panic!(
+                        "copy the native oras stand-in into {}: {e}",
+                        bin.display()
+                    )
+                });
+            }
         }
     }
 
@@ -2448,29 +2596,309 @@ mod tests {
     /// pinned digest; `pull` writes a start marker, sleeps
     /// `pull_sleep_s` (to make the pull cancellable mid-flight), then copies
     /// `payload` to `<the -o dir>/rootfs.squashfs`.
-    fn oras_script(payload: &Path, digest: &str, pull_sleep_s: u64, marker: &Path) -> String {
-        let payload = payload.display();
-        let marker = marker.display();
-        format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = \"resolve\" ]; then\n\
-             \x20 echo sha256:{digest}\n\
-             \x20 exit 0\n\
-             fi\n\
-             if [ \"$1\" = \"pull\" ]; then\n\
-             \x20 echo started > {marker}\n\
-             \x20 if [ {pull_sleep_s} -gt 0 ]; then exec sleep {pull_sleep_s}; fi\n\
-             \x20 out=\"\"\n\
-             \x20 prev=\"\"\n\
-             \x20 for a in \"$@\"; do\n\
-             \x20 \x20 if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi\n\
-             \x20 \x20 prev=\"$a\"\n\
-             \x20 done\n\
-             \x20 cp {payload} \"$out/rootfs.squashfs\"\n\
-             \x20 exit 0\n\
-             fi\n\
-             exit 1\n"
-        )
+    fn oras_script(payload: &Path, digest: &str, pull_sleep_s: u64, marker: &Path) -> OrasSpec {
+        OrasSpec {
+            resolve: Some(digest.to_string()),
+            payload: Some(payload.to_path_buf()),
+            pull_sleep_s,
+            marker: Some(marker.to_path_buf()),
+            ..OrasSpec::default()
+        }
+    }
+
+    /// The Unix stand-in: a fixed `/bin/sh` interpreter that reads
+    /// `oras.spec` from its own directory. It replaces the per-test
+    /// `#!/bin/sh` scripts of the pre-data-driven era; every behaviour they
+    /// needed is a spec key, and the translations below (space-joined `$@`
+    /// logging, `env`-style dumps, `-o`/`--output` parsing, `${ref##*@sha256:}`,
+    /// `exec sleep` on a hold, the blob-unknown refusal) are exactly the ones
+    /// the old scripts used.
+    #[cfg(unix)]
+    const ORAS_SH_INTERPRETER: &str = r#"#!/bin/sh
+spec="$(dirname "$0")/oras.spec"
+resolve=""; payload=""; pull_sleep=0; marker=""
+calls=""; calls_mode=""; env_dump=""
+blobs=""; hold_marker=""; hold_gate=""; hold_sleep=0; hold_digest=""
+fail=""; fail_exit=1; exit_code=1
+while IFS='=' read -r k v; do
+  case "$k" in
+    resolve) resolve="$v";;
+    payload) payload="$v";;
+    pull_sleep) pull_sleep="$v";;
+    marker) marker="$v";;
+    calls) calls="$v";;
+    calls_mode) calls_mode="$v";;
+    env_dump) env_dump="$v";;
+    blobs) blobs="$v";;
+    blob_hold_marker) hold_marker="$v";;
+    blob_hold_gate) hold_gate="$v";;
+    blob_hold_sleep) hold_sleep="$v";;
+    blob_hold_digest) hold_digest="$v";;
+    fail) fail="$v";;
+    fail_exit) fail_exit="$v";;
+    exit_code) exit_code="$v";;
+  esac
+done < "$spec"
+
+# The calls log and the environment dump happen for every invocation, like
+# the per-test scripts they replace.
+if [ -n "$calls" ] && [ "$calls_mode" = "append-all" ]; then echo "$@" >> "$calls"; fi
+if [ -n "$env_dump" ]; then env >> "$env_dump"; fi
+
+if [ "$fail" = "1" ]; then exit "$fail_exit"; fi
+
+if [ "$1" = "resolve" ] && [ -n "$resolve" ]; then
+  echo "sha256:$resolve"
+  exit 0
+fi
+
+if [ "$1" = "pull" ]; then
+  if [ -n "$calls" ] && [ "$calls_mode" = "pull-overwrite" ]; then echo "$@" > "$calls"; fi
+  if [ -n "$marker" ]; then echo started > "$marker"; fi
+  if [ "$pull_sleep" -gt 0 ]; then exec sleep "$pull_sleep"; fi
+  out=""; prev=""
+  for a in "$@"; do
+    if [ "$prev" = "-o" ]; then out="$a"; fi
+    prev="$a"
+  done
+  if [ -n "$out" ] && [ -n "$payload" ]; then cp "$payload" "$out/rootfs.squashfs"; exit 0; fi
+  echo "unexpected oras call" >&2
+  exit "$exit_code"
+fi
+
+if [ "$1" = "blob" ] && [ "$2" = "fetch" ]; then
+  out=""; prev=""; ref=""
+  for a in "$@"; do
+    if [ "$prev" = "--output" ]; then out="$a"; fi
+    prev="$a"; ref="$a"
+  done
+  d="${ref##*@sha256:}"
+  if [ -z "$hold_digest" ] || [ "$hold_digest" = "$d" ]; then
+    if [ -n "$hold_marker" ]; then echo started > "$hold_marker"; fi
+    if [ "$hold_sleep" -gt 0 ]; then exec sleep "$hold_sleep"; fi
+    if [ -n "$hold_gate" ]; then while [ ! -f "$hold_gate" ]; do sleep 0.05; done; fi
+  fi
+  if [ ! -f "$blobs/$d" ]; then echo "blob unknown" >&2; exit 1; fi
+  cp "$blobs/$d" "$out"
+  exit 0
+fi
+
+echo "unexpected oras call" >&2
+exit "$exit_code"
+"#;
+
+    /// The Windows stand-in source: std only, one process, reads `oras.spec`
+    /// next to its own exe (`current_exe`), and translates the spec keys
+    /// exactly like the Unix interpreter (a key is the text before the first
+    /// `=` on a line).
+    #[cfg(windows)]
+    const ORAS_STAND_IN_SRC: &str = r#"use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::path::Path;
+use std::process::exit;
+use std::time::Duration;
+
+fn main() {
+    let spec_path = env::current_exe()
+        .expect("current_exe")
+        .with_file_name("oras.spec");
+    let spec = fs::read_to_string(&spec_path)
+        .unwrap_or_else(|e| {
+            eprintln!("oras stand-in: read {}: {e}", spec_path.display());
+            exit(1);
+        });
+    let mut cfg: HashMap<String, String> = HashMap::new();
+    for line in spec.lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            cfg.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
+    let get = |k: &str| cfg.get(k).cloned().unwrap_or_default();
+    let args: Vec<String> = env::args().skip(1).collect();
+    let append = |path: &str, text: &str| {
+        use std::io::Write;
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = f.write_all(text.as_bytes());
+        }
+    };
+
+    // The calls log and the environment dump happen for every invocation.
+    let calls = get("calls");
+    let calls_mode = get("calls_mode");
+    if !calls.is_empty() && calls_mode == "append-all" {
+        append(&calls, &format!("{}\n", args.join(" ")));
+    }
+    let env_dump = get("env_dump");
+    if !env_dump.is_empty() {
+        let mut dump = String::new();
+        let mut vars: Vec<(String, String)> = env::vars_os()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+            .collect();
+        vars.sort();
+        for (k, v) in vars {
+            dump.push_str(&k);
+            dump.push('=');
+            dump.push_str(&v);
+            dump.push('\n');
+        }
+        append(&env_dump, &dump);
+    }
+    if get("fail") == "1" {
+        exit(get("fail_exit").parse().unwrap_or(1));
+    }
+    let exit_code: i32 = get("exit_code").parse().unwrap_or(1);
+    match args.first().map(String::as_str) {
+        Some("resolve") if !get("resolve").is_empty() => {
+            println!("sha256:{}", get("resolve"));
+            exit(0);
+        }
+        Some("pull") => {
+            if !calls.is_empty() && calls_mode == "pull-overwrite" {
+                if let Some(p) = Path::new(&calls).parent() {
+                    let _ = fs::create_dir_all(p);
+                }
+                let _ = fs::write(&calls, format!("{}\n", args.join(" ")));
+            }
+            let marker = get("marker");
+            if !marker.is_empty() {
+                let _ = fs::write(&marker, "started\n");
+            }
+            let sleep_s: u64 = get("pull_sleep").parse().unwrap_or(0);
+            if sleep_s > 0 {
+                std::thread::sleep(Duration::from_secs(sleep_s));
+                exit(0);
+            }
+            let payload = get("payload");
+            let mut out: Option<String> = None;
+            let mut prev = String::new();
+            for a in &args {
+                if prev == "-o" {
+                    out = Some(a.clone());
+                }
+                prev = a.clone();
+            }
+            match (out, !payload.is_empty()) {
+                (Some(out), true) => {
+                    let dest = Path::new(&out).join("rootfs.squashfs");
+                    if let Some(p) = dest.parent() {
+                        let _ = fs::create_dir_all(p);
+                    }
+                    match fs::copy(&payload, &dest) {
+                        Ok(_) => exit(0),
+                        Err(e) => {
+                            eprintln!("oras stand-in: copy {} -> {}: {e}", payload, dest.display());
+                            exit(1);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("unexpected oras call");
+                    exit(exit_code);
+                }
+            }
+        }
+        Some("blob") if args.get(1).map(String::as_str) == Some("fetch") => {
+            let mut out: Option<String> = None;
+            let mut prev = String::new();
+            let mut reference = String::new();
+            for a in &args {
+                if prev == "--output" {
+                    out = Some(a.clone());
+                }
+                prev = a.clone();
+                reference = a.clone();
+            }
+            let digest = match reference.rsplit_once("@sha256:") {
+                Some((_, d)) => d.to_string(),
+                None => reference.clone(),
+            };
+            let hold_digest = get("blob_hold_digest");
+            if hold_digest.is_empty() || hold_digest == digest {
+                let hold_marker = get("blob_hold_marker");
+                if !hold_marker.is_empty() {
+                    let _ = fs::write(&hold_marker, "started\n");
+                }
+                let hold_sleep: u64 = get("blob_hold_sleep").parse().unwrap_or(0);
+                if hold_sleep > 0 {
+                    std::thread::sleep(Duration::from_secs(hold_sleep));
+                    exit(0);
+                }
+                let hold_gate = get("blob_hold_gate");
+                if !hold_gate.is_empty() {
+                    while !Path::new(&hold_gate).exists() {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                }
+            }
+            let blobs = get("blobs");
+            let src = Path::new(&blobs).join(&digest);
+            match out {
+                Some(out) if src.is_file() => {
+                    if let Some(p) = Path::new(&out).parent() {
+                        let _ = fs::create_dir_all(p);
+                    }
+                    match fs::copy(&src, &out) {
+                        Ok(_) => exit(0),
+                        Err(e) => {
+                            eprintln!("oras stand-in: copy {} -> {}: {e}", src.display(), out);
+                            exit(1);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("blob unknown");
+                    exit(1);
+                }
+            }
+        }
+        _ => {
+            eprintln!("unexpected oras call");
+            exit(exit_code);
+        }
+    }
+}
+"#;
+
+    /// Build (once per test process) the native Windows stand-in and return
+    /// its path: the embedded source is written to a scratch dir and compiled
+    /// with `rustc -O` (from `RUSTC` when set, else `rustc` on PATH). Each
+    /// test then copies the exe next to its own spec; the exe reads THAT
+    /// spec through `current_exe`.
+    #[cfg(windows)]
+    fn native_oras_exe() -> &'static Path {
+        static EXE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        EXE.get_or_init(|| {
+            let dir = crate::modules::method_list::test_scratch::dir("method-env", "oras-tool");
+            let src = dir.join("oras_stand_in.rs");
+            let exe = dir.join("oras.exe");
+            std::fs::write(&src, ORAS_STAND_IN_SRC).expect("write the oras stand-in source");
+            let rustc =
+                std::env::var_os("RUSTC").unwrap_or_else(|| std::ffi::OsString::from("rustc"));
+            let out = std::process::Command::new(&rustc)
+                .arg("-O")
+                .arg("-o")
+                .arg(&exe)
+                .arg(&src)
+                .output()
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "cannot run rustc to build the native oras stand-in ({e}); the Windows \
+                         lib tests need the Rust toolchain (rustc on PATH, or RUSTC set)"
+                    )
+                });
+            assert!(
+                out.status.success(),
+                "rustc failed to build the oras stand-in ({}): {}",
+                rustc.to_string_lossy(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            exe
+        })
     }
 
     /// A first-class loopback-style layer ref (the seam's host, the compiled
@@ -3047,20 +3475,14 @@ mod tests {
         std::fs::write(&payload, b"other bytes").unwrap();
         let calls = root.join("oras-calls.txt");
         let manifest = "b".repeat(64);
-        let script = format!(
-            "#!/bin/sh\n\
-             echo \"$@\" >> {calls}\n\
-             if [ \"$1\" = \"resolve\" ]; then echo sha256:{manifest}; exit 0; fi\n\
-             if [ \"$1\" = \"pull\" ]; then\n\
-             \x20 out=\"\"; prev=\"\"\n\
-             \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
-             \x20 cp {payload} \"$out/rootfs.squashfs\"; exit 0\n\
-             fi\n\
-             exit 1\n",
-            calls = calls.display(),
-            payload = payload.display(),
-        );
-        stub_oras(&root, &script);
+        let spec = OrasSpec {
+            resolve: Some(manifest.clone()),
+            payload: Some(payload.clone()),
+            calls: Some(calls.clone()),
+            calls_log_every: true,
+            ..OrasSpec::default()
+        };
+        stub_oras(&root, &spec);
 
         let m = MethodEnvManager::with_seams(loopback_seams());
         let pinned = hex_of(b"the pinned bytes");
@@ -3145,22 +3567,15 @@ mod tests {
         let calls = root.join("oras-calls.txt");
         let envs = root.join("oras-env.txt");
         let manifest = "c".repeat(64);
-        let script = format!(
-            "#!/bin/sh\n\
-             echo \"$@\" >> {calls}\n\
-             env >> {envs}\n\
-             if [ \"$1\" = \"resolve\" ]; then echo sha256:{manifest}; exit 0; fi\n\
-             if [ \"$1\" = \"pull\" ]; then\n\
-             \x20 out=\"\"; prev=\"\"\n\
-             \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
-             \x20 cp {payload} \"$out/rootfs.squashfs\"; exit 0\n\
-             fi\n\
-             exit 1\n",
-            calls = calls.display(),
-            envs = envs.display(),
-            payload = payload.display(),
-        );
-        stub_oras(&root, &script);
+        let spec = OrasSpec {
+            resolve: Some(manifest.clone()),
+            payload: Some(payload.clone()),
+            calls: Some(calls.clone()),
+            calls_log_every: true,
+            env_dump: Some(envs.clone()),
+            ..OrasSpec::default()
+        };
+        stub_oras(&root, &spec);
 
         let m = MethodEnvManager::with_seams(loopback_seams());
         let r = layer_ref("fixture-layer", "1.0.0-amd64", &hex_of(b"the pinned bytes"));
@@ -3182,8 +3597,12 @@ mod tests {
         }
 
         // Only PATH, HOME and the passthrough list reach the child (plus what
-        // /bin/sh sets for itself).
-        let shell_own = ["PWD", "OLDPWD", "SHLVL", "_"];
+        // /bin/sh sets for itself on Unix, and what Windows sets in every new
+        // process: PROCESSOR_ARCHITECTURE, seen with the environment cleared).
+        #[cfg(unix)]
+        let os_own: &[&str] = &["PWD", "OLDPWD", "SHLVL", "_"];
+        #[cfg(windows)]
+        let os_own: &[&str] = &["PROCESSOR_ARCHITECTURE"];
         let env_dump = std::fs::read_to_string(&envs).expect("env recorded");
         for line in env_dump.lines() {
             let Some((name, _)) = line.split_once('=') else { continue };
@@ -3191,7 +3610,7 @@ mod tests {
                 name == "PATH"
                     || name == "HOME"
                     || TOOL_PASSTHROUGH_ENV.contains(&name)
-                    || shell_own.contains(&name),
+                    || os_own.contains(&name),
                 "oras received {name:?}, which is not on the list"
             );
         }
@@ -3349,17 +3768,13 @@ mod tests {
             root.join("pull-log")
         }
         let log = log_path(&root);
-        let log_disp = log.display();
-        let stub = format!(
-            "#!/bin/sh\n\
-             if [ \"$1\" = \"resolve\" ]; then echo sha256:{digest}; exit 0; fi\n\
-             if [ \"$1\" = \"pull\" ]; then\n\
-             \x20 echo \"$@\" > {log_disp}\n\
-             \x20 exec sleep 3600\n\
-             \x20 exit 0\n\
-             fi\n\
-             exit 1\n"
-        );
+        let stub = OrasSpec {
+            resolve: Some(digest.clone()),
+            calls: Some(log.clone()),
+            calls_pull_overwrite: true,
+            pull_sleep_s: 3600, // the pull never completes; it is cancellable
+            ..OrasSpec::default()
+        };
         stub_oras(&root, &stub);
 
         let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
@@ -3548,28 +3963,34 @@ mod tests {
         }
     }
 
+    /// The mid-fetch "hold" of [`blob_stub`]: before the stand-in answers a
+    /// `blob fetch`, it may write a start marker, sleep, and/or wait for a
+    /// gate file — the knob the cancel/slot tests use to keep a fetch in
+    /// flight. `digest` narrows the hold to one fetched sha256 (the shell
+    /// snippet's `if [ "$d" = ... ]`); empty applies it to every fetch.
+    #[derive(Default, Clone)]
+    struct BlobHold {
+        digest: Option<String>,
+        marker: Option<PathBuf>,
+        sleep_s: u64,
+        gate: Option<PathBuf>,
+    }
+
     /// A stub `oras` that logs every call's arguments to `calls` and answers
     /// `blob fetch <pkg>@sha256:<d>` with the file `<blobs>/<d>` written to
-    /// the `--output` path (exit 1 when there is no such blob). `hold` runs
-    /// first for the fetch (a shell snippet that may block); every other
-    /// subcommand fails.
-    fn blob_stub(calls: &Path, blobs: &Path, hold: &str) -> String {
-        format!(
-            "#!/bin/sh\n\
-             echo \"$@\" >> {calls}\n\
-             if [ \"$1\" = \"blob\" ] && [ \"$2\" = \"fetch\" ]; then\n\
-             \x20 out=\"\"; prev=\"\"; ref=\"\"\n\
-             \x20 for a in \"$@\"; do if [ \"$prev\" = \"--output\" ]; then out=\"$a\"; fi; prev=\"$a\"; ref=\"$a\"; done\n\
-             \x20 d=\"${{ref##*@sha256:}}\"\n\
-             \x20 {hold}\n\
-             \x20 if [ ! -f \"{blobs}/$d\" ]; then echo \"blob unknown\" >&2; exit 1; fi\n\
-             \x20 cp \"{blobs}/$d\" \"$out\"; exit 0\n\
-             fi\n\
-             echo \"unexpected oras call\" >&2\n\
-             exit 1\n",
-            calls = calls.display(),
-            blobs = blobs.display(),
-        )
+    /// the `--output` path (exit 1 when there is no such blob); the `hold`
+    /// runs first for the fetch; every other subcommand fails.
+    fn blob_stub(calls: &Path, blobs: &Path, hold: BlobHold) -> OrasSpec {
+        OrasSpec {
+            calls: Some(calls.to_path_buf()),
+            calls_log_every: true,
+            blobs: Some(blobs.to_path_buf()),
+            blob_hold_digest: hold.digest,
+            blob_hold_marker: hold.marker,
+            blob_hold_sleep_s: hold.sleep_s,
+            blob_hold_gate: hold.gate,
+            ..OrasSpec::default()
+        }
     }
 
     /// Store `bytes` as the registry blob of their sha256; returns the digest.
@@ -3593,7 +4014,7 @@ mod tests {
         let base_pin = put_blob(&blobs, b"an older base file");
         pretend_mounted(&layer_pin);
         pretend_mounted(&base_pin);
-        stub_oras(&root, &blob_stub(&calls, &blobs, ":"));
+        stub_oras(&root, &blob_stub(&calls, &blobs, BlobHold::default()));
 
         let m = MethodEnvManager::with_seams(loopback_seams());
         let got = m
@@ -3632,7 +4053,11 @@ mod tests {
             lines[0]
         );
         assert!(
-            lines[0].contains(&format!(".pull-{staging_out}-")) && lines[0].contains("/fixture-layer.squashfs "),
+            lines[0].contains(&format!(".pull-{staging_out}-"))
+                && lines[0].contains(&format!(
+                    "{sep}fixture-layer.squashfs ",
+                    sep = std::path::MAIN_SEPARATOR
+                )),
             "the output is the env's file in the attempt's staging dir: {}",
             lines[0]
         );
@@ -3662,7 +4087,7 @@ mod tests {
         std::fs::create_dir_all(&blobs).unwrap();
         let pin = hex_of(b"the bytes the record names");
         std::fs::write(blobs.join(&pin), b"other bytes under that name").unwrap();
-        stub_oras(&root, &blob_stub(&calls, &blobs, ":"));
+        stub_oras(&root, &blob_stub(&calls, &blobs, BlobHold::default()));
 
         let m = MethodEnvManager::with_seams(loopback_seams());
         let err = m
@@ -3683,19 +4108,15 @@ mod tests {
         std::fs::write(&payload, b"other bytes").unwrap();
         let calls = root.join("oras-calls.txt");
         let manifest = "e".repeat(64);
-        let script = format!(
-            "#!/bin/sh\n\
-             echo \"$@\" >> {calls}\n\
-             if [ \"$1\" = \"pull\" ]; then\n\
-             \x20 out=\"\"; prev=\"\"\n\
-             \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
-             \x20 cp {payload} \"$out/rootfs.squashfs\"; exit 0\n\
-             fi\n\
-             exit 1\n",
-            calls = calls.display(),
-            payload = payload.display(),
-        );
-        stub_oras(&root, &script);
+        // A manifest-digest ref is pulled (never a resolve, never a blob):
+        // the stand-in answers only `pull`, logging every call.
+        let spec = OrasSpec {
+            calls: Some(calls.clone()),
+            calls_log_every: true,
+            payload: Some(payload.clone()),
+            ..OrasSpec::default()
+        };
+        stub_oras(&root, &spec);
 
         let m = MethodEnvManager::with_seams(loopback_seams());
         let pin = hex_of(b"the pinned bytes");
@@ -3734,7 +4155,12 @@ mod tests {
         let calls = root.join("oras-calls.txt");
         stub_oras(
             &root,
-            &format!("#!/bin/sh\necho \"$@\" >> {}\nexit 1\n", calls.display()),
+            &OrasSpec {
+                calls: Some(calls.clone()),
+                calls_log_every: true,
+                fail_all: true,
+                ..OrasSpec::default()
+            },
         );
 
         let first = MethodEnvManager::with_seams(loopback_seams());
@@ -3766,7 +4192,12 @@ mod tests {
         let calls = root.join("oras-calls.txt");
         stub_oras(
             &root,
-            &format!("#!/bin/sh\necho \"$@\" >> {}\nexit 1\n", calls.display()),
+            &OrasSpec {
+                calls: Some(calls.clone()),
+                calls_log_every: true,
+                fail_all: true,
+                ..OrasSpec::default()
+            },
         );
         let m = MethodEnvManager::with_seams(loopback_seams());
         for digest in [&a, &b, &a, &b, &a] {
@@ -3844,10 +4275,12 @@ mod tests {
             &blob_stub(
                 &calls,
                 &blobs,
-                &format!(
-                    "if [ \"$d\" = \"{new}\" ]; then echo started > {}; exec sleep 3600; fi",
-                    started.display()
-                ),
+                BlobHold {
+                    digest: Some(new.clone()),
+                    marker: Some(started.clone()),
+                    sleep_s: 3600,
+                    ..BlobHold::default()
+                },
             ),
         );
         let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
@@ -3888,11 +4321,11 @@ mod tests {
             &blob_stub(
                 &calls,
                 &blobs,
-                &format!(
-                    "echo started > {}; while [ ! -f {} ]; do sleep 0.05; done",
-                    started2.display(),
-                    go.display()
-                ),
+                BlobHold {
+                    marker: Some(started2.clone()),
+                    gate: Some(go.clone()),
+                    ..BlobHold::default()
+                },
             ),
         );
         let current = spawn(new.clone());
@@ -3919,15 +4352,16 @@ mod tests {
     /// A blob stub whose fetch of `held` waits (logging `started`) until the
     /// `go` file exists; every other fetch answers at once. Every call is
     /// logged to `calls`.
-    fn gated_stub(calls: &Path, blobs: &Path, held: &str, started: &Path, go: &Path) -> String {
+    fn gated_stub(calls: &Path, blobs: &Path, held: &str, started: &Path, go: &Path) -> OrasSpec {
         blob_stub(
             calls,
             blobs,
-            &format!(
-                "if [ \"$d\" = \"{held}\" ]; then echo started > {}; while [ ! -f {} ]; do sleep 0.05; done; fi",
-                started.display(),
-                go.display()
-            ),
+            BlobHold {
+                digest: Some(held.to_string()),
+                marker: Some(started.to_path_buf()),
+                gate: Some(go.to_path_buf()),
+                ..BlobHold::default()
+            },
         )
     }
 

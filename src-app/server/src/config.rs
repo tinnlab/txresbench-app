@@ -365,6 +365,12 @@ mod database_target_tests {
     /// global; a second test reading the var mid-mutation would be flaky).
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Lock the env var's guard, recovering a POISONED lock (a failing test
+    /// must never take the later tests down with a `PoisonError`).
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// An app-shaped config (the extra `secrets:`/`memory:` keys the SDK ignores)
     /// with the runner's `database:` block (empty = no block). Post-flip shape:
     /// NO `postgresql:` block (ITEM-12/ITEM-26).
@@ -389,7 +395,7 @@ mod database_target_tests {
 
     #[test]
     fn database_block_url_wins_over_path_and_pool_defaults_to_profile() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         let yaml =
             app_yaml("database:\n  path: /tmp/from-path.db\n  url: sqlite:///tmp/from-url.db\n");
         let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
@@ -415,7 +421,7 @@ mod database_target_tests {
 
     #[test]
     fn database_path_is_used_when_url_is_absent() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         let yaml = app_yaml(&format!(
             "database:\n  path: /home/user/txresbench/app.db\n  pool:\n    max_connections: 3\n    busy_timeout_ms: 100\n"
         ));
@@ -433,7 +439,7 @@ mod database_target_tests {
 
     #[test]
     fn txr_database_url_env_overrides_the_database_block() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         let yaml = app_yaml("database:\n  url: sqlite:///from-config.db\n");
         let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
         std::env::set_var(DATABASE_URL_ENV, "sqlite:///from-env.db");
@@ -444,7 +450,7 @@ mod database_target_tests {
 
     #[test]
     fn empty_env_value_does_not_override() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         let yaml = app_yaml("database:\n  path: /from-config/app.db\n");
         let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
         std::env::set_var(DATABASE_URL_ENV, "   ");
@@ -455,19 +461,26 @@ mod database_target_tests {
 
     #[test]
     fn default_target_is_the_app_data_dir_file() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         let yaml = app_yaml("");
         let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
         assert!(cfg.database.is_none(), "no database block -> None");
+        // The default target is `<app-data-dir>/txresbench.db`, built with
+        // `Path::join` exactly as the production code builds it (the OS
+        // separator differs on Windows; a literal `/` would not).
+        let expected = std::path::Path::new("/home/user/.txresbench")
+            .join(DEFAULT_DB_FILE_NAME)
+            .to_string_lossy()
+            .into_owned();
         assert_eq!(
             resolve_database_target(&cfg, std::path::Path::new("/home/user/.txresbench")),
-            "/home/user/.txresbench/txresbench.db"
+            expected
         );
     }
 
     #[test]
     fn any_postgresql_block_is_refused_with_a_loud_message() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         // Both the embedded leg and the external-PG leg are refused: the
         // ITEM-12 accepted-with-warning transition is over (ITEM-26).
         for use_embedded in [true, false] {
@@ -489,7 +502,7 @@ mod database_target_tests {
 
     #[test]
     fn an_absent_postgresql_block_is_legal() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         // No postgresql block at all (the sqlite-shaped config) is legal — the
         // refusal returns None and the app boots on the `database:` store.
         let sqlite_yaml = format!(
@@ -503,7 +516,7 @@ mod database_target_tests {
 
     #[test]
     fn env_override_is_honored_byte_for_byte() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = lock_env();
         let yaml = app_yaml("");
         let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
         // An operator override spelled as a plain path must pass through

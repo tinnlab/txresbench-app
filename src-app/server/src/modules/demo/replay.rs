@@ -2538,7 +2538,18 @@ mod tests {
         assert_eq!(method.coverage_scored, Some(94));
         assert_eq!(method.trained_on_patients, Some(94));
         assert_eq!(method.own_auc, Some(0.71));
-        assert_eq!(method.model_dir.as_deref(), Some(format!("{}/models/kelim", &run.dir).as_str()));
+        // The recorded model dir is `<run.dir>/models/kelim` — built with
+        // `Path::join` and rendered with `display`, exactly as the production
+        // seed renders `model_dir` (the OS separator differs on Windows).
+        let expected_model_dir = std::path::Path::new(&run.dir)
+            .join("models")
+            .join("kelim")
+            .display()
+            .to_string();
+        assert_eq!(
+            method.model_dir.as_deref(),
+            Some(expected_model_dir.as_str())
+        );
         let counts = repo.method_counts(run_id).await.unwrap();
         assert_eq!(counts.finished, 1);
         let logs = repo.logs_tail(run_id, 5).await.unwrap();
