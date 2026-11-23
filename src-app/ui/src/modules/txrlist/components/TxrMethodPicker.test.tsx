@@ -247,24 +247,43 @@ describe('the row contract', () => {
 
 describe('presets', () => {
   it('presets change the selection; the recommended preset reports the deterministic set', () => {
-    let next: ReadonlySet<string> = new Set()
-    renderPicker(CARDS, next, value => {
-      next = value
-    })
+    function Host() {
+      const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+      return (
+        <TxrMethodPicker
+          cards={CARDS}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          selected={selected}
+          onSelectionChange={setSelected}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
+        />
+      )
+    }
+    render(<Host />)
     expect(screen.getByTestId('txr-method-preset-recommended').textContent).toBe('Recommended (7)')
+    // The selection state the picker reports is the host's; read it through
+    // the checkboxes the picker renders.
+    const checkedIds = (): string[] =>
+      ['r1', 'r2', 'p1', 'p2', 'p3', 's1', 'd1'].filter(
+        id => screen.getByTestId(`txr-method-checkbox-${id}`).getAttribute('aria-checked') === 'true',
+      )
     fireEvent.click(screen.getByTestId('txr-method-preset-all'))
-    expect(next.size).toBe(7)
-    fireEvent.click(screen.getByTestId('txr-method-preset-none'))
-    expect(next.size).toBe(0)
+    expect(checkedIds()).toEqual(['r1', 'r2', 'p1', 'p2', 'p3', 's1', 'd1'])
+    // The old "None" preset button is now the search bar's Clear selection.
+    fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
+    expect(checkedIds()).toEqual([])
     fireEvent.click(screen.getByTestId('txr-method-preset-fast'))
-    expect([...next].sort()).toEqual(['r1'])
+    expect(checkedIds()).toEqual(['r1'])
   })
 
   it('every set-taking preset shows its count, Fast included', () => {
     renderPicker(CARDS)
     expect(screen.getByTestId('txr-method-preset-all').textContent).toBe('All that can run (7)')
     expect(screen.getByTestId('txr-method-preset-fast').textContent).toBe(
-      'Fast only, under 1 min each (1)',
+      'Fast only (estimated under 1 min each) (1)',
     )
   })
 
@@ -293,7 +312,7 @@ describe('presets', () => {
     }
     render(<Host />)
     const pressed = (): string[] =>
-      (['recommended', 'all', 'fast', 'none'] as const).filter(
+      (['recommended', 'all', 'fast'] as const).filter(
         value => screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
       )
     // Arrival (nothing clicked): the seeded set reads as Recommended.
@@ -336,7 +355,7 @@ describe('presets', () => {
         />,
       )
     const pressed = (): string[] =>
-      (['recommended', 'all', 'fast', 'none'] as const).filter(
+      (['recommended', 'all', 'fast'] as const).filter(
         value => screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
       )
     const first = mount(null)
@@ -347,7 +366,7 @@ describe('presets', () => {
     expect(pressed()).toEqual(['fast'])
   })
 
-  it('None is the pressed preset when no method is fast (never "Fast only")', () => {
+  it('no preset is pressed when no method is fast (never "Fast only")', () => {
     function Host() {
       const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
       return (
@@ -363,13 +382,63 @@ describe('presets', () => {
         />
       )
     }
+    const pressed = (): string[] =>
+      (['recommended', 'all', 'fast'] as const).filter(
+        value =>
+          screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
+      )
     render(<Host />)
-    expect(screen.getByTestId('txr-method-preset-none').getAttribute('aria-pressed')).toBe('true')
+    // An empty selection presses no preset — Fast's set is empty too (no
+    // method is fast), and with the "None" button gone there is no other
+    // segment it could light.
+    expect(pressed()).toEqual([])
     expect(screen.getByTestId('txr-method-preset-fast').getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(screen.getByTestId('txr-method-preset-all'))
-    fireEvent.click(screen.getByTestId('txr-method-preset-none'))
-    expect(screen.getByTestId('txr-method-preset-none').getAttribute('aria-pressed')).toBe('true')
+    expect(pressed()).toEqual(['all'])
+    fireEvent.click(screen.getByTestId('txr-method-clear-selection'))
+    expect(pressed()).toEqual([])
     expect(screen.getByTestId('txr-method-preset-fast').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('the search bar\'s Clear selection: next to the search box, disabled with nothing ticked, enabled with a tick, and a click unticks every method', () => {
+    function Host() {
+      const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+      return (
+        <TxrMethodPicker
+          cards={CARDS}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          selected={selected}
+          onSelectionChange={setSelected}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
+        />
+      )
+    }
+    render(<Host />)
+    const clear = screen.getByTestId('txr-method-clear-selection')
+    expect(clear.getAttribute('disabled')).not.toBeNull()
+    // It sits in the method search toolbar, beside the search box.
+    const toolbar = screen.getByTestId('txr-method-toolbar')
+    expect(toolbar.contains(clear)).toBe(true)
+    expect(toolbar.contains(screen.getByTestId('txr-method-search'))).toBe(true)
+    // One tick enables it; the click untick every method (the old "None"
+    // preset's path — `applyPreset('none')`).
+    fireEvent.click(screen.getByTestId('txr-method-checkbox-r1'))
+    expect(clear.getAttribute('disabled')).toBeNull()
+    fireEvent.click(clear)
+    expect(clear.getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByTestId('txr-method-checkbox-r1').getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('the preset group keeps Recommended / All that can run / Fast only — no "None" button', () => {
+    renderPicker(CARDS)
+    const group = screen.getByTestId('txr-method-presets')
+    expect(group.textContent).toContain('Recommended (7)')
+    expect(group.textContent).toContain('All that can run (7)')
+    expect(group.textContent).toContain('Fast only (estimated under 1 min each) (1)')
+    expect(screen.queryByTestId('txr-method-preset-none')).toBeNull()
   })
 
   it('the family filter and search restrict the sections and restore', () => {

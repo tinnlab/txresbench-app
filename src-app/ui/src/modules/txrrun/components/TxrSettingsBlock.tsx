@@ -110,12 +110,21 @@ const CARD_TITLE: CSSProperties = {
 /** The live sentence (the plan's one-line summary of the selection). */
 const SENTENCE: CSSProperties = { margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }
 
-/** The rows' wrap line (the board's flex-wrap row). */
+/** The rows' wrap line (the board's flex-wrap row), one per row group the
+ *  step-4 fixes split the original single line into: a field growing inside
+ *  one group can never move a field of another group. */
 const ROWS: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
   gap: 16,
   alignItems: 'flex-end',
+}
+
+/** The vertical stack of row groups (the old one flex-wrap line's gap). */
+const ROWS_STACK: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
 }
 
 /** One setting: the label + help above the control. */
@@ -163,14 +172,12 @@ const MORE_FACTS: CSSProperties = {
 /** The disabled reason's tone (the plan's named reason, plain). */
 const DISABLED_REASON: CSSProperties = { color: 'var(--txr-muted)', fontSize: 12.5 }
 
-/** The "Day N" label of a numeric day option (the board's wording). */
-const dayLabel = (day: number): string => `Day ${day}`
-
 /**
- * The option set a numeric row renders: the board's presets, plus the
- * CURRENT value as its own chip when the value sits outside them (the
- * at-a-time chip rule of PROV-UI-RUN-2, extended to every numeric row —
- * a pick with the current value selected nowhere is a dead control).
+ * The lanes control's option set: the presets as plain numbers (the at-a-time
+ * control shows "1".."4", never "Day N"), plus the CURRENT value as its own
+ * chip when the value sits outside them (the at-a-time chip rule of
+ * PROV-UI-RUN-2 — a pick with the current value selected nowhere is a dead
+ * control).
  */
 function numericOptions(
   value: number,
@@ -178,10 +185,10 @@ function numericOptions(
 ): SegmentedOption[] {
   const options: SegmentedOption[] = presets.map(day => ({
     value: String(day),
-    label: dayLabel(day),
+    label: String(day),
   }))
   if (!presets.includes(value)) {
-    options.push({ value: String(value), label: dayLabel(value) })
+    options.push({ value: String(value), label: String(value) })
   }
   return options
 }
@@ -212,6 +219,13 @@ const CPU_OPTIONS = [
   { value: 'auto', label: 'Auto' },
   ...Array.from({ length: 8 }, (_, index) => ({ value: String(index + 1), label: String(index + 1) })),
 ]
+
+/** The CPUs row's one-line help: the chosen processors are shared between the
+ *  methods running at the same time (`clamp(floor(cpus / at_a_time), 1, 4)`),
+ *  and Auto means the engine detects ALL of this computer's processors at run
+ *  start (step3-step4-fixes Fix 7). */
+export const CPUS_HELP =
+  "The chosen processors are shared evenly between the methods running at the same time, at most 4 each. Auto uses all of this computer's processors."
 
 /** The Extra-inputs facts line (names, absent line, or the pending mark). */
 function factsLine(covariates: TxrSettingsCovariates | null): string | null {
@@ -265,110 +279,116 @@ export function TxrSettingsBlock({
   )
 
   const rows = (
-    <div style={ROWS}>
-      <div style={ROW}>
-        <span style={LABEL}>Predict</span>
-        <Segmented
-          data-testid="txr-run-settings-endpoint"
-          aria-label="Predict"
-          size="sm"
-          disabled={locked}
-          value={value.endpoint}
-          onValueChange={endpoint => onChange({ ...value, endpoint: endpoint as RunSettings['endpoint'] })}
-          options={SETTING_OPTIONS.endpoint.map(option => ({
-            value: option.v,
-            label: option.label,
-          }))}
-        />
-        <span style={HELP}>{SETTING_HELP.endpoint}</span>
-      </div>
-      <div style={ROW}>
-        <span style={LABEL}>Decision day</span>
-        <TxrDayField
-          testId="txr-run-settings-decision-day"
-          label="Decision day"
-          value={value.decision_day}
-          suggestions={drawSuggestions}
-          locked={locked}
-          onChoose={day => chooseDay('decision_day', day)}
-          check={day =>
-            dayFacts === null
-              ? Number.isInteger(day) && day >= 1
-                ? null
-                : 'Choose a whole day from 1.'
-              : drawDayError(day, dayFacts.limits.look_ahead_day_max)
-          }
-          coverage={dayFacts === null ? null : drawCoverageLine(dayFacts, value.decision_day)}
-          warning={
-            dayFacts === null ? null : drawDayWarning(dayFacts, value.decision_day, value.endpoint)
-          }
-        />
-        <span style={HELP}>{SETTING_HELP.decision_day}</span>
-      </div>
-      <div style={ROW}>
-        <span style={LABEL}>Look ahead to</span>
-        <TxrDayField
-          testId="txr-run-settings-look-ahead"
-          label="Look ahead to"
-          value={value.look_ahead_day}
-          suggestions={lookAheadDays.map(s => s.day)}
-          suggestionLabel={day => lookAheadDays.find(s => s.day === day)?.label ?? `Day ${day}`}
-          locked={locked}
-          onChoose={day => chooseDay('look_ahead_day', day)}
-          check={day =>
-            checkLookAhead(dayFacts, value.decision_day, day, value.endpoint, lookAheadMax).error
-          }
-          beside={monthsText(value.look_ahead_day)}
-          coverage={
-            dayFacts === null || dayFacts.outcomes.length === 0
-              ? null
-              : knownOutcomeLine(dayFacts, value.decision_day, value.look_ahead_day, value.endpoint)
-          }
-          blocked={lookAheadCheck.error}
-          warning={lookAheadCheck.warning}
-        />
-        <span style={HELP}>{SETTING_HELP.look_ahead_day}</span>
-      </div>
-      <div style={ROW}>
-        <span style={LABEL}>Extra inputs</span>
-        <div style={INPUTS_LINE}>
-          <Switch
-            data-testid="txr-run-settings-covariates"
-            className="txr-settings-switch"
-            aria-label="Extra inputs"
-            checked={value.covariates}
-            disabled={locked || covariatesDisabled}
-            onCheckedChange={checked => onChange({ ...value, covariates: checked })}
+    <div style={ROWS_STACK}>
+      <div style={ROWS} data-testid="txr-run-settings-row-predict">
+        <div style={ROW}>
+          <span style={LABEL}>Predict</span>
+          <Segmented
+            data-testid="txr-run-settings-endpoint"
+            aria-label="Predict"
+            size="sm"
+            disabled={locked}
+            value={value.endpoint}
+            onValueChange={endpoint => onChange({ ...value, endpoint: endpoint as RunSettings['endpoint'] })}
+            options={SETTING_OPTIONS.endpoint.map(option => ({
+              value: option.v,
+              label: option.label,
+            }))}
           />
-          {names !== null ? (
-            <span style={NAMES_LINE} data-testid="txr-run-settings-covariate-names">
-              {names}
-            </span>
-          ) : null}
+          <span style={HELP}>{SETTING_HELP.endpoint}</span>
         </div>
-        {covariatesDisabled ? (
-          <span style={DISABLED_REASON} data-testid="txr-run-settings-covariates-disabled-reason">
-            {COVARIATES_DISABLED_REASON}
-          </span>
-        ) : (
-          <span style={HELP} data-testid="txr-run-settings-covariates-help">
-            {covariatesHelp ?? SETTING_HELP.covariates}
+        <div style={ROW}>
+          <span style={LABEL}>Decision day</span>
+          <TxrDayField
+            testId="txr-run-settings-decision-day"
+            label="Decision day"
+            value={value.decision_day}
+            suggestions={drawSuggestions}
+            locked={locked}
+            onChoose={day => chooseDay('decision_day', day)}
+            check={day =>
+              dayFacts === null
+                ? Number.isInteger(day) && day >= 1
+                  ? null
+                  : 'Choose a whole day from 1.'
+                : drawDayError(day, dayFacts.limits.look_ahead_day_max)
+            }
+            coverage={dayFacts === null ? null : drawCoverageLine(dayFacts, value.decision_day)}
+            warning={
+              dayFacts === null ? null : drawDayWarning(dayFacts, value.decision_day, value.endpoint)
+            }
+          />
+          <span style={HELP}>{SETTING_HELP.decision_day}</span>
+        </div>
+      </div>
+      <div style={ROWS} data-testid="txr-run-settings-row-look-ahead">
+        <div style={ROW}>
+          <span style={LABEL}>Look ahead to</span>
+          <TxrDayField
+            testId="txr-run-settings-look-ahead"
+            label="Look ahead to"
+            value={value.look_ahead_day}
+            suggestions={lookAheadDays.map(s => s.day)}
+            suggestionLabel={day => lookAheadDays.find(s => s.day === day)?.label ?? `Day ${day}`}
+            locked={locked}
+            onChoose={day => chooseDay('look_ahead_day', day)}
+            check={day =>
+              checkLookAhead(dayFacts, value.decision_day, day, value.endpoint, lookAheadMax).error
+            }
+            beside={monthsText(value.look_ahead_day)}
+            coverage={
+              dayFacts === null || dayFacts.outcomes.length === 0
+                ? null
+                : knownOutcomeLine(dayFacts, value.decision_day, value.look_ahead_day, value.endpoint)
+            }
+            blocked={lookAheadCheck.error}
+            warning={lookAheadCheck.warning}
+          />
+          <span style={HELP}>{SETTING_HELP.look_ahead_day}</span>
+        </div>
+      </div>
+      <div style={ROWS}>
+        <div style={ROW}>
+          <span style={LABEL}>Extra inputs</span>
+          <div style={INPUTS_LINE}>
+            <Switch
+              data-testid="txr-run-settings-covariates"
+              className="txr-settings-switch"
+              aria-label="Extra inputs"
+              checked={value.covariates}
+              disabled={locked || covariatesDisabled}
+              onCheckedChange={checked => onChange({ ...value, covariates: checked })}
+            />
+            {names !== null ? (
+              <span style={NAMES_LINE} data-testid="txr-run-settings-covariate-names">
+                {names}
+              </span>
+            ) : null}
+          </div>
+          {covariatesDisabled ? (
+            <span style={DISABLED_REASON} data-testid="txr-run-settings-covariates-disabled-reason">
+              {COVARIATES_DISABLED_REASON}
+            </span>
+          ) : (
+            <span style={HELP} data-testid="txr-run-settings-covariates-help">
+              {covariatesHelp ?? SETTING_HELP.covariates}
+            </span>
+          )}
+        </div>
+        {locked ? null : (
+          <span style={MORE}>
+            <Button
+              variant="link"
+              data-testid="txr-run-settings-more"
+              aria-expanded={moreOpen}
+              style={{ fontSize: 13.5, padding: '2px 4px' }}
+              onClick={() => setMoreOpen(open => !open)}
+            >
+              More settings
+            </Button>
           </span>
         )}
       </div>
-      {locked ? null : (
-        <span style={MORE}>
-          <Button
-            variant="link"
-            data-testid="txr-run-settings-more"
-            aria-expanded={moreOpen}
-            style={{ fontSize: 13.5, padding: '2px 4px' }}
-            onClick={() => setMoreOpen(open => !open)}
-          >
-            More settings
-          </Button>
-        </span>
-      )}
     </div>
   )
 
@@ -386,6 +406,9 @@ export function TxrSettingsBlock({
           }
           options={CPU_OPTIONS}
         />
+        <span style={HELP} data-testid="txr-run-settings-cpus-help">
+          {CPUS_HELP}
+        </span>
       </div>
       <div style={ROW}>
         <span style={LABEL}>How many run at once</span>

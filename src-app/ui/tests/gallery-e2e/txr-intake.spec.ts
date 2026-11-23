@@ -129,9 +129,10 @@ test.describe('txr-intake-b — the live "N of M fit" panel (TEST-INT-14)', () =
     await expect(page.getByTestId('txr-intake-panel-fit-count')).toContainText('of 39 methods fit')
     await expect(page.getByTestId('txr-intake-panel-no-env')).toHaveCount(0)
 
-    // The descriptive line (board template, data-filled from the seeded answers).
+    // The descriptive line: one sentence naming every seeded answer
+    // (disease, both treatments, outcome, no marker groups, the schedule).
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
-      'for colorectal cancer, risk by a day, with no marker groups. This updates as you answer.',
+      'Methods for colorectal cancer, given with immune checkpoint inhibitor or chemotherapy, that predict the risk by a set day, using no marker groups, with a draw before treatment, 2 to 3 draws during treatment and the last draw on day 56. This updates as you answer.',
     )
     await expect(page.getByTestId('txr-intake-panel-some')).toHaveText(
       '4 can run for some patients',
@@ -163,7 +164,7 @@ test.describe('txr-intake-b — the live "N of M fit" panel (TEST-INT-14)', () =
     await page.getByTestId('txr-intake-study-group-ctdna').click()
     await expect(page.getByTestId('txr-intake-panel-fit-count')).toContainText('28')
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
-      'for colorectal cancer, risk by a day, with ctDNA. This updates as you answer.',
+      'Methods for colorectal cancer, given with immune checkpoint inhibitor or chemotherapy, that predict the risk by a set day, using ctDNA, with a draw before treatment, 2 to 3 draws during treatment and the last draw on day 56. This updates as you answer.',
     )
     await expect(page.getByTestId('txr-intake-panel-some')).toHaveText(
       '3 can run for some patients',

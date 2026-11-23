@@ -31,10 +31,12 @@
  *   the panel shows the invite line and the hook sends no unanswered
  *   request (the old panel reported a count from all-groups-false +
  *   default schedule before the user said anything).
- * - `descriptiveSentence` — the panel headline under the count: the board's
- *   literal template, data-filled ("for colorectal cancer, risk by a day,
- *   with ctDNA, blood counts and LDH"). Answers-not-given render no clause;
- *   nothing here ever renders a count.
+ * - `descriptiveSentence` — the panel headline under the count: ONE plain
+ *   sentence naming every ANSWERED filter in the page's order, data-filled
+ *   ("Methods for lung cancer, given with chemotherapy, that predict the
+ *   risk by a set day, using tumour markers, with a draw before treatment,
+ *   4 or more draws during treatment and the last draw on day 56").
+ *   Answers-not-given render no clause; nothing here ever renders a count.
  * - `excludedMethods` — the "N methods are left out" list: every method
  *   with an ANSWER cause (a non-environment reason — R3-intake-1: the old
  *   list dropped the env-absent methods whose second reason was the
@@ -47,12 +49,14 @@
  */
 
 import type {
+  DiseaseCategory,
   EligibilityResponse,
   FilterOptions,
   MarkerGroup,
   MethodEligibility,
   PreviewEligibilityRequest,
   ReasonCode,
+  TreatmentClass,
 } from '@/api-client/types'
 import type { TxrRunStatus } from '@/modules/txrlist/types'
 import type {
@@ -67,6 +71,8 @@ import {
   diseaseClause,
   groupShortName,
   outcomeClause,
+  scheduleClause,
+  treatmentClause,
 } from './format'
 import { buildMethodFilters } from './filters'
 import type { StudyAnswers } from '../types'
@@ -257,16 +263,23 @@ export function groupExcludedMethods(methods: ReadonlyArray<ExcludedMethod>): Ex
 }
 
 /**
- * The panel's descriptive sentence — the board's template, data-filled:
+ * The panel's descriptive sentence — ONE plain sentence naming every
+ * ANSWERED filter, in the page's question order:
  *
- *     for colorectal cancer, risk by a day, with ctDNA, blood counts and LDH.
- *     This updates as you answer.
+ *     Methods for lung cancer, given with chemotherapy, that predict the
+ *     risk by a set day, using tumour markers, with a draw before
+ *     treatment, 4 or more draws during treatment and the last draw on
+ *     day 56. This updates as you answer.
  *
- * Only the ANSWERED parts render clauses; the marker-group clause needs no
- * answer at all (all-seven-false counts as "with no marker groups" — the
- * user saw the checkboxes). The group names are the board's SHORT forms
+ * Only the ANSWERED parts render clauses; an unanswered question (null, or
+ * an empty treatment list) adds nothing. The marker-group clause needs no
+ * answer at all (all-false counts as "using no marker groups" — the user
+ * saw the checkboxes). The group names are the board's SHORT forms
  * (`groupShortName`); the full `display_name` values belong on the
- * checkboxes, not in a sentence.
+ * checkboxes, not in a sentence. The disease clause follows "Methods" with
+ * a space, every later clause with a comma, except that the first clause
+ * never takes one ("Methods given with chemotherapy") — the clause helpers carry
+ * their own separators.
  */
 /** "a, b and c" — the sentence's list join (no Oxford comma, board style). */
 function joinPhrases(phrases: ReadonlyArray<string>): string {
@@ -274,22 +287,42 @@ function joinPhrases(phrases: ReadonlyArray<string>): string {
   return `${phrases.slice(0, -1).join(', ')} and ${phrases[phrases.length - 1]}`
 }
 
-export function descriptiveSentence(answers: StudyAnswers): string {
+/** The vocabulary the descriptive sentence reads (step3-step4-fixes): the
+ *  disease categories (to recognise a category-id answer) and the treatment
+ *  classes (the display labels) — either may be empty while the filter
+ *  options load, in which case the ids are the honest text. */
+export interface SentenceVocabulary {
+  categories: ReadonlyArray<DiseaseCategory>
+  treatmentClasses: ReadonlyArray<TreatmentClass>
+}
+
+export function descriptiveSentence(answers: StudyAnswers, vocab: SentenceVocabulary): string {
   const clauses: string[] = []
-  if (answers.disease !== null) clauses.push(`for ${diseaseClause(answers.disease)}`)
-  if (answers.outcome !== null) clauses.push(outcomeClause(answers.outcome))
+  if (answers.disease !== null) {
+    clauses.push(` for ${diseaseClause(answers.disease, vocab.categories)}`)
+  }
+  if (answers.treatments !== null && answers.treatments.length > 0) {
+    clauses.push(`, ${treatmentClause(answers.treatments, vocab.treatmentClasses)}`)
+  }
+  if (answers.outcome !== null) {
+    clauses.push(`, that predict ${outcomeClause(answers.outcome)}`)
+  }
   if (answers.markerGroups !== null) {
     const checked = Object.keys(answers.markerGroups).filter(
       id => answers.markerGroups?.[id] === true,
     )
     clauses.push(
       checked.length > 0
-        ? `with ${joinPhrases(checked.map(groupShortName))}`
-        : 'with no marker groups',
+        ? `, using ${joinPhrases(checked.map(groupShortName))}`
+        : ', using no marker groups',
     )
   }
-  const head = clauses.join(', ')
-  return head.length > 0 ? `${head}. This updates as you answer.` : 'This updates as you answer.'
+  const schedule = scheduleClause(answers)
+  if (schedule !== null) clauses.push(`, ${schedule}`)
+  if (clauses.length === 0) return 'This updates as you answer.'
+  // The first clause after "Methods" takes no comma ("Methods given with
+  // chemotherapy."); only the disease clause starts with a space already.
+  return `Methods${clauses.join('').replace(/^,/, '')}. This updates as you answer.`
 }
 
 /** The provider's three verdict codes → the shared list's three board codes. */

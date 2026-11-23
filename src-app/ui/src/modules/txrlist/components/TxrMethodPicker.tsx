@@ -19,7 +19,10 @@
  *   clicked while the selection still equals its set (`activePreset`: on a
  *   small catalogue two presets often give the same methods, and the one the
  *   user clicked is the one that shows), else the preset the selection
- *   equals, else Custom.
+ *   equals, else Custom. The button group holds Recommended / All that can
+ *   run / Fast only; an empty selection presses no preset (the "None" preset
+ *   left the group — its job is the search bar's "Clear selection" button,
+ *   which calls the same `applyPreset('none')` path).
  *
  * DISPLAY RULES:
  * - the family order + explainer + the preset/recommendation rules are
@@ -392,12 +395,13 @@ export function TxrMethodPicker({
   const allKeys = presetSelection('all', cards)
   const fastKeys = fastSelection(cards)
   // Every set-taking preset shows its count, so a user can see when two of
-  // them give the same methods.
+  // them give the same methods. "None" left the button group (the user's
+  // addendum: a "Clear selection" button in the search bar below carries it)
+  // — the `methods.applyPreset` action still accepts `none`, unchanged.
   const presets: { value: TxrMethodPreset; label: string }[] = [
     { value: 'recommended', label: `Recommended (${recommendations.length})` },
     { value: 'all', label: `All that can run (${allKeys.length})` },
-    { value: 'fast', label: `Fast only, under 1 min each (${fastKeys.length})` },
-    { value: 'none', label: 'None' },
+    { value: 'fast', label: `Fast only (estimated under 1 min each) (${fastKeys.length})` },
   ]
 
 
@@ -458,6 +462,21 @@ export function TxrMethodPicker({
             value={query}
             onChange={event => setQuery(event.target.value)}
           />
+          {/* The "None" preset, restated as a plain button beside the search
+              box (the user's addendum): it clears the selection through the
+              SAME path the preset button used (`applyPreset('none')`), so the
+              registered `methods.applyPreset` action with preset `none` keeps
+              working unchanged for the palette and the agent. Disabled while
+              no method that can run is ticked (the run bar's count). */}
+          <Button
+            data-testid="txr-method-clear-selection"
+            type="button"
+            variant="outline"
+            disabled={snapshot.selected_count === 0}
+            onClick={() => applyPreset('none')}
+          >
+            Clear selection
+          </Button>
           {TXRMETHOD_GROUP_ORDER.map(group => {
             const count = runnable.filter(card => card.group === group).length
             if (count === 0) return null

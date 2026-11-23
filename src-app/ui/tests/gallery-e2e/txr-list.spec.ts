@@ -156,7 +156,7 @@ test.describe('txr-list-e — the redesigned method picker (TEST-UL-12, qa-fixes
     )
 
     // ── presets change the selection and the count ──
-    await page.getByTestId('txr-method-preset-none').click()
+    await page.getByTestId('txr-method-clear-selection').click()
     await expect(page.getByTestId('txr-list-selected-count')).toHaveText('0 methods selected')
     await page.getByTestId('txr-method-preset-all').click()
     await expect(page.getByTestId('txr-list-selected-count')).toHaveText('26 methods selected')

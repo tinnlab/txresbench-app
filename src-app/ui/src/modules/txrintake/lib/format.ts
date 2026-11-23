@@ -23,13 +23,14 @@
  * in this module.
  *
  * The marker-group SHORT names: the board's panel sentence uses the short
- * forms ("with ctDNA, counts and LDH") while the checkbox labels are the
+ * forms ("using ctDNA, counts and LDH") while the checkbox labels are the
  * full `MarkerGroup.display_name` values from PROV-MC-4. The short-name map
  * below is the module's own board-vocabulary table keyed by the provider's
  * group ids (the closed 7-group board set, CONS-UI-INTAKE-1); an id outside
  * the map renders as itself — never a guessed label.
  */
-import type { OutcomeId } from '../types'
+import type { OutcomeId, StudyAnswers } from '../types'
+import type { TreatmentClass } from '@/api-client/types'
 
 /** Screen B, "What you want to predict" — the four board pills, verbatim. */
 export const OUTCOME_OPTIONS: ReadonlyArray<{ value: OutcomeId; label: string }> = [
@@ -54,29 +55,98 @@ export const DRAWS_OPTIONS: ReadonlyArray<{ value: 1 | 2 | 4; label: string }> =
 ]
 
 /**
- * The panel sentence's disease clause. The disease answer IS a
+ * The panel sentence's disease text. The disease answer IS a
  * `filter_options` node id, and those ids are already the readable names
- * ("colorectal cancer", "melanoma", "Solid tumours"), so the clause is the id
- * itself — the label table the board once carried is gone with the old
- * option set. Before the vocabulary loads (or for an id outside it), the id
- * is the fallback too: never a guessed label, never a blank clause.
+ * ("colorectal cancer", "melanoma", "Solid tumours") — the label table the
+ * board once carried is gone with the old option set, so the text is the id
+ * itself, used lower-case as is.
+ *
+ * A CATEGORY id — the "Another disease in <category> (not listed)" answer,
+ * whose value is the category id itself (the server reads it as the whole
+ * category's scope) — reads "another disease in <category>": the category's
+ * first letter lower-cased, the same mid-sentence rule as the treatment
+ * labels. Before the vocabulary loads (or for an id outside it) the id is
+ * the fallback too: never a guessed label, never a blank clause.
  */
-export function diseaseClause(disease: string): string {
+export function diseaseClause(
+  disease: string,
+  categories: ReadonlyArray<{ id: string }>,
+): string {
+  if (categories.some(category => category.id === disease)) {
+    return `another disease in ${lowerFirst(disease)}`
+  }
   return disease
 }
 
-/** The panel sentence's short outcome clause (the four task phrasings). */
+/** The panel sentence's outcome phrase — after "that predict": the four
+ *  task phrasings ("that predict a yes or no response", "…the chance of
+ *  response", "…the risk by a set day", "…risk over time"). */
 export function outcomeClause(outcome: OutcomeId): string {
   switch (outcome) {
     case 'binary-response':
-      return 'will the treatment work'
+      return 'a yes or no response'
     case 'response-probability':
       return 'the chance of response'
     case 'progression-by-day':
-      return 'risk by a day'
+      return 'the risk by a set day'
     case 'dynamic-risk':
       return 'risk over time'
   }
+}
+
+/**
+ * The panel sentence's treatment clause: "given with chemotherapy or
+ * immune checkpoint inhibitor" — each class's vocabulary `label`, its first
+ * letter lower-cased (the labels are capitalised display text; the sentence
+ * reads mid-sentence), the id as the fallback for a class the vocabulary
+ * does not know (or before it loads) — never a guessed label. The list join
+ * is the sentence's own: ", " with a final " or ".
+ */
+export function treatmentClause(
+  treatments: ReadonlyArray<string>,
+  treatmentClasses: ReadonlyArray<TreatmentClass>,
+): string {
+  const names = treatments.map(id => {
+    const label = treatmentClasses.find(treatment => treatment.id === id)?.label
+    return typeof label === 'string' && label.length > 0 ? lowerFirst(label) : id
+  })
+  return `given with ${joinList(names, 'or')}`
+}
+
+/**
+ * The panel sentence's schedule clause: "with a draw before treatment,
+ * 2 to 3 draws during treatment and the last draw on day 56" — the
+ * ANSWERED parts only (an unanswered schedule question adds nothing, the
+ * same rule the preview body carries, R3-intake-2), joined with ", " and a
+ * final " and ". `null` when no schedule question is answered.
+ */
+export function scheduleClause(answers: StudyAnswers): string | null {
+  const parts: string[] = []
+  if (answers.beforeTreatment === 'always') parts.push('a draw before treatment')
+  else if (answers.beforeTreatment === 'sometimes') {
+    parts.push('a draw before treatment for some patients')
+  }
+  if (answers.drawsDuringTreatment === 1) parts.push('1 draw during treatment')
+  else if (answers.drawsDuringTreatment === 2) parts.push('2 to 3 draws during treatment')
+  else if (answers.drawsDuringTreatment === 4) {
+    parts.push('4 or more draws during treatment')
+  }
+  if (answers.lastDrawDay !== null) parts.push(`the last draw on day ${answers.lastDrawDay}`)
+  return parts.length === 0 ? null : `with ${joinList(parts, 'and')}`
+}
+
+/** "a, b and c" / "a, b or c" — the sentence's list join (no Oxford comma,
+ *  board style); a single phrase renders as itself. */
+function joinList(phrases: ReadonlyArray<string>, conjunction: 'and' | 'or'): string {
+  if (phrases.length <= 1) return phrases.join('')
+  return `${phrases.slice(0, -1).join(', ')} ${conjunction} ${phrases[phrases.length - 1]}`
+}
+
+/** The first letter lower-cased ("Immune checkpoint inhibitor" →
+ *  "immune checkpoint inhibitor") — the mid-sentence rule for a leading
+ *  capital from a display label; an empty string stays empty. */
+function lowerFirst(text: string): string {
+  return text.length === 0 ? text : text.charAt(0).toLowerCase() + text.slice(1)
 }
 
 /**

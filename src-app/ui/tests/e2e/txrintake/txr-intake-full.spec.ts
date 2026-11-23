@@ -150,7 +150,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     // No can-run-for-some row: the real response reports zero.
     await expect(page.getByTestId('txr-intake-panel-some')).toHaveCount(0)
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
-      'with ctDNA. This updates as you answer.',
+      'Methods using ctDNA. This updates as you answer.',
     )
 
     // The left-out rows carry the TRUE answer reasons (the shared E-vocabulary

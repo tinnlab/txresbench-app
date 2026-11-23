@@ -288,7 +288,7 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
       'aria-pressed',
       'true',
     )
-    await page.getByTestId('txr-method-preset-none').click()
+    await page.getByTestId('txr-method-clear-selection').click()
     await expect(page.getByTestId('txr-run-bar-count')).toContainText('0 methods selected')
 
     // One runnable row — the engine's own verdict over the example files

@@ -257,13 +257,15 @@ test.describe('step-4 fix — the clicked preset is the pressed one when two pre
     await expect(page.getByTestId('txr-run-bar-count')).toHaveText('6 methods selected')
 
     // A released chip keeps the app's border colour (the border longhands),
-    // once the kit button's colour transition has run.
+    // once the kit button's colour transition has run. The "None" button is
+    // gone (the search bar's Clear selection carries it), so the never-
+    // pressed reference is the Fast preset, which this story never presses.
     const border = (id: string) =>
       page.evaluate(
         testId => getComputedStyle(document.querySelector(`[data-testid="${testId}"]`)!).borderTopColor,
         id,
       )
-    const never = await border('txr-method-preset-none')
+    const never = await border('txr-method-preset-fast')
     await expect
       .poll(() => border('txr-method-preset-recommended'), {
         message: 'a released preset has the same border as one never pressed',
