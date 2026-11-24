@@ -65,6 +65,15 @@ export interface TxrSettingsBlockProps {
   covariates: TxrSettingsCovariates | null
   /** A row changed — `next` is the full new settings value. */
   onChange(next: RunSettings): void
+  /** The Extra-inputs switch changed (AOC part 2): the page drives the
+   *  registered `runSettings.setCovariates` action. When provided, the
+   *  switch reports through this instead of `onChange` (the action's
+   *  handler is what changes the settings). */
+  onCovariatesChange?(on: boolean): void
+  /** The Extra-inputs switch's automatic one-plain-line result (AOC part 2):
+   *  "Turned on because …" / "… was unticked: it needs extra inputs." —
+   *  rendered under the switch; `null`/omitted shows no line. */
+  covariatesAutoLine?: string | null
   /** The More-settings controls changed (CPUs / lanes). */
   onMoreSettings(next: Partial<Pick<RunSettings, 'cpus' | 'at_a_time'>>): void
   /** app-shell ITEM-2: a SHORT shell window renders the card collapsed by
@@ -172,6 +181,9 @@ const MORE_FACTS: CSSProperties = {
 /** The disabled reason's tone (the plan's named reason, plain). */
 const DISABLED_REASON: CSSProperties = { color: 'var(--txr-muted)', fontSize: 12.5 }
 
+/** The auto/untick line's plain look (one line under the switch). */
+const AUTO_LINE: CSSProperties = { color: 'var(--txr-muted)', fontSize: 12.5 }
+
 /**
  * The lanes control's option set: the presets as plain numbers (the at-a-time
  * control shows "1".."4", never "Day N"), plus the CURRENT value as its own
@@ -239,6 +251,8 @@ export function TxrSettingsBlock({
   value,
   covariates,
   onChange,
+  onCovariatesChange,
+  covariatesAutoLine = null,
   onMoreSettings,
   collapsed,
   locked = false,
@@ -357,7 +371,13 @@ export function TxrSettingsBlock({
               aria-label="Extra inputs"
               checked={value.covariates}
               disabled={locked || covariatesDisabled}
-              onCheckedChange={checked => onChange({ ...value, covariates: checked })}
+              onCheckedChange={checked => {
+                // AOC part 2: the switch click runs the registered
+                // `runSettings.setCovariates` (the AI path is the same one);
+                // the fallback keeps the block presentational in isolation.
+                if (onCovariatesChange !== undefined) onCovariatesChange(checked)
+                else onChange({ ...value, covariates: checked })
+              }}
             />
             {names !== null ? (
               <span style={NAMES_LINE} data-testid="txr-run-settings-covariate-names">
@@ -374,6 +394,11 @@ export function TxrSettingsBlock({
               {covariatesHelp ?? SETTING_HELP.covariates}
             </span>
           )}
+          {covariatesAutoLine !== null ? (
+            <span data-testid="txr-run-settings-covariates-auto" style={AUTO_LINE} role="status">
+              {covariatesAutoLine}
+            </span>
+          ) : null}
         </div>
         {locked ? null : (
           <span style={MORE}>

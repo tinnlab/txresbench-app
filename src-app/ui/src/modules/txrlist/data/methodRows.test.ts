@@ -250,7 +250,12 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
   it('the needs facts assemble from the catalogue summary', () => {
     const m = summary({ id: 'alpha', year: 2021, language: 'R', markers: { kind: 'multi', count: 1 } })
     const cards = buildMethodCards([m], eligibility([verdict('alpha')]))
-    expect(cards[0].needs).toEqual({ markers: '1 marker', covariates: null, draws: '3+ draws' })
+    expect(cards[0].needs).toEqual({
+      markers: '1 marker',
+      covariates: null,
+      covariatesMode: 'none',
+      draws: '3+ draws',
+    })
     const optional = buildMethodCards(
       [
         summary({
@@ -266,8 +271,17 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
     expect(optional[0].needs).toEqual({
       markers: 'any markers',
       covariates: 'covariates optional',
+      covariatesMode: 'optional',
       draws: '3+ draws',
     })
+    // The raw mode is the catalogue's own (`required` — the display string is
+    // never parsed by the Extra-inputs switch's automatic steps).
+    const required = buildMethodCards(
+      [summary({ id: 'c', year: 2021, language: 'R', covariates: 'required' })],
+      eligibility([verdict('c')]),
+    )
+    expect(required[0].needs.covariates).toBe('covariates required')
+    expect(required[0].needs.covariatesMode).toBe('required')
   })
 
   it('a catalogue method the eligibility response does not know is a defensive cannot card; an eligibility-only id is dropped', () => {

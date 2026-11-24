@@ -55,16 +55,18 @@
  * in the page's one region.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Button, Input, Select, Skeleton } from '@txresbench/kit'
+import { Button, Input, message, Select, Skeleton } from '@txresbench/kit'
 import { useAction } from '@/core/actions/useAction'
 import { useActiveContext } from '@/core/actions/activeContext'
 import { createVersioned } from '@/core/actions/versioned'
+import { runAction } from '@/core/actions/defineAction'
 import type { TxrMethodCard } from '../types'
 import {
   activePreset,
   fastSelection,
   filterMethodCards,
   METHODS_APPLY_PRESET,
+  METHODS_SET_TICKED,
   presetSelection,
   reasonGroups,
   recommendedSelection,
@@ -171,6 +173,21 @@ type TxrMethodPickerSnapshot = {
  *  page's recommended selection on arrival. */
 export const TXRMETHOD_LIST_UNAVAILABLE = 'UNAVAILABLE: the method list has not loaded yet'
 
+/** The tick action's refusal for a card that cannot run with these files
+ *  (its checkbox is disabled, and a tick would select a method the engine
+ *  refuses) — the agent gets the same plain reason a person sees on the
+ *  card. */
+export function txrmethodTickDisabledReason(card: TxrMethodCard): string {
+  return `UNAVAILABLE: ${card.title} cannot run with these files`
+}
+
+/** The tick action's refusal for a key the current list does not know (a
+ *  stale view read, or a list that changed between the read and the
+ *  invoke). */
+export function txrmethodTickUnknownReason(key: string): string {
+  return `UNAVAILABLE: ${key} is not in the method list`
+}
+
 /** A fresh `view_id` for one mounted picker (never reused). */
 function newViewId(): string {
   return crypto.randomUUID()
@@ -212,6 +229,10 @@ export interface TxrMethodPickerProps {
   /** A preset was applied (a button or `methods.applyPreset`), for a host
    *  that keeps it across a remount (`initialPreset`). */
   onPresetChosen?(preset: TxrMethodPreset): void
+  /** The mounted picker's `view_id` is reported here once (the host that
+   *  drives the automatic steps — the Extra-inputs switch's untick — needs
+   *  to address `methods.setTicked` at this instance). */
+  onInstanceId?(viewId: string): void
   /** The host's own composition of the picker's two pieces (toolbar + list).
    *  Default: both inline in one column (the pre-ITEM-2 byte). */
   layout?(parts: TxrMethodPickerLayoutParts): ReactNode
@@ -269,6 +290,7 @@ export function TxrMethodPicker({
   recheckResult = null,
   initialPreset = null,
   onPresetChosen,
+  onInstanceId,
   layout,
 }: TxrMethodPickerProps) {
   const [query, setQuery] = useState('')
@@ -347,6 +369,33 @@ export function TxrMethodPicker({
     }
   }
 
+  /** Tick or untick the named keys: the checkbox's click (`methods.setTicked`
+   *  with one key) and the Extra-inputs switch's automatic untick (several
+   *  keys) run this same handler. The click-to-toggle computes the new
+   *  selection; the handler never reviews what the caller last read. */
+  const setTicked = (keys: string[], ticked: boolean): TxrMethodPickerSnapshot => {
+    const next = new Set(selected)
+    for (const key of keys) {
+      if (ticked) next.add(key)
+      else next.delete(key)
+    }
+    onSelectionChange(next)
+    return {
+      preset: activePreset(next, cards, chosenPreset),
+      selected_count: runnable.filter(card => next.has(card.key)).length,
+      runnable_count: runnable.length,
+      loading: false,
+      load_error: null,
+    }
+  }
+
+  /** The mounted picker's view_id, reported to the host once (the page's
+   *  automatic untick addresses this instance). Report after registration:
+   *  the host invokes `methods.setTicked` at the reported id. */
+  useEffect(() => {
+    onInstanceId?.(viewId)
+  }, [viewId, onInstanceId])
+
   useAction(viewId, {
     type: TXR_METHOD_PICKER_CONTEXT,
     handlers: {
@@ -357,6 +406,19 @@ export function TxrMethodPicker({
         if (firstLoad) throw new Error(TXRMETHOD_LIST_UNAVAILABLE)
         if (firstError) throw new Error(`${TXRMETHOD_LIST_UNAVAILABLE} (${error})`)
         return applyPreset((params as { preset: TxrMethodPreset }).preset)
+      },
+      [METHODS_SET_TICKED]: params => {
+        const { keys, ticked } = params as { keys: string[]; ticked: boolean }
+        if (firstLoad) throw new Error(TXRMETHOD_LIST_UNAVAILABLE)
+        if (firstError) throw new Error(`${TXRMETHOD_LIST_UNAVAILABLE} (${error})`)
+        for (const key of keys) {
+          const card = cards.find(candidate => candidate.key === key)
+          if (card === undefined) throw new Error(txrmethodTickUnknownReason(key))
+          // A disabled card's checkbox cannot be clicked; the agent gets the
+          // same plain refusal instead (a cannot-run method is never ticked).
+          if (ticked && card.run.disabled) throw new Error(txrmethodTickDisabledReason(card))
+        }
+        return setTicked(keys, ticked)
       },
     },
     getSnapshot: () => versioned.snapshot(),
@@ -612,10 +674,21 @@ export function TxrMethodPicker({
                       card={card}
                       checked={selected.has(card.key)}
                       onToggle={card => {
-                        const next = new Set(selected)
-                        if (next.has(card.key)) next.delete(card.key)
-                        else next.add(card.key)
-                        onSelectionChange(next)
+                        // The checkbox click AND the agent drive the SAME
+                        // registered action (`methods.setTicked`, one key): a
+                        // refusal is surfaced, never silent, and the
+                        // selection is what the action's handler changes.
+                        void runAction(METHODS_SET_TICKED, {
+                          view_id: viewId,
+                          keys: [card.key],
+                          ticked: !selected.has(card.key),
+                        }).catch((tickError: unknown) => {
+                          message.error(
+                            tickError instanceof Error
+                              ? tickError.message
+                              : 'Could not change the selection.',
+                          )
+                        })
                       }}
                     />
                   ))}

@@ -436,6 +436,53 @@
       }
     },
     {
+      "id": "methods.setTicked",
+      "title": "Tick or untick methods",
+      "kind": "instance",
+      "context": "txr.method-picker",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the choose-methods page, tick or untick the named methods (one key per click; the Extra-inputs switch's automatic untick passes all of them at once). Refused until the method list has loaded, and refused for a method that cannot run with these files.",
+      "aliases": [
+        "select a method",
+        "deselect a method",
+        "tick a method"
+      ],
+      "keywords": [
+        "methods",
+        "tick",
+        "selected methods"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "keys",
+          "ticked"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The method picker (views.list, type txr.method-picker)."
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The method keys to tick or untick."
+          },
+          "ticked": {
+            "type": "boolean",
+            "description": "Tick (true) or untick (false)."
+          }
+        }
+      }
+    },
+    {
       "id": "models.run",
       "title": "Run the chosen models",
       "kind": "instance",
@@ -550,6 +597,43 @@
         "required": [],
         "additionalProperties": false,
         "properties": {}
+      }
+    },
+    {
+      "id": "runSettings.setCovariates",
+      "title": "Turn the extra inputs on or off",
+      "kind": "instance",
+      "context": "txr.run-settings",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the choose-methods step, turn the Extra-inputs switch on or off. The switch decides whether the run uses the file's extra-input columns; a method that REQUIRES them is still tickable with the switch off. Turning it off by hand while a required method is ticked unticks that method (it needs extra inputs) and keeps the switch off.",
+      "aliases": [
+        "extra inputs",
+        "covariates"
+      ],
+      "keywords": [
+        "extra inputs",
+        "covariates"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "on"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The run settings (views.list, type txr.run-settings)."
+          },
+          "on": {
+            "type": "boolean",
+            "description": "Turn the switch on or off."
+          }
+        }
       }
     },
     {

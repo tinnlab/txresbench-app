@@ -65,6 +65,7 @@ import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { DEMO_DISABLED_REASON, DEMO_SETTINGS_NOTE } from '@/modules/demo/copy'
 import { runAction } from '@/core/actions/defineAction'
 import { instancesOfType } from '@/core/actions/instanceRegistry'
+import { RUN_SETTINGS_SET_COVARIATES } from '../lib/settings'
 import '@/core/actions/builtin/methodActions'
 import '@/core/actions/builtin/dayActions'
 import '@/core/actions/builtin/worldModel'
@@ -1296,17 +1297,28 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     )
   })
 
-  it('the eligibility request carries the settings (decision day + extra inputs), and a change refetches with the re-check state', async () => {
+  it('the eligibility request carries the settings (decision day + the file\'s extra-input columns with the switch off, because the file has them), and a change refetches', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
     renderPage()
     await settle()
 
     // The screen's inventory: the validation facts with the settings'
-    // decision day (84 — the intake's fresh answer) and the covariates off.
+    // decision day (84 — the intake's fresh answer). The EXTRA-INPUT COLUMN
+    // NAMES ride even with the switch off (AOC part 2, the file has them —
+    // availability `present`): a required method is tickable, and the
+    // switch then only decides whether the run uses them.
+    expect(
+      screen
+        .getByTestId('txr-run-settings-covariates')
+        .getAttribute('data-state') ??
+        screen.getByTestId('txr-run-settings-covariates').getAttribute('aria-checked'),
+    ).not.toBe('true')
     const firstCall = api.eligibility.mock.calls[0][0]
     expect(firstCall.inventory.decision_day).toBe(84)
-    expect(firstCall.inventory.covariates).toEqual([])
+    expect(firstCall.inventory.covariates).toEqual([
+      { key: 'age', display_name: 'age', standard_ids: [], unit_family: 'none' },
+    ])
 
     // A decision-day change recomputes: the inventory key changed, so the
     // adapter refetches and the re-check line is visible while in flight.
@@ -1330,6 +1342,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(screen.queryByTestId('txr-method-refreshing')).toBeNull()
     const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
     expect(lastCall.inventory.decision_day).toBe(28)
+    expect(lastCall.inventory.covariates.length).toBe(1)
   })
 
   it('a persisted unknown disease is never sent on E — the filters block is sanitized by the vocabulary (5a3)', async () => {
@@ -1386,18 +1399,24 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(status.textContent).toBe('Checked again: the same 2 methods can run.')
   })
 
-  it('the Extra-inputs help line says how many of the methods that can run use them (step-4 fix)', async () => {
+  it('the Extra-inputs help line says how many of the methods that can run use them (AOC part 2: when the file has the columns, the switch no longer changes the request)', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
     renderPage()
     await settle()
-    // Both runnable fixture methods take extra inputs (optional).
+    // The request carried the file's extra-input columns from the start
+    // (whatever the switch said), and both runnable fixture methods take
+    // extra inputs (optional).
+    expect(api.eligibility.mock.calls[0][0].inventory.covariates.length).toBe(1)
     expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
       'Used by 2 of the 2 methods that can run.',
     )
 
-    // Turning the switch on re-checks; the line is still the count from the
-    // (same) answer, and the status line reports the re-check.
+    // Turning the switch on changes NOTHING in the request when the file has
+    // the columns (availability `present`): the switch only decides whether
+    // the run uses them, so no verdict changes, no refetch and no re-check
+    // line. (With an UNKNOWN inspection the switch does still change the
+    // request — that case has its own test.)
     await act(async () => {
       fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
         button: 0,
@@ -1407,14 +1426,11 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
       await Promise.resolve()
     })
     await settle()
-    const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
-    expect(lastCall.inventory.covariates.length).toBe(1)
+    expect(api.eligibility.mock.calls.length).toBe(1)
     expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
       'Used by 2 of the 2 methods that can run.',
     )
-    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
-      'Checked again: the same 2 methods can run.',
-    )
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
   })
 
   it('a method that stops being eligible is unticked with the toast; the still-eligible stay', async () => {
@@ -1803,16 +1819,19 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
     expect(api.eligibility.mock.calls.length).toBe(1)
     expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
 
-    // The sticky config turns the extra inputs on: a second request nobody
-    // asked for. Its answer is the new baseline, not a re-check line.
+    // The sticky config lands (endpoint os, covariates on): none of the
+    // fields the ELIGIBILITY REQUEST reads changed — the intake's decision
+    // day (84) wins over the sticky 56, and the extra-inputs switch is not
+    // part of the request any more (the columns ride either way, AOC part
+    // 2). No second request nobody asked for, still no re-check line.
     await act(async () => {
       releaseConfig(stickyConfig)
       await Promise.resolve()
     })
     await settle()
     await settle()
-    expect(api.eligibility.mock.calls.length).toBe(2)
-    expect(api.eligibility.mock.calls[1][0].inventory.covariates.length).toBe(1)
+    expect(api.eligibility.mock.calls.length).toBe(1)
+    expect(api.eligibility.mock.calls[0][0].inventory.covariates.length).toBe(1)
     expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
 
     // A change the user makes still gets its line.
@@ -2269,6 +2288,428 @@ describe('ChooseMethodsPage day settings (the files\u2019 suggestions, the look-
       config: { decision_day: number; look_ahead_day: number }
     }
     expect(last.config.decision_day).toBe(56)
+  })
+})
+
+describe('AOC part 2 — the Extra-inputs switch turns on / unticks with required methods (option A)', () => {
+  /** A catalogue row with the given covariate mode (the AOC fixture half). */
+  function methodSummary(
+    id: string,
+    title: string,
+    covariates: 'required' | 'optional' | 'none',
+  ): MethodSummary {
+    return {
+      id,
+      year: 2021,
+      language: 'R',
+      group: 'response-probability',
+      group_label: 'Response probability',
+      title,
+      summary: `Summary of ${title}.`,
+      journal: 'Example Journal',
+      runnable: true,
+      spec_status: 'final',
+      disease: { scope: 'any-solid-tumour', groups: [] },
+      treatment: { classes: ['chemotherapy'], confidence: 'stated' },
+      container: true,
+      covariates,
+      embeds_training_data: false,
+      frozen_model: false,
+      marker_groups_required: [],
+      markers: { count: 1, kind: 'any' },
+      min_draws: 1,
+      needs_baseline: false,
+      needs_detection_call: false,
+      paper_doi: '10.0000/example',
+      tasks: ['pfs'],
+      timing: { base_seconds_per_fold: 60, benchmarked_units: 3, quality: 'measured' },
+      uses_history: 'landmark',
+    }
+  }
+
+  /** The verdict over one method (can_run unless `cannot`). */
+  function verdictFor(id: string, cannot = false, reasonCode = 'COVARIATE_REQUIRED_UNMET') {
+    return {
+      id,
+      status: cannot ? ('cannot_run' as const) : ('can_run' as const),
+      estimated_seconds: 120,
+      estimate_quality: 'measured' as const,
+      coverage: { eligible: 18, total: 18, fraction: 1 },
+      min_draws: { required: 2, met: 18, unmet_patients: 0 },
+      missing_markers: [],
+      missing_groups: [],
+      reasons: cannot ? [{ code: reasonCode }] : [],
+    }
+  }
+
+  /** The picker's checkbox state (the kit Switch/Checkbox data-state). */
+  function checkboxState(testId: string): string | null {
+    const node = screen.getByTestId(testId)
+    return (
+      node.getAttribute('data-state') ??
+      node.getAttribute('aria-checked') ??
+      node.getAttribute('data-checked')
+    )
+  }
+
+  /** The Extra-inputs switch's rendered state ('checked' | 'unchecked'). */
+  const switchState = (): string | null => {
+    const node = screen.getByTestId('txr-run-settings-covariates')
+    return node.getAttribute('data-state') ?? node.getAttribute('aria-checked')
+  }
+
+  const autoLine = (): HTMLElement | null =>
+    screen.queryByTestId('txr-run-settings-covariates-auto')
+
+  it('a required method ticked with the switch off (file has the columns) turns the switch on, with ONE line; the request never changes', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({
+      methods: [methodSummary('req-one', 'Precise rule', 'required')],
+      total: 1,
+    })
+    api.eligibility.mockResolvedValue({
+      methods: [verdictFor('req-one')],
+      total_fit: 1,
+      total_some: 0,
+      total_cannot: 0,
+      total_no_env: 0,
+    })
+    seedStore()
+    renderPage()
+    await settle()
+    await settle(250)
+
+    // The seed ticked the one method; the auto-on turned the switch on with
+    // the exact line under the switch.
+    expect(checkboxState('txr-method-checkbox-req-one')).toBe('true')
+    expect(switchState()).not.toBe('false')
+    expect(autoLine()?.textContent).toBe('Turned on because Precise rule needs them.')
+    // The switch change is NOT a re-check (the request carries the columns
+    // either way): one eligibility answer, no "Checked again" noise.
+    expect(api.eligibility.mock.calls.length).toBe(1)
+
+    // The line stays while the switch is on and the required method stays
+    // ticked ("stays until the switch or the set of required ticked methods
+    // changes").
+    await settle(250)
+    expect(autoLine()?.textContent).toBe('Turned on because Precise rule needs them.')
+  })
+
+  it('several required methods: "Turned on because {n} of the chosen methods need them."', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({
+      methods: [
+        methodSummary('req-one', 'Precise rule', 'required'),
+        methodSummary('req-two', 'Reliable rule', 'required'),
+      ],
+      total: 2,
+    })
+    api.eligibility.mockResolvedValue({
+      methods: [verdictFor('req-one'), verdictFor('req-two')],
+      total_fit: 2,
+      total_some: 0,
+      total_cannot: 0,
+      total_no_env: 0,
+    })
+    seedStore()
+    renderPage()
+    await settle()
+    await settle(250)
+
+    expect(autoLine()?.textContent).toBe('Turned on because 2 of the chosen methods need them.')
+    expect(switchState()).not.toBe('false')
+  })
+
+  it('no auto-on when the file has no extra-input columns: the required method cannot run, as today', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({
+      methods: [methodSummary('req-one', 'Precise rule', 'required')],
+      total: 1,
+    })
+    api.eligibility.mockResolvedValue({
+      methods: [verdictFor('req-one', true)],
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: 1,
+      total_no_env: 0,
+    })
+    seedStore({
+      // The patients file inspected with NO covariate columns.
+      patients: {
+        ...loaded('patients.csv'),
+        inspection: {
+          ...patientsInspection,
+          columns: { ...patientsInspection.columns, covariate_columns: [] },
+        },
+      },
+    })
+    renderPage()
+    await settle()
+    await settle(250)
+
+    // The required method is a cannot-run card (COVARIATE_REQUIRED_UNMET) and
+    // is never tickable; the switch stays off and no auto line appears.
+    expect(screen.getByTestId('txr-method-zero')).toBeTruthy()
+    expect(screen.getByTestId('txr-method-zero-reason-covariates')).toBeTruthy()
+    expect(screen.queryByTestId('txr-method-checkbox-req-one')).toBeNull()
+    expect(switchState()).not.toBe('true')
+    expect(autoLine()).toBeNull()
+  })
+
+  it('a manual switch-off unticks the required methods with its line; the switch stays off (no loop)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({
+      methods: [
+        methodSummary('req-one', 'Precise rule', 'required'),
+        methodSummary('opt-one', 'Optional rule', 'optional'),
+      ],
+      total: 2,
+    })
+    api.eligibility.mockResolvedValue({
+      methods: [verdictFor('req-one'), verdictFor('opt-one')],
+      total_fit: 2,
+      total_some: 0,
+      total_cannot: 0,
+      total_no_env: 0,
+    })
+    seedStore()
+    renderPage()
+    await settle()
+    await settle(250)
+    // The mount auto-on turned the switch on (the required method is ticked).
+    expect(switchState()).not.toBe('false')
+
+    // Switching off by hand: the required method is unticked through the
+    // registered action, the line says so, the switch stays off.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-covariates'))
+      await Promise.resolve()
+    })
+    await settle()
+    await settle(250)
+    expect(checkboxState('txr-method-checkbox-req-one')).toBe('false')
+    expect(checkboxState('txr-method-checkbox-opt-one')).toBe('true')
+    expect(autoLine()?.textContent).toBe('Precise rule was unticked: it needs extra inputs.')
+    expect(switchState()).not.toBe('true')
+    // No auto-on loop: one eligibility answer, no second switch change.
+    expect(api.eligibility.mock.calls.length).toBe(1)
+
+    // Ticking the required method again (switch off, columns present): the
+    // auto-on fires again — that is the rule's one trigger.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-checkbox-req-one'))
+      await Promise.resolve()
+    })
+    await settle()
+    await settle(250)
+    expect(autoLine()?.textContent).toBe('Turned on because Precise rule needs them.')
+    expect(switchState()).not.toBe('false')
+  })
+
+  it('an optional or none method never triggers either step', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({
+      methods: [
+        methodSummary('opt-one', 'Optional rule', 'optional'),
+        methodSummary('none-one', 'No-input rule', 'none'),
+      ],
+      total: 2,
+    })
+    api.eligibility.mockResolvedValue({
+      methods: [verdictFor('opt-one'), verdictFor('none-one')],
+      total_fit: 2,
+      total_some: 0,
+      total_cannot: 0,
+      total_no_env: 0,
+    })
+    seedStore()
+    renderPage()
+    await settle()
+    await settle(250)
+
+    // The seed ticked them; the switch stays OFF and no auto line appears.
+    expect(checkboxState('txr-method-checkbox-opt-one')).toBe('true')
+    expect(switchState()).not.toBe('true')
+    expect(autoLine()).toBeNull()
+
+    // Switching on and off again: nothing is unticked (no required method
+    // was ticked), no line, no switch flips.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-covariates'))
+      await Promise.resolve()
+    })
+    await settle()
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-covariates'))
+      await Promise.resolve()
+    })
+    await settle()
+    await settle(250)
+    expect(checkboxState('txr-method-checkbox-opt-one')).toBe('true')
+    expect(checkboxState('txr-method-checkbox-none-one')).toBe('true')
+    expect(autoLine()).toBeNull()
+    expect(switchState()).not.toBe('true')
+  })
+
+  it('with the file\'s inspection UNKNOWN, the eligibility request follows the switch again (the pre-option-A rule): [] off, the names on', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    // The patients file has NO resolved inspection: the screen cannot say
+    // what the extra-input columns are, so today's rule is restored for this
+    // case — the request carries [] with the switch off and the names with
+    // the switch on. (`present` keeps the new always-send rule; `absent`
+    // keeps [].)
+    seedStore({
+      patients: { ...loaded('patients.csv'), inspection: null },
+    })
+    renderPage()
+    await settle()
+    expect(api.eligibility.mock.calls.length).toBe(1)
+    expect(api.eligibility.mock.calls[0][0].inventory.covariates).toEqual([])
+
+    // The switch is ENABLED for unknown (only `absent` disables it); turning
+    // it on sends the columns again — a real re-check now, and the request
+    // content changed.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-covariates'))
+      await Promise.resolve()
+    })
+    await settle()
+    expect(api.eligibility.mock.calls.length).toBe(2)
+    expect(api.eligibility.mock.calls[1][0].inventory.covariates).toEqual([
+      { key: 'age', display_name: 'age', standard_ids: [], unit_family: 'none' },
+    ])
+
+    // Off again: [] again, and the request changes a third time.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-covariates'))
+      await Promise.resolve()
+    })
+    await settle()
+    expect(api.eligibility.mock.calls.length).toBe(3)
+    expect(api.eligibility.mock.calls[2][0].inventory.covariates).toEqual([])
+  })
+
+  it('a required method ticked while the columns are unknown turns the switch on when the inspection lands (the auto-on is never lost)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({
+      methods: [methodSummary('req-one', 'Precise rule', 'required')],
+      total: 1,
+    })
+    api.eligibility.mockResolvedValue({
+      methods: [verdictFor('req-one')],
+      total_fit: 1,
+      total_some: 0,
+      total_cannot: 0,
+      total_no_env: 0,
+    })
+    // The patients file has NO resolved inspection yet.
+    seedStore({
+      patients: { ...loaded('patients.csv'), inspection: null },
+    })
+    renderPage()
+    await settle()
+    await settle(250)
+    // The seed ticked the required method with the switch off, but the
+    // screen cannot say the columns are there yet: no auto-on (and the
+    // transition must NOT be recorded as done).
+    expect(checkboxState('txr-method-checkbox-req-one')).toBe('true')
+    expect(switchState()).not.toBe('true')
+    expect(autoLine()).toBeNull()
+
+    // The inspection lands (the columns are there): the SAME ticked required
+    // method now turns the switch on — the auto-on was not lost for good.
+    await act(async () => {
+      useTxrIntakeStore.setState({
+        patients: loaded('patients.csv'),
+      })
+      await Promise.resolve()
+    })
+    await settle()
+    await settle(250)
+    expect(autoLine()?.textContent).toBe('Turned on because Precise rule needs them.')
+    expect(switchState()).not.toBe('false')
+  })
+
+  it('runSettings.setCovariates ON is refused with a plain reason when the file has no extra-input columns (the disabled switch\'s assistant path)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({
+      // The patients file inspected with NO covariate columns: the switch is
+      // disabled in the UI, and the ACTION refuses the assistant the same
+      // way with a plain reason.
+      patients: {
+        ...loaded('patients.csv'),
+        inspection: {
+          ...patientsInspection,
+          columns: { ...patientsInspection.columns, covariate_columns: [] },
+        },
+      },
+    })
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-run-settings-covariates-disabled-reason')).toBeTruthy()
+    const live = instancesOfType('txr.run-settings')
+    expect(live.length).toBe(1)
+    let failure: unknown = null
+    await act(async () => {
+      try {
+        await runAction(RUN_SETTINGS_SET_COVARIATES, { view_id: live[0].id, on: true })
+      } catch (err) {
+        failure = err
+      }
+    })
+    expect((failure as Error | null)?.message).toBe(
+      'The file has no extra-input columns, so Extra inputs cannot be turned on.',
+    )
+    // A refusal changes nothing: the switch stays off and no new eligibility
+    // request (the absent request is [] either way).
+    expect(switchState()).not.toBe('true')
+    expect(api.eligibility.mock.calls.length).toBe(1)
+  })
+
+  it('runSettings.setCovariates ON is refused when there is no patients file (the predict-mode render)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({
+      mode: 'predict',
+      patients: null,
+      predictMeasurements: loaded('measurements.csv'),
+    })
+    renderPage()
+    await settle()
+    const live = instancesOfType('txr.run-settings')
+    expect(live.length).toBe(1)
+    let failure: unknown = null
+    await act(async () => {
+      try {
+        await runAction(RUN_SETTINGS_SET_COVARIATES, { view_id: live[0].id, on: true })
+      } catch (err) {
+        failure = err
+      }
+    })
+    expect((failure as Error | null)?.message).toBe(
+      'There is no patients file, so Extra inputs cannot be turned on.',
+    )
+    expect(switchState()).not.toBe('true')
+    expect(api.eligibility.mock.calls.length).toBe(1)
   })
 })
 

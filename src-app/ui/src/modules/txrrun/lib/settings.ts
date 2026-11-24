@@ -191,3 +191,6 @@ export const TXR_RUN_SETTINGS_CONTEXT = 'txr.run-settings'
 
 /** The handler id step 4's run settings answer. */
 export const RUN_SETTINGS_SET_DAY = 'runSettings.setDay'
+
+/** The Extra-inputs switch's handler id (step 4's run settings answer). */
+export const RUN_SETTINGS_SET_COVARIATES = 'runSettings.setCovariates'

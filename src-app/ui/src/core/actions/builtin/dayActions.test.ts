@@ -18,7 +18,11 @@ import { Permissions } from '@/api-client/permissions'
 import { registerInstance, unregisterInstance } from '../instanceRegistry'
 import { useTxrIntakeStore } from '@/modules/txrintake/stores/TxrIntake.store'
 import { useStepTrailStore } from '@/modules/txrintake/lib/stepTrail'
-import { RUN_SETTINGS_SET_DAY, TXR_RUN_SETTINGS_CONTEXT } from '@/modules/txrrun/lib/settings'
+import {
+  RUN_SETTINGS_SET_COVARIATES,
+  RUN_SETTINGS_SET_DAY,
+  TXR_RUN_SETTINGS_CONTEXT,
+} from '@/modules/txrrun/lib/settings'
 import type { FileTimeline } from '@/api-client/types'
 
 const FACTS: FileTimeline = {
@@ -108,6 +112,41 @@ describe('runSettings.setDay', () => {
   it('refuses an unknown settings view', async () => {
     await expect(
       runAction(RUN_SETTINGS_SET_DAY, { view_id: 'nope', field: 'decision_day', day: 40 }),
+    ).rejects.toThrow()
+  })
+})
+
+describe('runSettings.setCovariates', () => {
+  it('is registered: McpUse, mutating, an instance action of the run settings', () => {
+    const meta = getActionMeta(RUN_SETTINGS_SET_COVARIATES)
+    expect(meta?.permission).toBe(Permissions.McpUse)
+    expect(meta?.mutating).toBe(true)
+    expect(meta?.kind).toBe('instance')
+    expect(meta?.context).toBe(TXR_RUN_SETTINGS_CONTEXT)
+    expect(meta?.stateful).toBe(false)
+    expect(meta?.surfaces).toEqual({ palette: true, ai: true })
+  })
+
+  it('calls the page handler of the named settings', async () => {
+    const handler = vi.fn(() => ({ covariates: true }))
+    registerInstance('settings-1', {
+      type: TXR_RUN_SETTINGS_CONTEXT,
+      getHandlers: () => ({ [RUN_SETTINGS_SET_COVARIATES]: handler }),
+      getSnapshot: () => ({ covariates: false, _state_token: 'settings-1@0' }),
+    })
+    try {
+      await expect(
+        runAction(RUN_SETTINGS_SET_COVARIATES, { view_id: 'settings-1', on: true }),
+      ).resolves.toEqual({ covariates: true })
+      expect(handler).toHaveBeenCalledWith({ on: true }, expect.anything())
+    } finally {
+      unregisterInstance('settings-1')
+    }
+  })
+
+  it('refuses an unknown settings view', async () => {
+    await expect(
+      runAction(RUN_SETTINGS_SET_COVARIATES, { view_id: 'nope', on: false }),
     ).rejects.toThrow()
   })
 })

@@ -29,6 +29,7 @@ const EXPECTED: Record<string, { permission: string; mutating: boolean }> = {
   'features.setAccountFlag': { permission: 'features::manage', mutating: true },
   'features.clearAccountOverride': { permission: 'features::manage', mutating: true },
   'methods.applyPreset': { permission: 'mcp::use', mutating: true },
+  'methods.setTicked': { permission: 'mcp::use', mutating: true },
   'flow.back': { permission: 'mcp::use', mutating: true },
   'help.backToStep': { permission: 'mcp::use', mutating: true },
   'models.switchList': { permission: 'mcp::use', mutating: true },
@@ -37,6 +38,7 @@ const EXPECTED: Record<string, { permission: string; mutating: boolean }> = {
   'history.useSettingsAgain': { permission: 'mcp::use', mutating: true },
   'flow.setLastDrawDay': { permission: 'mcp::use', mutating: true },
   'runSettings.setDay': { permission: 'mcp::use', mutating: true },
+  'runSettings.setCovariates': { permission: 'mcp::use', mutating: true },
 }
 
 // No removed-module path may sit in the allowlist. Its remaining entries are

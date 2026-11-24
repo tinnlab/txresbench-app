@@ -21,6 +21,9 @@ import { useState } from 'react'
 import type { TxrMethodCard } from '../types'
 import { TXRMETHOD_GROUP_ORDER } from '../lib/methodPicker'
 import { TxrMethodPicker } from './TxrMethodPicker'
+// The checkbox click runs the registered `methods.setTicked` action (the AI
+// path and the click are the same call), so this suite registers it.
+import '@/core/actions/builtin/methodActions'
 
 // The About disclosure asks the catalogue for the method detail — the one
 // fetch in this suite (the picker's skeleton/error states are the host's,
@@ -58,7 +61,7 @@ function card(over: Partial<TxrMethodCard> & { id: string }): TxrMethodCard {
     paperDoi: '10.0000/txr.demo',
     estimate: { seconds: 120, quality: 'measured' },
     rank: null,
-    needs: { markers: '1 marker', covariates: 'covariates optional', draws: '1+ draws' },
+    needs: { markers: '1 marker', covariates: 'covariates optional', covariatesMode: 'optional', draws: '1+ draws' },
     run: {
       status: 'can',
       coverageLine: 'all 151 patients',

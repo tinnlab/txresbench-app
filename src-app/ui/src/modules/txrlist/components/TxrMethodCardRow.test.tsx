@@ -33,7 +33,7 @@ function card(over: Partial<TxrMethodCard> & { id: string }): TxrMethodCard {
     paperDoi: '10.0000/txr.demo',
     estimate: { seconds: 120, quality: 'measured' },
     rank: null,
-    needs: { markers: '1 marker', covariates: 'covariates optional', draws: '1+ draws' },
+    needs: { markers: '1 marker', covariates: 'covariates optional', covariatesMode: 'optional', draws: '1+ draws' },
     run: {
       status: 'can',
       coverageLine: 'all 151 patients',

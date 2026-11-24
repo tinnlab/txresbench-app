@@ -13,6 +13,7 @@
  * the boards; the row carries structured fields and the display text is
  * produced from them by `lib/format.ts`.
  */
+import type { CovariateMode } from '@/api-client/types'
 
 /**
  * Can the method/model run on the host's uploaded file?
@@ -144,6 +145,9 @@ export interface TxrMethodNeeds {
   /** "covariates optional" / "covariates required"; `null` when the method
    *  takes none (the segment is omitted). */
   covariates: string | null
+  /** The catalogue's RAW covariate mode (never the display string): the
+   *  auto-on / untick decisions of the Extra-inputs switch read this. */
+  covariatesMode: CovariateMode
   /** "1+ draws" | "3+ draws". */
   draws: string
 }

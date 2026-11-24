@@ -54,7 +54,7 @@ function card(id: string, group: TxrMethodCard['group'], groupLabel: string, sec
     paperDoi: '10.0000/txr.demo',
     estimate: { seconds, quality: 'measured' },
     rank: null,
-    needs: { markers: '1 marker', covariates: null, draws: '1+ draws' },
+    needs: { markers: '1 marker', covariates: null, covariatesMode: 'none', draws: '1+ draws' },
     run: {
       status: 'can',
       coverageLine: 'all 18 patients',
@@ -247,5 +247,117 @@ describe('methods.applyPreset (step-4 fix)', () => {
     await expect(
       runAction('methods.applyPreset', { view_id: 'gone-view', preset: 'all' }),
     ).rejects.toThrow(/NOT_FOUND/)
+  })
+})
+
+describe('methods.setTicked (AOC part 2)', () => {
+  it('is a permissioned, mutating instance action scoped to the picker context', () => {
+    const meta = getActionMeta('methods.setTicked')
+    expect(meta).toBeDefined()
+    expect(meta?.permission).toBe('mcp::use')
+    expect(meta?.kind).toBe('instance')
+    expect(meta?.mutating).toBe(true)
+    expect(meta?.stateful).toBe(false)
+    expect(meta?.context).toBe('txr.method-picker')
+    expect(meta?.group).toBe('Analysis')
+    expect(meta?.surfaces).toEqual({ palette: true, ai: true })
+  })
+
+  it('the checkbox click and the action change the selection the same way (and the state token moves)', async () => {
+    render(<Host />)
+    const viewId = liveViewId()
+
+    // A click: the checkbox runs `methods.setTicked` with one key.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-checkbox-m2'))
+    })
+    const afterClick = ((await runAction('view.describe', { view_id: viewId })) as Record<
+      string,
+      unknown
+    >)
+    expect(afterClick).toMatchObject({ preset: 'custom', selected_count: 2 })
+
+    // The same action, driven the way the engine drives it: one key, ticked.
+    await act(async () => {
+      await runAction('methods.setTicked', { view_id: viewId, keys: ['m1'], ticked: false })
+    })
+    const afterAction = ((await runAction('view.describe', { view_id: viewId })) as Record<
+      string,
+      unknown
+    >)
+    expect(afterAction).toMatchObject({ selected_count: 1 })
+    expect(screen.getByTestId('txr-method-checkbox-m1').getAttribute('aria-checked')).toBe('false')
+
+    // The action untick several keys at once (the switch's automatic step).
+    await act(async () => {
+      await runAction('methods.setTicked', { view_id: viewId, keys: ['m2', 'm3'], ticked: true })
+    })
+    expect(screen.getByTestId('txr-method-checkbox-m2').getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByTestId('txr-method-checkbox-m3').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('refuses a disabled card (cannot run) with a plain reason; the selection is untouched', async () => {
+    // A disabled card with the cannot verdict; the host never ticks it.
+    const cards = [
+      {
+        ...card('r1', 'response-call', 'Response call', 10),
+        run: { ...card('r1', 'response-call', 'Response call', 10).run, status: 'cannot' as const, disabled: true },
+      },
+    ]
+    const changes: ReadonlySet<string>[] = []
+    render(
+      <TxrMethodPicker
+        cards={cards}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={next => changes.push(next)}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+      />,
+    )
+    const viewId = liveViewId()
+    await expect(
+      runAction('methods.setTicked', { view_id: viewId, keys: ['r1'], ticked: true }),
+    ).rejects.toThrow(/cannot run with these files/)
+    expect(changes).toEqual([])
+  })
+
+  it('refuses a key the list does not know, and a gone picker', async () => {
+    render(<Host />)
+    const viewId = liveViewId()
+    await expect(
+      runAction('methods.setTicked', { view_id: viewId, keys: ['nope'], ticked: true }),
+    ).rejects.toThrow(/not in the method list/)
+    await expect(
+      runAction('methods.setTicked', { view_id: 'gone-view', keys: ['m1'], ticked: true }),
+    ).rejects.toThrow(/NOT_FOUND/)
+  })
+
+  it('is refused while the method list has not loaded; the selection is untouched', async () => {
+    const changes: ReadonlySet<string>[] = []
+    const view = (loading: boolean, error: string | null, cards: TxrMethodCard[]) => (
+      <TxrMethodPicker
+        cards={cards}
+        loading={loading}
+        error={error}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={next => changes.push(next)}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+      />
+    )
+    const { rerender } = render(view(true, null, []))
+    const viewId = liveViewId()
+    await expect(
+      runAction('methods.setTicked', { view_id: viewId, keys: ['m1'], ticked: true }),
+    ).rejects.toThrow('UNAVAILABLE: the method list has not loaded yet')
+    rerender(view(false, 'eligibility down', []))
+    await expect(
+      runAction('methods.setTicked', { view_id: viewId, keys: ['m1'], ticked: true }),
+    ).rejects.toThrow('UNAVAILABLE: the method list has not loaded yet (eligibility down)')
+    expect(changes).toEqual([])
   })
 })

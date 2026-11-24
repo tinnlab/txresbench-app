@@ -32,13 +32,19 @@
 import type { OutcomeId, StudyAnswers } from '../types'
 import type { TreatmentClass } from '@/api-client/types'
 
-/** Screen B, "What you want to predict" — the four board pills, verbatim. */
+/** Screen B, "What you want to predict" — the four board pills, verbatim
+ *  (the separate "Any" pill is `OUTCOME_ANY_LABEL`, never in this table). */
 export const OUTCOME_OPTIONS: ReadonlyArray<{ value: OutcomeId; label: string }> = [
   { value: 'binary-response', label: 'Will the treatment work? (yes or no)' },
   { value: 'response-probability', label: 'Chance of response' },
   { value: 'progression-by-day', label: 'Risk of progression or death by a day' },
   { value: 'dynamic-risk', label: 'Risk over time as new draws arrive' },
 ]
+
+/** The "Any" pill's label — the UNANSWERED outcome state (`study.outcome
+ *  === null`), NOT an outcome id: it must never join `OUTCOME_OPTIONS`,
+ *  whose values are the real outcome ids the method filters map. */
+export const OUTCOME_ANY_LABEL = 'Any'
 
 /** Screen B, "Before treatment" — board option text. */
 export const BEFORE_TREATMENT_OPTIONS: ReadonlyArray<{ value: 'always' | 'sometimes'; label: string }> =
