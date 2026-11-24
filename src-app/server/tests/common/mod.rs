@@ -316,8 +316,8 @@ impl HarnessApp for CytoHarnessApp {
         // harness copied it from the migrated template and owns its lifecycle);
         // `database.url` is exactly the config key `ServerConfig` resolves.
         // Both paths are single-quoted: YAML reads no escapes there, so a
-        // Windows path (`C:\\Users\\...`) is taken as written; in double quotes
-        // `\\U` starts an escape and the config does not parse.
+        // Windows path (`C:\Users\...`) is taken as written; in double quotes
+        // `\U` starts an escape and the config does not parse.
         // The postgresql block is GONE from the app's config surface — the app
         // is single-driver (sqlite) under this node.
         let config_yaml = format!(
