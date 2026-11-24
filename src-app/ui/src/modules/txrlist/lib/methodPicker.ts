@@ -303,12 +303,14 @@ export const TXRMETHOD_REASON_GROUPS: readonly TxrReasonGroupDef[] = [
   },
   // RUNNER_UNAVAILABLE is NOT in the environment group: that group's label
   // ("No published environment") is about the app's environments, while
-  // this code is a fact about the deployment (Windows: WSL 2 unusable) — a
-  // runner card labelled with the environment sentence would be wrong. The
-  // deployment fact gets its own section, right beside the environment one.
+  // this code is a fact about the deployment — no method can run at all:
+  // WSL 2 missing, too old or turned off, the app's WSL runtime missing, or
+  // the app's run folder not creatable — a runner card labelled with the
+  // environment sentence would be wrong. The deployment fact gets its own
+  // section, right beside the environment one.
   {
     key: 'runner',
-    label: 'WSL 2 is not ready',
+    label: 'Methods cannot run yet',
     codes: ['RUNNER_UNAVAILABLE'],
     fix: RUNNER_UNAVAILABLE_FIX,
   },

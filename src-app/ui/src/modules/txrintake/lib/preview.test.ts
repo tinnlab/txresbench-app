@@ -530,9 +530,11 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
   })
 
   it('RUNNER_UNAVAILABLE is a MACHINE reason, like ENV_IMAGE_MISSING: never an answer cause, same fit/noEnvFit rule (w10a2)', () => {
-    // On Windows when WSL 2 is unusable, EVERY method's verdict starts with
-    // RUNNER_UNAVAILABLE (first) and some also carry ENV_IMAGE_MISSING — the
-    // same machine reasons the panel's "N of them cannot run yet" line owns.
+    // When no method can run at all (on Windows: WSL 2 missing, too old or
+    // turned off, the app's WSL runtime missing, or the app's run folder not
+    // creatable), EVERY method's verdict starts with RUNNER_UNAVAILABLE
+    // (first) and some also carry ENV_IMAGE_MISSING — the same machine
+    // reasons the panel's "N of them cannot run yet" line owns.
     const r = response([
       method('runner-only', 'cannot_run', [{ code: 'RUNNER_UNAVAILABLE' }]),
       method('runner-env', 'cannot_run', [
@@ -562,7 +564,7 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     // The direct line of a runner-only method is the machine sentence (the
     // env-only safety net's sibling).
     const runnerOnly = method('runner-only', 'cannot_run', [{ code: 'RUNNER_UNAVAILABLE' }])
-    expect(excludedReasonLine(runnerOnly, FORMATTERS)).toBe('methods cannot run yet: WSL 2 is not ready')
+    expect(excludedReasonLine(runnerOnly, FORMATTERS)).toBe('methods cannot run yet: see the notice at the top of the app')
   })
 
   it('renders the shared formatter line for a required marker (board bytes)', () => {

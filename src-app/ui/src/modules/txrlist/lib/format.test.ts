@@ -158,11 +158,13 @@ describe('formatReasonLine', () => {
       'no published environment available',
     )
     // RUNNER_UNAVAILABLE is a fact about the deployment (the start-up check
-    // found no usable method runner — Windows: WSL 2 not ready), pushed FIRST
-    // by the eligibility stage; the row says the deployment fact plainly,
-    // never a study/answer blame.
+    // found no usable method runner — on Windows: WSL 2 missing, too old or
+    // turned off, the app's WSL runtime missing, or the app's run folder not
+    // creatable), pushed FIRST by the eligibility stage; the row says the
+    // deployment fact plainly and points at the notice that names the exact
+    // cause, never a study/answer blame.
     expect(formatReasonLine('cannot', SOME('RUNNER_UNAVAILABLE'), COVERAGE(38, 38), minDraws, [])).toBe(
-      'methods cannot run yet: WSL 2 is not ready',
+      'methods cannot run yet: see the notice at the top of the app',
     )
     expect(formatReasonLine('cannot', SOME('TASK_INCOMPATIBLE'), COVERAGE(38, 38), minDraws, [])).toBe(
       'needs an outcome column your file lacks',

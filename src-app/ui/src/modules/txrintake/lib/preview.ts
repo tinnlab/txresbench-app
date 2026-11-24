@@ -177,12 +177,13 @@ export function fitCounts(response: EligibilityResponse): FitCounts {
 
 /** The MACHINE reasons — facts about the deployment, never the answers:
  *  `ENV_IMAGE_MISSING` (a method with no published environment image in
- *  the app's manifest) and `RUNNER_UNAVAILABLE` (no method can run at all —
- *  Windows: WSL 2 unusable, the start-up check's verdict). Both are pushed
- *  FIRST by the eligibility pipeline — the runner code ahead of the
- *  environment one — so a mixed method's first reason is always a machine
- *  reason, whichever machine fact it carries, and the panel's machine line
- *  ("N of them cannot run yet") owns it. */
+ *  the app's manifest) and `RUNNER_UNAVAILABLE` (no method can run at all:
+ *  on Windows, WSL 2 missing, too old or turned off, the app's WSL runtime
+ *  missing, or the app's run folder not creatable — the start-up check's
+ *  verdict). Both are pushed FIRST by the eligibility pipeline — the runner
+ *  code ahead of the environment one — so a mixed method's first reason is
+ *  always a machine reason, whichever machine fact it carries, and the
+ *  panel's machine line ("N of them cannot run yet") owns it. */
 function isMachineReason(code: string): boolean {
   return code === 'ENV_IMAGE_MISSING' || code === 'RUNNER_UNAVAILABLE'
 }
