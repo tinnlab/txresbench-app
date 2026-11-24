@@ -53,8 +53,11 @@
 //!   G = the Kaplan–Meier estimate of the censoring distribution, floored at
 //!   [`G_FLOOR`]); a method that learns from outcomes (`fitted: true`) gets
 //!   an inner 3-fold cross-fit so its training scores are out-of-fold —
-//!   [`crossfit_folds`] is the seeded fold construction of the package's Rng
-//!   (the tests pin its output against the package's own golden file).
+//!   [`crossfit_folds_stratified`] is the SEEDED STRATIFIED fold construction
+//!   on the package's Rng — stratified, unlike the package's plain inner
+//!   folds: per-stratum shuffle + a round-robin deal continued across strata
+//!   (the plain `crossfit_folds` the package used is gone — it was
+//!   unstratified by the event at the look-ahead day).
 //!   The conversion is fitted on the TRAINING patients only and applied
 //!   unchanged to the test patients ([`fit_recalibration`] +
 //!   [`converted_rows`]); a method that declares a native probability is
@@ -958,12 +961,13 @@ fn number_text(x: f64) -> String {
 /// `G_FLOOR`).
 pub const G_FLOOR: f64 = 0.05;
 
-/// The inner cross-fit fold count of the `fitted: true` arm (the package's
-/// `K = 3`).
+/// The inner cross-fit fold count of the `fitted: true` arm — the stratified
+/// folds of [`crossfit_folds_stratified`], unlike the package's plain inner
+/// folds (its `K = 3`).
 pub const CROSS_FIT_FOLDS: usize = 3;
 
 /// The fold count a caller's value maps to (0 is treated as 1 — the
-/// [`crossfit_folds`] arithmetic never divides by zero).
+/// [`crossfit_folds_stratified`] arithmetic never divides by zero).
 fn fold_count(folds: usize) -> usize {
     folds.max(1)
 }
@@ -1586,22 +1590,137 @@ fn splitmix64(x: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// The fold of each patient of the `fitted: true` cross-fit arm (the
-/// package's construction in `engine.cpp::fit`): the patients (callers pass
-/// them in the deterministic `outcomes.csv` order — the sorted cohort) are
-/// shuffled with the run's seed and every `folds`-th position forms one fold;
-/// `fold_of_patient[i]` is the fold the model trained ON THE REST was
-/// validated on for patient i, and the recalibration map is fitted on these
-/// OUT-OF-FOLD risks plus the patients' own outcomes. `folds` is the
-/// package's `K` (3 via [`CROSS_FIT_FOLDS`]); 0 is treated as 1.
-pub fn crossfit_folds(n_patients: usize, seed: u64, folds: usize) -> Vec<usize> {
+/// The STRATIFIED fold of each patient of the `fitted: true` cross-fit arm —
+/// the replacement for the package's plain inner folds (removed). Patients
+/// are grouped by stratum (ascending stratum id; inside a stratum the input
+/// order is kept). Each stratum is shuffled with the SAME seeded permutation
+/// (`Rng::new(seed)` is re-created per stratum, so a stratum of a given size
+/// always takes the same shuffle, independent of the other strata), and the
+/// shuffled patients are dealt round-robin to folds `0..k`, ONE counter
+/// continuing across strata (it never resets at a stratum boundary) so the
+/// fold sizes stay balanced: they differ by at most 1 overall.
+///
+/// `fold_of_patient[i]` is the fold that patient `i` is VALIDATED in: the
+/// model of that fold was fitted on the OTHER folds (the complement — the
+/// training part), and the recalibration map is fitted on these OUT-OF-FOLD
+/// risks plus the patients' own outcomes. `folds` is the package's `K`
+/// (3 via [`CROSS_FIT_FOLDS`]); 0 is treated as 1. Empty strata give an empty
+/// vec.
+pub fn crossfit_folds_stratified(strata: &[usize], seed: u64, folds: usize) -> Vec<usize> {
     let k = fold_count(folds);
-    let perm = Rng::new(seed).permutation(n_patients);
-    let mut fold_of = vec![0usize; n_patients];
-    for (i, patient) in perm.iter().enumerate() {
-        fold_of[*patient] = i % k;
+    let mut fold_of = vec![0usize; strata.len()];
+    if strata.is_empty() {
+        return fold_of;
+    }
+    // The distinct strata, ascending (a stratum with no patient is skipped).
+    let mut present: Vec<usize> = strata.to_vec();
+    present.sort_unstable();
+    present.dedup();
+    let mut counter = 0usize;
+    for s in present {
+        let group: Vec<usize> = strata
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v == s)
+            .map(|(i, _)| i)
+            .collect();
+        for &patient in &Rng::new(seed).permutation(group.len()) {
+            fold_of[group[patient]] = counter % k;
+            counter += 1;
+        }
     }
     fold_of
+}
+
+/// The stratum of each training patient for the STRATIFIED cross-fit
+/// ([`crossfit_folds_stratified`]), per the FIRST outcome the method learns
+/// at its look-ahead day — one entry per [`TrainingLabel`] (the
+/// `outcomes.csv` row order, i.e. the sorted cohort order):
+///
+/// | stratum | survival (`progression`/`death`) | response (`no_response` / `progressive_disease`) |
+/// |---|---|---|
+/// | 1 | event at or before the look-ahead day (IPCW label 1) | label 1 |
+/// | 2 | followed beyond the look-ahead day (IPCW label 0) | label 0 |
+/// | 0 | censored before it — label unknown (a missing follow-up time or event flag lands here too) | label missing |
+///
+/// The survival cases are exactly the three outcomes of [`ipcw_labels`] at
+/// the horizon (1 / 0 / dropped), read from the outcome's own follow-up
+/// columns (`progression` → `pfs_*`, `death` → `os_*`); the response cases
+/// are the plain 0/1 label against an empty cell.
+pub fn fold_strata(labels: &[TrainingLabel], outcome: &str, look_ahead_day: f64) -> Vec<usize> {
+    if is_survival(outcome) {
+        let (time_col, event_col) = match outcome {
+            "progression" => ("pfs_time", "pfs_event"),
+            "death" => ("os_time", "os_event"),
+            _ => unreachable!("is_survival gates the pair"),
+        };
+        labels
+            .iter()
+            .map(|lbl| {
+                let Some(t) = training_label_cell(lbl, time_col) else {
+                    return 0;
+                };
+                if training_label_cell(lbl, event_col) == Some(1.0) && t <= look_ahead_day {
+                    1
+                } else if t > look_ahead_day {
+                    2
+                } else {
+                    0
+                }
+            })
+            .collect()
+    } else {
+        labels
+            .iter()
+            .map(|lbl| match training_label_cell(lbl, outcome) {
+                Some(1.0) => 1,
+                Some(0.0) => 2,
+                _ => 0,
+            })
+            .collect()
+    }
+}
+
+/// The training-side strata of one cross-fit fold, as
+/// [`crossfit_fold_problem`] reports them (a report, never a verdict).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FoldStrataDeficit {
+    /// Stratum-1 patients (event by the look-ahead day / label 1) in the
+    /// training part.
+    pub stratum1: usize,
+    /// Stratum-2 patients (followed beyond / label 0) in the training part.
+    pub stratum2: usize,
+}
+
+/// Whether the TRAINING part of fold `k` (all patients whose fold is not `k`)
+/// can support the stratified calibration: `Some(...)` with the training
+/// part's stratum-1/2 counts when either is below 2, `None` otherwise (a
+/// weighted logistic fit needs both classes; 2 is the smallest useful count —
+/// a single point cannot anchor the curve). The helper ONLY reports:
+/// refuse-or-mark is still the callers' open decision, so nothing here
+/// changes behaviour.
+pub fn crossfit_fold_problem(
+    strata: &[usize],
+    folds: &[usize],
+    k: usize,
+) -> Option<FoldStrataDeficit> {
+    let mut stratum1 = 0usize;
+    let mut stratum2 = 0usize;
+    for (s, f) in strata.iter().zip(folds) {
+        if *f == k {
+            continue;
+        }
+        match s {
+            1 => stratum1 += 1,
+            2 => stratum2 += 1,
+            _ => {}
+        }
+    }
+    if stratum1 < 2 || stratum2 < 2 {
+        Some(FoldStrataDeficit { stratum1, stratum2 })
+    } else {
+        None
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1715,7 +1834,8 @@ impl std::error::Error for CalibrationError {}
 ///   row order).
 /// - `training_risks`: the method's scores of the training patients, keyed by
 ///   patient id — `fitted` methods' scores are the OUT-OF-FOLD risks of
-///   [`crossfit_folds`] (the per-fold runs are the orchestrator's v1 calls);
+///   [`crossfit_folds_stratified`] (the per-fold runs are the orchestrator's
+///   v1 calls);
 ///   a patient with no score is an unknown risk, dropped by the fit.
 /// - `outcome` / `horizon`: the displayed column's identity.
 ///
@@ -2883,28 +3003,187 @@ mod tests {
         );
     }
 
-    /// TEST-EE-16 half 1: the cross-fit fold construction equals the
-    /// package's — the seeded shuffle then every K-th position, `K = 3` (the
-    /// `rng.tsv`-pinned Rng; the 9-patient pin was produced by a build of the
-    /// package's own `engine.cpp` construction).
+    /// TEST-EE-16 half 1 (re-pinned): the STRATIFIED cross-fit fold
+    /// construction replaces the package's plain one — the old pin
+    /// (`[0,1,1,2,2,2,1,0,0]`) is gone because the split is now stratified by
+    /// the event at the look-ahead day; the package's inner folds were plain.
+    /// The construction is the `rng.tsv`-pinned Rng per stratum + a round-robin
+    /// deal continued across strata.
     #[test]
-    fn crossfit_folds_match_the_package_construction() {
+    fn crossfit_folds_stratified_is_a_balanced_stratified_partition() {
+        // 9 patients: 1 = event by the day, 2 = followed beyond, 0 = unknown.
+        let strata = vec![1, 2, 1, 0, 2, 2, 1, 0, 1];
+        // Hand computation with Rng::new(1) (the rng.tsv-pinned stream):
+        //   stratum 0: indices [3, 7] — permutation(2) = [0, 1] → [3, 7]
+        //   stratum 1: indices [0, 2, 6, 8] — permutation(4) = [2, 0, 3, 1] → [6, 0, 8, 2]
+        //   stratum 2: indices [1, 4, 5] — permutation(3) = [2, 0, 1] → [5, 1, 4]
+        // Deal to 3 folds with ONE continuing counter (fold = counter % 3):
+        //   3→0, 7→1, 6→2, 0→0, 8→1, 2→2, 5→0, 1→1, 4→2.
         assert_eq!(
-            crossfit_folds(9, 1, CROSS_FIT_FOLDS),
-            vec![0, 1, 1, 2, 2, 2, 1, 0, 0],
-            "seed 1, 9 patients: the package's fold_of_patient vector"
+            crossfit_folds_stratified(&strata, 1, CROSS_FIT_FOLDS),
+            vec![0, 1, 2, 0, 2, 0, 2, 1, 1],
+            "seed 1, 9 patients: the stratified fold_of_patient vector"
         );
-        let folds = crossfit_folds(6, 0, 3);
-        assert!(folds.iter().all(|f| *f < 3));
-        // The partition: every fold is exactly every-3rd shuffled position.
-        let mut counts = [0usize; 3];
+        // A different seed gives a different split.
+        assert_ne!(
+            crossfit_folds_stratified(&strata, 0, CROSS_FIT_FOLDS),
+            crossfit_folds_stratified(&strata, 1, CROSS_FIT_FOLDS),
+            "a different seed must reshuffle the strata"
+        );
+        // The partition is balanced (counts per fold in `[2, 3]` here — the
+        // deal continues across strata, so no fold can run away).
+        let folds = crossfit_folds_stratified(&strata, 1, CROSS_FIT_FOLDS);
+        let mut counts = [0usize; CROSS_FIT_FOLDS];
         for f in &folds {
+            assert!(*f < CROSS_FIT_FOLDS, "fold ids are in 0..K");
             counts[*f] += 1;
         }
-        assert_eq!(counts, [2, 2, 2]);
-        // Degenerate edges: 0 patients, and 0 folds treated as 1.
-        assert_eq!(crossfit_folds(0, 1, CROSS_FIT_FOLDS), Vec::<usize>::new());
-        assert_eq!(crossfit_folds(1, 1, 0), vec![0]);
+        assert_eq!(counts, [3, 3, 3]);
+        // Degenerate edges: 0 folds treated as 1, empty input gives empty vec.
+        assert_eq!(crossfit_folds_stratified(&strata, 1, 0), vec![0; 9]);
+        assert_eq!(
+            crossfit_folds_stratified(&[], 1, CROSS_FIT_FOLDS),
+            Vec::<usize>::new()
+        );
+        assert_eq!(
+            crossfit_folds_stratified(&[1, 1, 1, 1], 1, 0),
+            vec![0, 0, 0, 0],
+            "0 folds means one fold for everyone"
+        );
+    }
+
+    /// The stratified construction's invariants: old-style every-K-th deal
+    /// gone, the fold sizes differ by at most 1 overall, and every fold's
+    /// VALIDATION part keeps at least one patient of each stratum once each
+    /// stratum holds at least `K` patients (with `K = 3` the plan's "every
+    /// stratum >= 3 patients" condition).
+    #[test]
+    fn crossfit_folds_stratified_keeps_every_stratum_in_every_fold() {
+        for seed in 0..12u64 {
+            let strata: Vec<usize> = (0..30).map(|i| i % 3).collect();
+            let folds = crossfit_folds_stratified(&strata, seed, CROSS_FIT_FOLDS);
+            assert_eq!(folds.len(), strata.len());
+            let mut counts = [0usize; CROSS_FIT_FOLDS];
+            for f in &folds {
+                assert!(*f < CROSS_FIT_FOLDS);
+                counts[*f] += 1;
+            }
+            assert!(
+                counts.iter().max().unwrap() - counts.iter().min().unwrap() <= 1,
+                "seed {seed}: fold sizes {counts:?} differ by at most 1"
+            );
+            for k in 0..CROSS_FIT_FOLDS {
+                for s in 0..=2 {
+                    assert!(
+                        (0..strata.len()).any(|i| folds[i] == k && strata[i] == s),
+                        "seed {seed}: fold {k} must hold a stratum-{s} patient"
+                    );
+                }
+            }
+        }
+    }
+
+    /// [`fold_strata`] decides the strata exactly as the existing label
+    /// machinery does: the survival arm mirrors [`ipcw_labels`] at the
+    /// look-ahead day (event by then = 1, followed beyond = 0, censored
+    /// before — labelling unknown — plus a missing follow-up time/event, both
+    /// 0), the response arm the plain 0/1 label against an empty cell.
+    #[test]
+    fn fold_strata_matches_the_ipcw_and_response_label_cases() {
+        let lbl = |pt: Option<f64>,
+                   pe: Option<f64>,
+                   ot: Option<f64>,
+                   oe: Option<f64>,
+                   nr: Option<f64>,
+                   pd: Option<f64>| TrainingLabel {
+            patient_id: String::new(),
+            pfs_time: pt,
+            pfs_event: pe,
+            os_time: ot,
+            os_event: oe,
+            no_response: nr,
+            progressive_disease: pd,
+        };
+        let pfs = vec![
+            lbl(Some(5.0), Some(1.0), None, None, None, None), // event at/before 10 → 1
+            lbl(Some(5.0), Some(0.0), None, None, None, None), // censored before → 0
+            lbl(Some(20.0), Some(0.0), None, None, None, None), // beyond 10 → 2
+            lbl(None, Some(1.0), None, None, None, None),      // no follow-up time → 0
+            lbl(Some(10.0), Some(1.0), None, None, None, None), // event AT the day → 1
+            lbl(Some(30.0), Some(1.0), None, None, None, None), // event AFTER the day → 2
+        ];
+        assert_eq!(
+            fold_strata(&pfs, "progression", 10.0),
+            vec![1, 0, 2, 0, 1, 2],
+            "the survival cases are the IPCW label cases"
+        );
+        // `death` reads its own os_* columns, not pfs_*.
+        let os = vec![
+            lbl(None, None, Some(7.0), Some(1.0), None, None),
+            lbl(None, None, Some(7.0), Some(0.0), None, None),
+            lbl(None, None, Some(9.0), Some(0.0), None, None),
+            lbl(None, None, None, None, None, None),
+        ];
+        assert_eq!(fold_strata(&os, "death", 7.0), vec![1, 0, 2, 0]);
+        // Response: label 1 → 1, label 0 → 2, missing → 0; the same table
+        // for both response outcomes.
+        let resp = vec![
+            lbl(None, None, None, None, Some(1.0), Some(0.0)),
+            lbl(None, None, None, None, Some(0.0), Some(1.0)),
+            lbl(None, None, None, None, None, None),
+            lbl(None, None, None, None, Some(1.0), None),
+        ];
+        assert_eq!(fold_strata(&resp, "no_response", 238.0), vec![1, 2, 0, 1]);
+        assert_eq!(
+            fold_strata(&resp, "progressive_disease", 238.0),
+            vec![2, 1, 0, 0]
+        );
+    }
+
+    /// [`crossfit_fold_problem`] reports (never refuses) the training-side
+    /// strata of one fold: `Some` when either stratum has fewer than 2
+    /// patients in the training part, `None` otherwise.
+    #[test]
+    fn crossfit_fold_problem_reports_the_training_strata() {
+        // A hand-built partition (fold = index % 3) with a small stratum 2.
+        let strata = vec![1, 1, 1, 1, 2, 1, 1, 0, 1];
+        let folds = vec![0, 1, 2, 0, 1, 2, 0, 1, 2];
+        // Fold 0's training part (positions 1,2,4,5,7,8): strata 1,1,2,1,0,1.
+        assert_eq!(
+            crossfit_fold_problem(&strata, &folds, 0),
+            Some(FoldStrataDeficit {
+                stratum1: 4,
+                stratum2: 1
+            })
+        );
+        // Fold 1's training part (0,2,3,5,6,8): all stratum 1.
+        assert_eq!(
+            crossfit_fold_problem(&strata, &folds, 1),
+            Some(FoldStrataDeficit {
+                stratum1: 6,
+                stratum2: 0
+            })
+        );
+        // Fold 2's training part (0,1,3,4,6,7): strata 1,1,1,2,1,0.
+        assert_eq!(
+            crossfit_fold_problem(&strata, &folds, 2),
+            Some(FoldStrataDeficit {
+                stratum1: 4,
+                stratum2: 1
+            })
+        );
+        // A balanced cohort plus the stratified construction: every fold's
+        // training part keeps both classes (>= 2 each) → no problem.
+        let balanced = vec![1, 2, 1, 2, 1, 2, 1, 2, 1];
+        let stratified_folds = crossfit_folds_stratified(&balanced, 1, CROSS_FIT_FOLDS);
+        assert_eq!(stratified_folds, vec![0, 0, 1, 2, 1, 2, 2, 1, 0]);
+        for k in 0..CROSS_FIT_FOLDS {
+            assert_eq!(
+                crossfit_fold_problem(&balanced, &stratified_folds, k),
+                None,
+                "fold {k}: the balanced cohort's training part keeps both classes"
+            );
+        }
     }
 
     /// The package's own hand-computed censoring KM example (`core_test.cpp`),
@@ -3149,10 +3428,12 @@ mod tests {
 
     /// TEST-EE-16 half 4: the `fitted: true` arm — the map the orchestrator
     /// fits for a fitted method is built on the INNER 3-FOLD OUT-OF-FOLD
-    /// risks: the fold partition is the package's (`crossfit_folds`), the
-    /// per-fold risks are the caller's v1 calls, and the fitted conversion is
-    /// exactly the one `fit_conversion` produces on those (risk, label)
-    /// pairs — never on a different ranking.
+    /// risks: the fold partition is the STRATIFIED construction
+    /// ([`crossfit_folds_stratified`] — strata from the labels below, the
+    /// same way the orchestrator's `cohort_folds` decides them), the per-fold
+    /// risks are the caller's v1 calls, and the fitted conversion is exactly
+    /// the one `fit_conversion` produces on those (risk, label) pairs — never
+    /// on a different ranking.
     #[test]
     fn fitted_cross_fit_arm_fits_the_oof_risks() {
         let ids: Vec<String> = (0..9).map(|i| format!("S000{i}")).collect();
@@ -3173,10 +3454,16 @@ mod tests {
         );
         let outcomes_table = parse_csv(&outcomes).expect("the fixture parses");
 
-        let folds = crossfit_folds(9, 1, CROSS_FIT_FOLDS);
-        assert_eq!(folds, vec![0, 1, 1, 2, 2, 2, 1, 0, 0]);
+        // The response labels are 1/0/1/... → strata [1,2,1,2,1,2,1,2,1]
+        // (no missing cells), and the stratified construction:
+        //   stratum 1 (indices 0,2,4,6,8, permutation(5) = [0,1,3,4,2]) → [0,2,6,8,4]
+        //   stratum 2 (indices 1,3,5,7, permutation(4) = [2,0,3,1]) → [5,1,7,3]
+        // deal, counter continuing: 0→0, 2→1, 6→2, 8→0, 4→1, 5→2, 1→0, 7→1, 3→2.
+        let strata = fold_strata(&training_labels(&outcomes_table), "no_response", 238.0);
+        let folds = crossfit_folds_stratified(&strata, 1, CROSS_FIT_FOLDS);
+        assert_eq!(folds, vec![0, 0, 1, 2, 1, 2, 2, 1, 0]);
         // The per-fold partition, in the outcomes.csv order: fold k = the
-        // positions whose fold is k (every shuffle position's every-3rd).
+        // positions whose fold is k.
         for k in 0..3usize {
             let members: Vec<usize> = (0..9).filter(|i| folds[*i] == k).collect();
             assert!(!members.is_empty(), "fold {k} is non-empty");

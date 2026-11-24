@@ -1005,12 +1005,12 @@ impl StackMethodExecutor {
             if facts.fitted {
                 // The inner 3-fold cross-fit (engine.cpp): the per-fold method
                 // runs are the item's v1 calls — fit on the rest, predict the
-                // fold, so the map is fitted on out-of-fold risks.
-                let folds = super::predictions::crossfit_folds(
-                    train_bundle.patient_ids.len(),
-                    TxrLimits::SEED as u64,
-                    super::predictions::CROSS_FIT_FOLDS,
-                );
+                // fold, so the map is fitted on out-of-fold risks. The folds
+                // come from [`cohort_folds`] — the same construction the
+                // preflight checks, one function so the two paths cannot
+                // differ — and are STRATIFIED by the first learned outcome,
+                // unlike the package's plain inner folds.
+                let folds = cohort_folds(&train_bundle, &needs, settings);
                 for k in 0..super::predictions::CROSS_FIT_FOLDS {
                     let (sub_bundle, fold_test) = match crossfit_fold_bundles(
                         &train,
@@ -1915,6 +1915,58 @@ fn cohort_test_bundle(
     bundle::test_bundle_with_markers(Some(&train.patients), train, settings, min_draws, selection)
 }
 
+/// The ONE cross-fit fold construction of the train path — [`execute_train`]
+/// and [`train_bundle_preflight`] both take their folds from here, so the two
+/// paths cannot differ. The strata come from the FIRST outcome the method
+/// learns (the first entry of `needs`), the labels are the written
+/// `train/outcomes.csv` rows (the sorted cohort — the same order
+/// `patient_ids` carries, so `folds[i]` is fold of `patient_ids[i]`), and
+/// the folds are [`predictions::crossfit_folds_stratified`] at the run's
+/// seed and `K`. `needs` must be non-empty: the callers already gate — with
+/// no need the conversion band is not run at all, so no folds are built
+/// (as before).
+fn cohort_folds(
+    train: &bundle::TrainBundle,
+    needs: &[(String, Option<f64>)],
+    settings: &bundle::BundleSettings,
+) -> Vec<usize> {
+    debug_assert!(
+        !needs.is_empty(),
+        "the callers build folds only when a need exists"
+    );
+    let outcome = &needs[0].0;
+    let outcomes_csv = train
+        .files
+        .iter()
+        .find(|f| f.name == "outcomes.csv")
+        .map(|f| f.csv.clone())
+        .unwrap_or_default();
+    // The bundle wrote this table itself, so the parse always succeeds; the
+    // empty-table fallback follows the executor's own reading of the file.
+    let table = bundle::parse_csv(&outcomes_csv).unwrap_or_else(|_| bundle::CsvTable::empty());
+    let labels = super::predictions::training_labels(&table);
+    let mut strata = super::predictions::fold_strata(&labels, outcome, settings.look_ahead_day);
+    if strata.len() != train.patient_ids.len() {
+        // The outcome file is absent or does not parse (its label table is
+        // then empty — or otherwise not the sorted cohort, so the strata
+        // cannot index the patients). Never let that starve the cross-fit of
+        // folds: fall back to ALL-ZERO strata — one stratum holding every
+        // patient — so the seeded deal is the plain balanced one (the
+        // package's old unstratified partition), at the full cohort length.
+        strata = vec![0; train.patient_ids.len()];
+    }
+    debug_assert_eq!(
+        strata.len(),
+        train.patient_ids.len(),
+        "the strata index the cohort one-to-one"
+    );
+    super::predictions::crossfit_folds_stratified(
+        &strata,
+        TxrLimits::SEED as u64,
+        super::predictions::CROSS_FIT_FOLDS,
+    )
+}
+
 /// Every bundle a train-mode call builds, built without running anything —
 /// [`method_bundles`], then (when the conversion band needs scores) the
 /// cross-fit folds' bundles for a fitted method or the cohort test bundle
@@ -1944,15 +1996,12 @@ pub(crate) fn train_bundle_preflight(
         return Err(bundle::BundleError::CovariatesSwitchedOff);
     }
     let bundles = method_bundles(train, predict, facts, settings, min_draws)?;
-    if needs_list(facts, &bundles.train.outcomes, settings).is_empty() {
+    let needs = needs_list(facts, &bundles.train.outcomes, settings);
+    if needs.is_empty() {
         return Ok(());
     }
     if facts.fitted {
-        let folds = super::predictions::crossfit_folds(
-            bundles.train.patient_ids.len(),
-            TxrLimits::SEED as u64,
-            super::predictions::CROSS_FIT_FOLDS,
-        );
+        let folds = cohort_folds(&bundles.train, &needs, settings);
         for k in 0..super::predictions::CROSS_FIT_FOLDS {
             crossfit_fold_bundles(
                 train,
@@ -7708,6 +7757,139 @@ mod tests {
                 })
                 .map(|m| (m.id.clone(), cut.clone()))
         })
+    }
+
+    /// The ONE-construction rule behind the executor/preflight parity: the
+    /// shared [`cohort_folds`] derives the strata from the FIRST learned
+    /// need's training labels (the written outcomes.csv — the sorted cohort)
+    /// and returns the balanced stratified partition the per-fold runs use,
+    /// byte-for-byte the public pieces recompute.
+    #[tokio::test]
+    async fn cohort_folds_are_the_stratified_partition_of_the_cohort() {
+        let _g = rootfs::scoped_data_root(test_data_dir("cohort-folds"));
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        let config = RunConfig {
+            decision_day: 56.0,
+            look_ahead_day: 238.0,
+            save_models: true,
+            ..Default::default()
+        };
+        let facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("the fixture method's facts");
+        let settings = train_call_bundle_settings(&config, detect_cpus(), facts, train, None);
+        let bundles =
+            method_bundles(train, None, facts, &settings, facts.min_draws).expect("bundles");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        assert!(
+            !needs.is_empty(),
+            "the fixture cohort learns at least one outcome"
+        );
+
+        let folds = cohort_folds(&bundles.train, &needs, &settings);
+        assert_eq!(folds.len(), bundles.train.patient_ids.len());
+        let mut counts = [0usize; predictions::CROSS_FIT_FOLDS];
+        for f in &folds {
+            assert!(*f < predictions::CROSS_FIT_FOLDS, "folds are in 0..K");
+            counts[*f] += 1;
+        }
+        assert!(
+            counts.iter().max().unwrap() - counts.iter().min().unwrap() <= 1,
+            "the continued deal balances the fold sizes: {counts:?}"
+        );
+        assert!(counts.iter().all(|c| *c > 0), "every fold has patients");
+
+        // The same folds as the public pieces: strata from the first need's
+        // labels, then the stratified construction at the run's seed and K.
+        let outcomes_csv = bundles
+            .train
+            .files
+            .iter()
+            .find(|f| f.name == "outcomes.csv")
+            .expect("the train bundle writes outcomes.csv");
+        let table = bundle::parse_csv(&outcomes_csv.csv).expect("the bundle's own CSV parses");
+        let labels = predictions::training_labels(&table);
+        let strata = predictions::fold_strata(&labels, &needs[0].0, settings.look_ahead_day);
+        assert_eq!(
+            predictions::crossfit_folds_stratified(
+                &strata,
+                TxrLimits::SEED as u64,
+                predictions::CROSS_FIT_FOLDS
+            ),
+            folds,
+            "cohort_folds is exactly fold_strata + crossfit_folds_stratified"
+        );
+    }
+
+    /// The fallback of [`cohort_folds`] when the outcome file is missing or
+    /// does not parse: the label table is then empty (or otherwise not the
+    /// sorted cohort), so the strata do not index the patients. The function
+    /// must NOT propagate that as empty folds — the cross-fit would give the
+    /// conversion band no training risks at all. It falls back to ALL-ZERO
+    /// strata (one stratum, every patient), so the delivered folds are the
+    /// full cohort length and exactly the plain balanced seeded deal.
+    #[test]
+    fn cohort_folds_fall_back_to_a_plain_deal_without_outcomes() {
+        let settings = bundle::BundleSettings::for_run(
+            &RunConfig {
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            1,
+        );
+        let needs = vec![("no_response".to_string(), None)];
+        let patient_ids: Vec<String> = (0..12).map(|i| format!("C{i:02}")).collect();
+        let bundle_with = |files: Vec<bundle::BundleFile>| bundle::TrainBundle {
+            files,
+            params: serde_json::json!({}),
+            outcomes: vec!["no_response".to_string()],
+            n_outcome: Default::default(),
+            warnings: Vec::new(),
+            marker_names: vec!["14804-9".to_string()],
+            patient_ids: patient_ids.clone(),
+        };
+
+        // outcomes.csv ABSENT: the bundle carries only the long tables.
+        let absent = bundle_with(vec![
+            bundle::BundleFile {
+                name: "long.csv",
+                csv: "patient_id,day,marker,value,unit\n".to_string(),
+            },
+            bundle::BundleFile {
+                name: "long_full.csv",
+                csv: "patient_id,day,marker,value,unit\n".to_string(),
+            },
+        ]);
+        let folds = cohort_folds(&absent, &needs, &settings);
+        assert_eq!(folds.len(), patient_ids.len(), "full-length folds");
+        let plain = predictions::crossfit_folds_stratified(
+            &vec![0; patient_ids.len()],
+            TxrLimits::SEED as u64,
+            predictions::CROSS_FIT_FOLDS,
+        );
+        assert_eq!(folds, plain, "the fallback is the plain balanced seeded deal");
+        let mut counts = [0usize; predictions::CROSS_FIT_FOLDS];
+        for f in &folds {
+            assert!(*f < predictions::CROSS_FIT_FOLDS, "fold ids are in 0..K");
+            counts[*f] += 1;
+        }
+        assert_eq!(counts, [4, 4, 4], "12 patients over 3 folds stay balanced");
+
+        // outcomes.csv present but UNPARSABLE: the same fallback kicks in.
+        let unparsable = bundle_with(vec![bundle::BundleFile {
+            name: "outcomes.csv",
+            csv: "\"unterminated".to_string(),
+        }]);
+        assert_eq!(
+            cohort_folds(&unparsable, &needs, &settings),
+            plain,
+            "an unparsable outcomes.csv falls back the same way"
+        );
     }
 
     /// The per-method covariates rule (bug 2) — [`method_covariates`]: the
