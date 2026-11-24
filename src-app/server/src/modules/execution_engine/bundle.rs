@@ -1037,7 +1037,9 @@ impl CsvTable {
         Self::with_names(names.iter().map(|n| n.to_string()).collect())
     }
 
-    fn with_names(names: Vec<String>) -> Self {
+    /// The table with a header and no rows (the binary read side of the
+    /// module's one codec; [`push_row`] fills it).
+    pub(crate) fn with_names(names: Vec<String>) -> Self {
         let cols = vec![Vec::new(); names.len()];
         Self { names, cols }
     }
@@ -1049,7 +1051,8 @@ impl CsvTable {
         Self::with_names(Vec::new())
     }
 
-    fn push_row(&mut self, cells: &[String]) {
+    /// Append one row (the cell count must match the header).
+    pub(crate) fn push_row(&mut self, cells: &[String]) {
         debug_assert!(cells.len() == self.cols.len(), "{cells:?} vs {:?}", self.names);
         for (col, cell) in self.cols.iter_mut().zip(cells) {
             col.push(cell.clone());

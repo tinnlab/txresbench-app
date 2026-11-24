@@ -1924,6 +1924,41 @@ pub fn fit_recalibration(
     Ok(conversion)
 }
 
+/// The outcomes table of ONE fold's calibration ([`fit_recalibration`]'s
+/// input): the rows of the training-side patients ONLY — for fold `k` that is
+/// the patients of the OTHER folds, the same patient-id keying the folds
+/// use — so a fold's conversion's IPCW weights come from the censoring
+/// estimate of those patients alone and never include the held-out fold's
+/// outcomes (a change to fold k's follow-up times must not move
+/// conversion_k). Rows keep the original order and columns; a table without a
+/// `patient_id` column is returned unchanged (nothing can be filtered — the
+/// bundle's own outcomes.csv always carries it).
+pub fn outcomes_for_patients(outcomes: &CsvTable, keep: &BTreeSet<String>) -> CsvTable {
+    let Some(ids) = outcomes.col("patient_id") else {
+        return outcomes.clone();
+    };
+    let names = outcomes.names().to_vec();
+    let mut filtered = bundle::CsvTable::with_names(names.clone());
+    let mut row: Vec<String> = Vec::with_capacity(names.len());
+    for (i, id) in ids.iter().enumerate() {
+        if !keep.contains(id) {
+            continue;
+        }
+        row.clear();
+        for name in &names {
+            row.push(
+                outcomes
+                    .col(name)
+                    .and_then(|c| c.get(i))
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+        }
+        filtered.push_row(&row);
+    }
+    filtered
+}
+
 /// The label cell of one training patient (the column names the conversion
 /// band reads from `outcomes.csv`).
 fn training_label_cell(lbl: &TrainingLabel, column: &str) -> Option<f64> {
@@ -1954,6 +1989,162 @@ pub fn converted_rows(conversion: &Conversion, rows: &[PredictionRow]) -> Vec<Pr
             converted
         })
         .collect()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The cross-checked assembly — the shown rows of a learning run worked out
+// WITHOUT each patient (the user's cross-checked-chances rule): the final
+// predict's rows in its order, with every training-cohort patient's row
+// replaced by the cross-check's own value for it (the out-of-fold row of the
+// fold that validated it, or the fixed-rule cohort row) and predict-surface
+// patients who were never trained on kept at the full-fit values.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The shown rows of a cross-checked train call: the final predict's rows in
+/// its order, with each training-cohort patient's row replaced by the row the
+/// cross-check produced for it ([`MethodPredictions::stitched`]'s input), and
+/// every other predict-side patient kept at the full-fit row. An empty
+/// `checked_by_patient` is the identity — a method with no cross-check.
+pub fn stitch_rows(
+    full: &[PredictionRow],
+    checked_by_patient: &BTreeMap<String, PredictionRow>,
+) -> Vec<PredictionRow> {
+    full.iter()
+        .map(|row| {
+            checked_by_patient
+                .get(&row.patient_id)
+                .cloned()
+                .unwrap_or_else(|| row.clone())
+        })
+        .collect()
+}
+
+/// The shown rows of a CROSS-CHECKED converted column: the stitched rows
+/// ([`stitch_rows`]) with each scored row's missing probability made by the
+/// fold's OWN cross-checked conversion — `fold_conversions[k]` is fitted
+/// WITHOUT fold `k`'s patients, so a cohort patient's chance never used its
+/// own (out-of-fold) score — while a predict-surface patient who was never
+/// trained on (not in `fold_of`) keeps the full conversion, exactly
+/// [`converted_rows`]'s fill rule (a native value is never overwritten).
+///
+/// The rows and `fold_of` are keyed by PATIENT ID (the same id always names
+/// the same person, across the folds, the cohort and the predict surface):
+/// a row's fold and value are looked up by its `patient_id`, never by a row
+/// index — two rows with the same id are the same patient by construction
+/// (F6/F7).
+pub fn crosschecked_rows(
+    rows: &[PredictionRow],
+    fold_of: &BTreeMap<String, usize>,
+    fold_conversions: &[Conversion],
+    full_conversion: &Conversion,
+) -> Vec<PredictionRow> {
+    rows.iter()
+        .map(|row| {
+            let mut converted = row.clone();
+            if converted.probability.is_none() {
+                let conversion = fold_of
+                    .get(&row.patient_id)
+                    .and_then(|k| fold_conversions.get(*k))
+                    .unwrap_or(full_conversion);
+                converted.probability = conversion.apply(row.risk);
+            }
+            converted
+        })
+        .collect()
+}
+
+/// The stitched assembly handed to [`native_column`] / [`record_native_column`]
+/// of a cross-checked train call: the rows are the final predict's rows in its
+/// order with the cohort patients at their cross-checked values, and the
+/// table the same row set with the `call` values — the out-of-fold call for a
+/// cohort patient (its fold's `predictions.csv`, one of `checked_tables`),
+/// the full-fit call otherwise — so a reader records exactly the score and
+/// call the shown chance was made from and never sees a full-fit value where
+/// the cross-check has one. `checked_tables` are the raw tables the checked
+/// rows were assembled from (the folds' tables for a fitted method; the one
+/// cohort's table for a fixed-rule method). The row set and order are the
+/// full call's — coverage and the chance column's shape do not change.
+pub fn stitched_predictions(
+    full: &MethodPredictions,
+    checked_by_patient: &BTreeMap<String, PredictionRow>,
+    checked_tables: &[&bundle::CsvTable],
+) -> MethodPredictions {
+    let rows = stitch_rows(&full.rows, checked_by_patient);
+    // The per-patient call of the checked side: being PRESENT in a checked
+    // table makes the OOF call authoritative — an empty/None OOF call stays
+    // empty, never replaced by the full-fit value (the fold's own answer had
+    // no call), while the full-fit call is the fallback ONLY for a patient in
+    // no checked table (a predict-surface patient never trained on). A
+    // patient belongs to exactly one checked table — a later table's value
+    // never conflicts, but the map keeps the last, the same union rule the
+    // conversion band uses.
+    let mut checked_calls: BTreeMap<String, Option<u8>> = BTreeMap::new();
+    for table in checked_tables {
+        let Some(ids) = table.col("patient_id") else {
+            continue;
+        };
+        let calls = table.col("call");
+        for (i, id) in ids.iter().enumerate() {
+            let call = calls
+                .and_then(|col| col.get(i))
+                .map(|cell| parse_call(cell));
+            checked_calls.insert(id.clone(), call.flatten());
+        }
+    }
+    let full_calls = match (full.table.col("patient_id"), full.table.col("call")) {
+        (Some(ids), Some(calls)) => Some(
+            ids.iter()
+                .zip(calls)
+                .map(|(id, cell)| (id.clone(), parse_call(cell)))
+                .collect::<BTreeMap<String, Option<u8>>>(),
+        ),
+        _ => None,
+    };
+    let has_call = full.table.has("call") || checked_tables.iter().any(|t| t.has("call"));
+    let names = if has_call {
+        vec!["patient_id".to_string(), "call".to_string()]
+    } else {
+        vec!["patient_id".to_string()]
+    };
+    let mut table = bundle::CsvTable::with_names(names);
+    for row in &rows {
+        let mut cells = vec![row.patient_id.clone()];
+        if has_call {
+            let call = if checked_calls.contains_key(&row.patient_id) {
+                checked_calls.get(&row.patient_id).copied().flatten()
+            } else {
+                full_calls
+                    .as_ref()
+                    .and_then(|m| m.get(&row.patient_id).copied().flatten())
+            };
+            cells.push(call.map(|c| c.to_string()).unwrap_or_default());
+        }
+        table.push_row(&cells);
+    }
+    MethodPredictions {
+        table,
+        report: full.report.clone(),
+        rows,
+        outcomes: full.outcomes.clone(),
+        horizons: full.horizons.clone(),
+        outcome: full.outcome.clone(),
+        horizon: full.horizon,
+        native_column: full.native_column.clone(),
+    }
+}
+
+/// The `call` value of one raw cell ([`native_column`]'s parse): 0/1, else
+/// None (an empty cell or a malformed number — validation holds it valid).
+fn parse_call(cell: &str) -> Option<u8> {
+    parse_number(cell).and_then(|x| {
+        if x == 1.0 {
+            Some(1u8)
+        } else if x == 0.0 {
+            Some(0u8)
+        } else {
+            None
+        }
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2784,6 +2975,534 @@ mod tests {
 
         assert_eq!(read_native_column(&run_dir, "never-recorded"), None);
         let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    // ── the cross-checked assembly (brief 3) ────────────────────────────────
+
+    /// [`stitch_rows`]: the final predict's rows in its order, with the
+    /// cohort patients at their cross-checked rows and the outsiders (a
+    /// skipped `T0009` here — never trained on) at the full-fit values; an
+    /// empty map is the identity.
+    #[test]
+    fn stitch_rows_keep_the_final_order_and_replace_only_cohort_rows() {
+        let full: Vec<PredictionRow> = vec![
+            PredictionRow {
+                patient_id: "T0001".into(),
+                risk: Some(1.0),
+                probability: Some(0.9),
+                note: "".into(),
+            },
+            PredictionRow {
+                patient_id: "T0002".into(),
+                risk: Some(2.0),
+                probability: Some(0.8),
+                note: "".into(),
+            },
+            PredictionRow {
+                patient_id: "T0009".into(),
+                risk: Some(9.0),
+                probability: Some(0.1),
+                note: "skip".into(),
+            },
+        ];
+        let checked = BTreeMap::from([(
+            "T0001".to_string(),
+            PredictionRow {
+                patient_id: "T0001".into(),
+                risk: Some(0.5),
+                probability: Some(0.4),
+                note: "".into(),
+            },
+        )]);
+        let stitched = stitch_rows(&full, &checked);
+        assert_eq!(
+            stitched[0].risk,
+            Some(0.5),
+            "the cohort patient is at its checked row"
+        );
+        assert_eq!(stitched[0].probability, Some(0.4));
+        assert_eq!(
+            stitched[1], full[1],
+            "a cohort patient without a checked row keeps the full row"
+        );
+        assert_eq!(stitched[2], full[2], "an outsider keeps the full-fit row");
+        assert_eq!(
+            stitch_rows(&full, &BTreeMap::new()),
+            full,
+            "an empty map is the identity"
+        );
+    }
+
+    /// [`crosschecked_rows`]: a cohort patient's chance comes from the
+    /// conversion of ITS OWN fold (fitted without that fold), never the full
+    /// conversion; an outsider keeps the full conversion — and a native
+    /// value is never overwritten.
+    #[test]
+    fn crosschecked_rows_use_the_own_fold_conversion_and_the_full_for_outsiders() {
+        let full: Conversion = Conversion {
+            kind: "logistic".into(),
+            a: 0.5,
+            b: 2.0,
+            mu: 1.0,
+            sd: 1.0,
+            n: 30,
+            rate: Some(0.5),
+        };
+        let folds: Vec<Conversion> = vec![
+            Conversion {
+                kind: "logistic".into(),
+                a: -0.5,
+                b: 1.0,
+                mu: 0.4,
+                sd: 1.0,
+                n: 20,
+                rate: Some(0.4),
+            },
+            Conversion {
+                kind: "logistic".into(),
+                a: 1.5,
+                b: 3.0,
+                mu: 1.6,
+                sd: 1.0,
+                n: 20,
+                rate: Some(0.6),
+            },
+        ];
+        let fold_of =
+            BTreeMap::from([("T0001".to_string(), 0usize), ("T0002".to_string(), 1usize)]);
+        let rows = vec![
+            PredictionRow {
+                patient_id: "T0001".into(),
+                risk: Some(0.4),
+                probability: None,
+                note: "".into(),
+            },
+            PredictionRow {
+                patient_id: "T0002".into(),
+                risk: Some(1.6),
+                probability: None,
+                note: "".into(),
+            },
+            PredictionRow {
+                patient_id: "T0009".into(),
+                risk: Some(1.0),
+                probability: None,
+                note: "".into(),
+            },
+            PredictionRow {
+                patient_id: "T0003".into(),
+                risk: Some(0.4),
+                probability: Some(0.7),
+                note: "".into(),
+            },
+        ];
+        let rows = crosschecked_rows(&rows, &fold_of, &folds, &full);
+        assert_eq!(
+            rows[0].probability,
+            folds[0].apply(rows[0].risk),
+            "fold 0's conversion"
+        );
+        assert_eq!(
+            rows[1].probability,
+            folds[1].apply(rows[1].risk),
+            "fold 1's conversion"
+        );
+        assert_eq!(
+            rows[2].probability,
+            full.apply(rows[2].risk),
+            "the outsider: the full conversion"
+        );
+        assert_eq!(
+            rows[3].probability,
+            Some(0.7),
+            "a native value is never overwritten"
+        );
+    }
+
+    /// [`stitched_predictions`] hands [`native_column`] the OOF score and
+    /// call for cohort patients and the full-fit values for outsiders — the
+    /// record reads exactly what the shown chance was made from (the
+    /// full-fit raw table has DIFFERENT risk/call values than each fold's).
+    #[test]
+    fn stitched_predictions_gives_out_of_fold_scores_and_calls() {
+        let own: Vec<String> = vec!["risk".into(), "call".into()];
+        let spec = PredictionSpec {
+            method_id: "fake-crossfit",
+            own_outputs: &own,
+            group: MethodGroup::ResponseCall,
+            constant_ok: None,
+        };
+        // The full-fit call: cohort patients T0001..T0003 + an outsider
+        // T0006 (on the predict surface, never trained on) and a skipped
+        // T0009 (never scored).
+        let full_text = csv(
+            &["patient_id", "risk", "call", "note"],
+            &[
+                &["T0001", "1.0", "1", ""],
+                &["T0002", "2.0", "0", ""],
+                &["T0003", "3.0", "1", ""],
+                &["T0006", "6.0", "0", ""],
+            ],
+        );
+        let full = method_predictions(
+            Some(&full_text),
+            "{}",
+            &spec,
+            &[
+                "T0001".to_string(),
+                "T0002".to_string(),
+                "T0003".to_string(),
+                "T0006".to_string(),
+            ],
+            &[("T0009".to_string(), "no draw by day 56".to_string())],
+            &["no_response".to_string()],
+            &[],
+            "no_response",
+            None,
+        )
+        .expect("the full fixture is contract-valid");
+        // The two folds' raw tables (T0001-2 in fold 0, T0003 in fold 1).
+        let fold0_text = csv(
+            &["patient_id", "risk", "call", "note"],
+            &[&["T0001", "0.4", "0", ""], &["T0002", "0.5", "1", ""]],
+        );
+        let fold1_text = csv(
+            &["patient_id", "risk", "call", "note"],
+            &[&["T0003", "0.6", "1", ""]],
+        );
+        let fold0 = method_predictions(
+            Some(&fold0_text),
+            "{}",
+            &spec,
+            &["T0001".to_string(), "T0002".to_string()],
+            &[],
+            &["no_response".to_string()],
+            &[],
+            "no_response",
+            None,
+        )
+        .expect("fold 0 is contract-valid");
+        let fold1 = method_predictions(
+            Some(&fold1_text),
+            "{}",
+            &spec,
+            &["T0003".to_string()],
+            &[],
+            &["no_response".to_string()],
+            &[],
+            "no_response",
+            None,
+        )
+        .expect("fold 1 is contract-valid");
+        let checked = BTreeMap::from([
+            ("T0001".to_string(), fold0.rows[0].clone()),
+            ("T0002".to_string(), fold0.rows[1].clone()),
+            ("T0003".to_string(), fold1.rows[0].clone()),
+        ]);
+        let stitched = stitched_predictions(&full, &checked, &[&fold0.table, &fold1.table]);
+        let native = native_column(&stitched);
+        assert!(native.has_call);
+        assert_eq!(
+            native
+                .rows
+                .iter()
+                .map(|r| (r.patient_id.as_str(), r.score, r.call))
+                .collect::<Vec<_>>(),
+            vec![
+                ("T0001", Some(0.4), Some(0)),
+                ("T0002", Some(0.5), Some(1)),
+                ("T0003", Some(0.6), Some(1)),
+                ("T0006", Some(6.0), Some(0)),
+                ("T0009", None, None),
+            ],
+            "the OOF score + call for the cohort patients, the full-fit row for the outsider"
+        );
+        // And a method without a call column keeps no calls in the stitched
+        // record (the full-fit's own reading).
+        let no_call: Vec<String> = vec!["risk".into()];
+        let spec2 = PredictionSpec {
+            method_id: "fake-crossfit-nocall",
+            own_outputs: &no_call,
+            group: MethodGroup::StaticRisk,
+            constant_ok: None,
+        };
+        let full2 = method_predictions(
+            Some(&csv(
+                &["patient_id", "risk"],
+                &[&["T0001", "1.0"], &["T0002", "2.0"]],
+            )),
+            "{}",
+            &spec2,
+            &["T0001".to_string(), "T0002".to_string()],
+            &[],
+            &["no_response".to_string()],
+            &[],
+            "no_response",
+            None,
+        )
+        .expect("valid");
+        let stitched2 = stitched_predictions(
+            &full2,
+            &BTreeMap::from([("T0001".to_string(), full2.rows[0].clone())]),
+            &[&full2.table],
+        );
+        let native2 = native_column(&stitched2);
+        assert!(
+            !native2.has_call,
+            "no call column → still no calls in the record"
+        );
+        assert_eq!(native2.rows[0].score, Some(1.0));
+    }
+
+    /// F2: a cohort patient PRESENT in a checked table uses the OOF call
+    /// ONLY — an empty/None OOF call stays empty and is NEVER replaced by the
+    /// full-fit call; the full-fit call is the fallback only for a patient in
+    /// no checked table (a predict-surface patient never trained on).
+    #[test]
+    fn stitched_predictions_keeps_an_empty_out_of_fold_call_empty() {
+        let own: Vec<String> = vec!["risk".into(), "call".into()];
+        let spec = PredictionSpec {
+            method_id: "fake-empty-oof-call",
+            own_outputs: &own,
+            group: MethodGroup::ResponseCall,
+            constant_ok: None,
+        };
+        // The full-fit table: T0001..T0002 + an outsider T0006, all with a
+        // non-empty call; the checked fold table carries T0001 with an EMPTY
+        // call cell (the fold's own answer had no call) and T0002 with 1.
+        let full_text = csv(
+            &["patient_id", "risk", "call", "note"],
+            &[
+                &["T0001", "1.0", "1", ""],
+                &["T0002", "2.0", "0", ""],
+                &["T0006", "6.0", "0", ""],
+            ],
+        );
+        let full = method_predictions(
+            Some(&full_text),
+            "{}",
+            &spec,
+            &[
+                "T0001".to_string(),
+                "T0002".to_string(),
+                "T0006".to_string(),
+            ],
+            &[],
+            &["no_response".to_string()],
+            &[],
+            "no_response",
+            None,
+        )
+        .expect("the full fixture is contract-valid");
+        let fold0_text = csv(
+            &["patient_id", "risk", "call", "note"],
+            // T0001's OOF call cell is empty: `parse_call("")` is None.
+            &[&["T0001", "0.4", "", ""], &["T0002", "0.5", "1", ""]],
+        );
+        let fold0 = method_predictions(
+            Some(&fold0_text),
+            "{}",
+            &spec,
+            &["T0001".to_string(), "T0002".to_string()],
+            &[],
+            &["no_response".to_string()],
+            &[],
+            "no_response",
+            None,
+        )
+        .expect("fold 0 is contract-valid");
+        let checked = BTreeMap::from([
+            ("T0001".to_string(), fold0.rows[0].clone()),
+            ("T0002".to_string(), fold0.rows[1].clone()),
+        ]);
+        let stitched = stitched_predictions(&full, &checked, &[&fold0.table]);
+        let native = native_column(&stitched);
+        assert!(native.has_call, "the full fit carried calls");
+        assert_eq!(
+            native
+                .rows
+                .iter()
+                .map(|r| (r.patient_id.as_str(), r.score, r.call))
+                .collect::<Vec<_>>(),
+            vec![
+                ("T0001", Some(0.4), None),
+                ("T0002", Some(0.5), Some(1)),
+                ("T0006", Some(6.0), Some(0)),
+            ],
+            "T0001's empty OOF call stays empty (the full-fit call=1 never \
+             leaks in); T0006 is in no checked table and keeps the full-fit call"
+        );
+    }
+
+    /// F4's helper: [`outcomes_for_patients`] keeps exactly the patient ids
+    /// it is asked for, in the original row order and with every column
+    /// intact (the filtering that keeps a fold's IPCW weights off the
+    /// held-out fold's outcomes).
+    #[test]
+    fn outcomes_for_patients_filters_rows_by_patient_id() {
+        let table = parse_csv(&csv(
+            &["patient_id", "pfs_time", "pfs_event", "no_response"],
+            &[
+                &["P0001", "1", "1", "1"],
+                &["P0002", "2", "0", "0"],
+                &["P0003", "3", "1", "1"],
+                &["P0004", "4", "0", "0"],
+            ],
+        ))
+        .expect("parses");
+        let keep = BTreeSet::from([
+            "P0002".to_string(),
+            "P0004".to_string(),
+            "P0001".to_string(),
+        ]);
+        let filtered = outcomes_for_patients(&table, &keep);
+        assert_eq!(filtered.names(), table.names(), "columns kept");
+        assert_eq!(
+            filtered.col("patient_id").expect("ids"),
+            &["P0001", "P0002", "P0004"],
+            "rows kept in the original order"
+        );
+        assert_eq!(filtered.col("pfs_time").expect("times"), &["1", "2", "4"]);
+        assert_eq!(
+            filtered.col("no_response").expect("labels"),
+            &["1", "0", "0"]
+        );
+        // A table without a patient_id column is returned unchanged (nothing
+        // can be filtered).
+        let no_ids = parse_csv(&csv(&["pfs_time"], &[&["1"], &["2"]])).expect("parses");
+        let unchanged = outcomes_for_patients(&no_ids, &keep);
+        assert_eq!(unchanged, no_ids);
+    }
+
+    /// F4: a fold's conversion's IPCW weights come from the OTHER folds'
+    /// outcomes only — changing fold 0's censoring times moves the FULL
+    /// conversion's weights (its censoring estimate includes them) and the
+    /// full conversion, but leaves conversion_0 identical (its calibration
+    /// table is filtered to the other folds).
+    #[test]
+    fn a_held_out_folds_censoring_times_do_not_move_its_conversion() {
+        // 6 patients; fold 0 = P0001..P0002, fold 1 = P0003..P0004,
+        // fold 2 = P0005..P0006 (the test's own membership — the property
+        // under test is the filtering, not the fold construction). Fold 0's
+        // patients are censored before the horizon (dropped from the fit,
+        // but they DO shape the censoring KM of anyone who uses the full
+        // table); the other folds' patients give a rising relation (label 1
+        // at the higher risks).
+        let outcomes = csv(
+            &["patient_id", "pfs_time", "pfs_event"],
+            &[
+                &["P0001", "100", "0"],
+                &["P0002", "120", "0"],
+                &["P0003", "300", "0"],
+                &["P0004", "400", "0"],
+                &["P0005", "150", "1"],
+                &["P0006", "220", "1"],
+            ],
+        );
+        let own: Vec<String> = vec!["risk".into()];
+        let spec = risk_only_spec("m", &own);
+        let risks: BTreeMap<String, Option<f64>> = [
+            ("P0001", 0.4),
+            ("P0002", 0.7),
+            ("P0003", 0.5),
+            ("P0004", 0.6),
+            ("P0005", 0.9),
+            ("P0006", 1.0),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), Some(v)))
+        .collect();
+        let fold_of = BTreeMap::from([
+            ("P0001".to_string(), 0usize),
+            ("P0002".to_string(), 0usize),
+            ("P0003".to_string(), 1usize),
+            ("P0004".to_string(), 1usize),
+            ("P0005".to_string(), 2usize),
+            ("P0006".to_string(), 2usize),
+        ]);
+        let full_table = parse_csv(&outcomes).expect("parses");
+        let full = fit_recalibration(&spec, &full_table, &risks, "progression", Some(238.0))
+            .expect("the full conversion fits");
+        let fold0_table = outcomes_for_patients(
+            &full_table,
+            &fold_of
+                .iter()
+                .filter(|(_, k)| **k != 0)
+                .map(|(id, _)| id.clone())
+                .collect(),
+        );
+        let fold0_risks: BTreeMap<String, Option<f64>> = risks
+            .iter()
+            .filter(|(id, _)| fold_of[id.as_str()] != 0)
+            .map(|(id, r)| (id.clone(), *r))
+            .collect();
+        let before = fit_recalibration(
+            &spec,
+            &fold0_table,
+            &fold0_risks,
+            "progression",
+            Some(238.0),
+        )
+        .expect("fold 0's conversion fits");
+        assert!(
+            before != full,
+            "fold 0's conversion (other folds only) differs from the full one"
+        );
+        let weights = |table: &CsvTable| -> Vec<f64> {
+            let labels = training_labels(table);
+            let mut times: Vec<f64> = Vec::new();
+            let mut events: Vec<Option<f64>> = Vec::new();
+            for lbl in &labels {
+                let Some(t) = lbl.pfs_time else { continue };
+                times.push(t);
+                events.push(lbl.pfs_event);
+            }
+            ipcw_labels(&times, &events, 238.0)
+                .iter()
+                .map(|l| l.weight)
+                .collect()
+        };
+
+        // Move fold 0's censoring times only (their own rows stay censored
+        // before the horizon): the full table's KM — and so its weights —
+        // changes.
+        let moved_full_table = parse_csv(&csv(
+            &["patient_id", "pfs_time", "pfs_event"],
+            &[
+                &["P0001", "30", "0"],
+                &["P0002", "200", "0"],
+                &["P0003", "300", "0"],
+                &["P0004", "400", "0"],
+                &["P0005", "150", "1"],
+                &["P0006", "220", "1"],
+            ],
+        ))
+        .expect("parses");
+        assert_ne!(
+            weights(&moved_full_table),
+            weights(&full_table),
+            "fold 0's moved censoring times change the full table's IPCW weights"
+        );
+        let moved_full =
+            fit_recalibration(&spec, &moved_full_table, &risks, "progression", Some(238.0))
+                .expect("the moved full conversion fits");
+        assert_ne!(
+            moved_full, full,
+            "the moved censoring times move the full conversion"
+        );
+        let after = fit_recalibration(
+            &spec,
+            &fold0_table,
+            &fold0_risks,
+            "progression",
+            Some(238.0),
+        )
+        .expect("fold 0's conversion refits");
+        assert_eq!(
+            after, before,
+            "fold 0's own conversion is untouched by its own censoring times \
+             (its calibration sees the other folds only)"
+        );
     }
 
     // ── the risk band is outcome-scoped ─────────────────────────────────────
