@@ -281,11 +281,39 @@ $unregQuiet = { param($case, $dir, $r)
   Check $case 'no wsl call' ($lines.Count -eq 0) "$($lines.Count) calls"
   & $unregKeyGone $case $dir $r
 }
-$unregBasePath = @{ 'registered' = 'no'; 'extra-file' = 'yes'; 'wsl-fails' = 'yes'; 'no-tick' = 'yes'; 'update' = 'yes'; 'absent' = 'no'; 'other-distro' = 'no' }
+# wsl-hangs: the stand-in is silent for 10 s, the harness's /TIMEOUT is 3000 ms,
+# so nsExec stops it and reports "timeout" (not an exit code); the uninstall
+# keeps going, the distro's disk and directory stay, and nothing of the
+# stand-in may survive the case — nsExec ends the process on timeout, but a
+# harness run on 32-bit Windows goes through nsExec's helper copy, which is
+# what gets terminated, so stop the stand-in by name as well.
+$unregHangs = { param($case, $dir, $r)
+  $lines = @(Wsl-Calls $dir)
+  Check $case 'wsl called once' ($lines.Count -eq 1) "$($lines.Count) calls"
+  if ($lines.Count -eq 1) { $got = $lines[0] } else { $got = '' }
+  Check $case 'wsl --unregister TxResBench' $got.EndsWith('--unregister TxResBench') "got '$got'"
+  Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like '*txr-harness-wsl*' } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 200
+  Check $case 'stand-in ended' (-not (Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like '*txr-harness-wsl*' })) 'txr-harness-wsl still running'
+  # The timed-out command never finished: its disk is still there, so the
+  # directory stayed too (checked as base_path_after above).
+  Check $case 'disk stays' (Test-Path (Join-Path $dir 'wsl-data\TxResBench\ext4.vhdx')) 'ext4.vhdx removed'
+  & $unregKeyGone $case $dir $r
+}
+# long-path: BasePath is stored with WSL's \\?\ prefix; the hook strips it
+# before RMDir, so the directory is removed exactly like the registered case.
+$unregLongPath = { param($case, $dir, $r)
+  & $unregCalled $case $dir $r
+  Check $case 'BasePath kept the \\?\ prefix' ($r['unreg_base_path'].StartsWith('\\?\')) "got '$($r['unreg_base_path'])', no \\?\ prefix"
+}
+$unregBasePath = @{ 'registered' = 'no'; 'extra-file' = 'yes'; 'wsl-fails' = 'yes'; 'no-tick' = 'yes'; 'update' = 'yes'; 'absent' = 'no'; 'other-distro' = 'no'; 'wsl-hangs' = 'yes'; 'long-path' = 'no' }
 foreach ($c in @(
     @{ n = 'unreg-registered';   c = 'registered';   x = $unregCalled; exitK = '0' },
     @{ n = 'unreg-extra-file';   c = 'extra-file';   x = $unregCalled; exitK = '0' },
     @{ n = 'unreg-wsl-fails';    c = 'wsl-fails';    x = $unregCalled; exitK = '1' },
+    @{ n = 'unreg-wsl-hangs';    c = 'wsl-hangs';    x = $unregHangs;  exitK = 'timeout' },
+    @{ n = 'unreg-long-path';    c = 'long-path';    x = $unregLongPath; exitK = '0' },
     @{ n = 'unreg-no-tick';      c = 'no-tick';      x = $unregQuiet },
     @{ n = 'unreg-update';       c = 'update';       x = $unregQuiet; update = $true },
     @{ n = 'unreg-absent';       c = 'absent';       x = $unregQuiet },

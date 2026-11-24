@@ -68,6 +68,10 @@
 ;   install hook starts it the same way).
 ; - TXR_DISTRO: the app's own distro, the constant used for `wsl -d` in the
 ;   app (WSL_DISTRO in wsl_run.rs); only that exact name is matched.
+; - TXR_UNREG_TIMEOUT_MS: how long the uninstaller waits for wsl.exe before
+;   nsExec stops it (nsExec's /TIMEOUT); an idle timeout, the milliseconds
+;   without output from wsl.exe. nsExec returns "timeout" then, not an exit
+;   code, and the uninstall goes on.
 !ifndef TXR_LXSS_KEY
   !define TXR_LXSS_KEY "Software\Microsoft\Windows\CurrentVersion\Lxss"
 !endif
@@ -76,6 +80,9 @@
 !endif
 !ifndef TXR_DISTRO
   !define TXR_DISTRO "TxResBench"
+!endif
+!ifndef TXR_UNREG_TIMEOUT_MS
+  !define TXR_UNREG_TIMEOUT_MS 60000
 !endif
 
 ; The exit codes of `txresbench-desktop.exe --wsl-status`
@@ -134,8 +141,9 @@ Var TxrWslUnregFound      ; the Lxss subkey whose DistributionName is the app's 
 Var TxrWslUnregSubkey     ; the Lxss subkey being looked at
 Var TxrWslUnregName       ; its DistributionName value
 Var TxrWslUnregBasePath   ; its BasePath value (the distro's directory)
+Var TxrWslUnregDir        ; the directory RMDir gets (BasePath without a \\?\ prefix)
 Var TxrWslUnregIndex      ; the EnumRegKey index
-Var TxrWslUnregExit       ; the exit code of `wsl --unregister` ("error" when it could not run)
+Var TxrWslUnregExit       ; what nsExec returned: the exit code of `wsl --unregister`, "error" when it could not run, "timeout" when it was stopped
 
 !macro NSIS_HOOK_POSTINSTALL
   ; Tauri's template defines it; without it the check could not find the app.
@@ -162,7 +170,8 @@ Var TxrWslUnregExit       ; the exit code of `wsl --unregister` ("error" when it
 ; at the end of its Section Uninstall (NSIS_HOOK_POSTUNINSTALL, after the
 ; template checked that the app is closed, deleted the app files and made the
 ; "Delete app data" page's removals — the two variables it reads are set there
-; and are reliable here and only here):
+; and are reliable here and only here; these facts were checked against the
+; generated installer.nsi of tauri-bundler 2.10.5):
 ;   $DeleteAppDataCheckboxState is set on the Confirm page's leave callback
 ;   (un.ConfirmLeave sends BM_GETCHECK); when that page is skipped — a silent
 ;   (/S), passive (/P) or update (/UPDATE) run — it is never set, so it also
@@ -180,6 +189,11 @@ Var TxrWslUnregExit       ; the exit code of `wsl --unregister` ("error" when it
 ; then-empty distro directory is removed with RMDir, never RMDir /r, so a
 ; directory with anything else in it stays. Whatever wsl.exe says, the
 ; uninstall continues: a failure is logged, never shown or re-run.
+; The app installs per user (tauri.windows.conf.json installMode currentUser),
+; so the uninstaller runs as that user. If someone runs it elevated as a
+; DIFFERENT administrator, HKCU is that administrator's: the user's distro is
+; left alone, and that administrator's own TxResBench distro, if any, is the
+; one found.
 ; The whole body lives here, not in an `un.` function, because the harness
 ; (hook-harness.nsi) reuses exactly this macro from its own Install section.
 !macro NSIS_HOOK_POSTUNINSTALL
@@ -210,14 +224,31 @@ Var TxrWslUnregExit       ; the exit code of `wsl --unregister` ("error" when it
     ${Loop}
     ${If} $TxrWslUnregFound != ""
       ReadRegStr $TxrWslUnregBasePath HKCU "${TXR_LXSS_KEY}\$TxrWslUnregFound" "BasePath"
-      nsExec::Exec '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'
+      ; wsl.exe is started (hidden) and stopped by nsExec after
+      ; TXR_UNREG_TIMEOUT_MS without output: a wedged WSL service can never
+      ; hang the uninstaller. nsExec returns "timeout" then (it terminates the
+      ; process it started — wsl.exe itself, because this 32-bit uninstaller
+      ; runs under WOW64 on 64-bit Windows and nsExec starts wsl.exe directly
+      ; there; on a real 32-bit Windows there is no Sysnative wsl.exe to start
+      ; anyway), "error" when wsl.exe cannot be started, or the exit code.
+      ; Whatever it says, the uninstall goes on below.
+      nsExec::Exec '/TIMEOUT=${TXR_UNREG_TIMEOUT_MS}' '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'
       Pop $TxrWslUnregExit
       ; wsl.exe removed the distro and its disk; the BasePath directory is
       ; empty then. RMDir takes only an empty directory, so anything still in
-      ; it (or an unregister that failed) leaves it as is.
-      ${If} $TxrWslUnregBasePath != ""
+      ; it (or an unregister that failed or was timed out) leaves it as is.
+      ; WSL stores BasePath with a \\?\ prefix (\\?\C:\...). RMDir gets the
+      ; plain drive path: the prefix is stripped first.
+      ; ($TxrWslUnregName, no longer needed here, holds the prefix: the
+      ; hook leaves the template's registers alone.)
+      StrCpy $TxrWslUnregDir $TxrWslUnregBasePath
+      StrCpy $TxrWslUnregName $TxrWslUnregDir 4
+      ${If} $TxrWslUnregName == "\\?\"
+        StrCpy $TxrWslUnregDir $TxrWslUnregBasePath "" 4
+      ${EndIf}
+      ${If} $TxrWslUnregDir != ""
         ClearErrors
-        RMDir "$TxrWslUnregBasePath"
+        RMDir "$TxrWslUnregDir"
       ${EndIf}
       DetailPrint "TxResBench's WSL distro: wsl --unregister exited with $TxrWslUnregExit."
     ${EndIf}

@@ -16,11 +16,14 @@
 ;     hook's directory handling: it removes <work>\wsl-data\TxResBench\
 ;     ext4.vhdx (the distro's disk, which real wsl.exe deletes on --unregister)
 ;     and exits 0 unless <work>\wsl-exit-code.txt says otherwise (a non-zero
-;     code keeps the disk, as a failed --unregister does).
+;     code keeps the disk, as a failed --unregister does). With
+;     <work>\wsl-sleep.txt present (the wsl-hangs case) it is a wedged wsl.exe:
+;     it produces no output for 10 s, longer than the harness's
+;     TXR_UNREG_TIMEOUT_MS (3000), so nsExec times the run out.
 ;
 ;   txr-harness.exe /WORK=<dir> /SCENARIO=<name> [/S] [/P] [/UPDATE] [/AUTO]
 ;                   [/NOAPP] [/ACTION=install|turn-on|update] [/EXIT=<n>] [/NOELEVFILE] [/SLOW]
-;                   [/CASE=registered|no-tick|update|absent|other-distro|extra-file|wsl-fails]
+;                   [/CASE=registered|no-tick|update|absent|other-distro|extra-file|wsl-fails|wsl-hangs|long-path]
 ;
 ; Scenarios (each writes <work>\result.txt, one key=value per line):
 ;   hook        the production NSIS_HOOK_POSTINSTALL, as Tauri inserts it
@@ -57,6 +60,15 @@
 ;                 wsl-fails    the stand-in exits 1: the call is made, the dir
 ;                              stays, and the uninstall keeps going (result.txt
 ;                              is still written)
+;                 wsl-hangs    the stand-in sleeps silently for 10 s (the
+;                              wsl-sleep.txt marker): nsExec times the run out
+;                              at 3000 ms, the result is "timeout", the disk
+;                              and dir stay, and the uninstall keeps going
+;                              (a harness must stop the stand-in after the case
+;                              if nsExec did not)
+;                 long-path    BasePath is seeded as \\?\ + the distro dir (as
+;                              WSL stores it): the call is made, exit 0, and
+;                              the dir is removed (the hook strips the prefix)
 ; /AUTO closes the harness without its finish page (for unattended runs).
 ;
 ; Build: makensis -WX "-DTXR_HOOKS=<absolute path of installer-hooks.nsh>" hook-harness.nsi
@@ -103,10 +115,13 @@ ShowInstDetails show
 ; The uninstall hook's paths, overridden so the harness never runs the real
 ; wsl.exe and never reads WSL's real Lxss key: its Lxss key is this harness's
 ; own, and "wsl.exe" is this harness copied (the stand-in below, which logs
-; the call and behaves like wsl.exe for the disk).
+; the call and behaves like wsl.exe for the disk). The unregister is stopped
+; after 3000 ms of no output (nsExec's /TIMEOUT), so the wsl-hangs case, whose
+; stand-in is silent for 10 s, takes the "timeout" result.
 !define TXR_LXSS_KEY "Software\TxResBenchHarness\Lxss"
 !define TXR_HARNESS_WSL "txr-harness-wsl.exe"
 !define TXR_UNREG_WSL_EXE "$Work\${TXR_HARNESS_WSL}"
+!define TXR_UNREG_TIMEOUT_MS 3000
 
 !include MUI2.nsh
 !include LogicLib.nsh
@@ -187,6 +202,13 @@ Function .onInit
     SetErrorLevel 2
     Quit
   ${EndIf}
+  ; Safety: /WORK= present but empty would turn the paths below into absolute
+  ; ones at the drive root (\wsl-data). Refuse before anything is removed.
+  ${If} $Work == ""
+    MessageBox MB_OK "error: /WORK= is empty" /SD IDOK
+    SetErrorLevel 2
+    Quit
+  ${EndIf}
   ${GetOptions} $R1 "/SCENARIO=" $Scenario
   ClearErrors
   ${GetOptions} $R1 "/EXIT=" $Exit
@@ -232,6 +254,11 @@ FunctionEnd
 ; the hook's RMDir sees an empty directory. Exit code 0, or the code in
 ; <work>\wsl-exit-code.txt (added by the wsl-fails case, whose disk stays, as
 ; wsl.exe leaves it when --unregister fails).
+; When <work>\wsl-sleep.txt exists (the wsl-hangs case), the stand-in is a
+; wedged wsl.exe instead: it produces no output for 10 s, longer than the
+; harness's TXR_UNREG_TIMEOUT_MS, so nsExec times the run out. The sleep is
+; output-free (kernel32::Sleep), because nsExec's timeout is reset by any
+; output; nothing is deleted, so the distro's disk and directory stay.
 Function WslStandInUnregister
   FileOpen $0 "$EXEDIR\wsl-calls.txt" a
   FileSeek $0 0 END
@@ -244,6 +271,9 @@ Function WslStandInUnregister
     FileClose $0
     ${TrimNewLines} $R3 $R3
   wsl_standin_code_done:
+  IfFileExists "$EXEDIR\wsl-sleep.txt" 0 wsl_standin_no_sleep
+    System::Call 'kernel32::Sleep(i 10000)'
+  wsl_standin_no_sleep:
   ${If} $R3 == 0
     Delete "$EXEDIR\wsl-data\TxResBench\ext4.vhdx"
   ${EndIf}
@@ -387,7 +417,12 @@ Section "harness"
       WriteRegStr HKCU "${TXR_LXSS_KEY}\TxrTestDistro" "BasePath" "$Work\wsl-data\Ubuntu"
     ${ElseIf} $UnregCase != "absent"
       WriteRegStr HKCU "${TXR_LXSS_KEY}\TxrTestDistro" "DistributionName" "TxResBench"
-      WriteRegStr HKCU "${TXR_LXSS_KEY}\TxrTestDistro" "BasePath" "$Work\wsl-data\TxResBench"
+      ${If} $UnregCase == "long-path"
+        ; As WSL stores it: BasePath with the \\?\ prefix.
+        WriteRegStr HKCU "${TXR_LXSS_KEY}\TxrTestDistro" "BasePath" "\\?\$Work\wsl-data\TxResBench"
+      ${Else}
+        WriteRegStr HKCU "${TXR_LXSS_KEY}\TxrTestDistro" "BasePath" "$Work\wsl-data\TxResBench"
+      ${EndIf}
     ${EndIf}
     ; The distro's directory and disk (the BasePath above), cleaned first; the
     ; extra file is what the extra-file case leaves behind.
@@ -397,6 +432,8 @@ Section "harness"
     ${OrIf} $UnregCase == "update"
     ${OrIf} $UnregCase == "extra-file"
     ${OrIf} $UnregCase == "wsl-fails"
+    ${OrIf} $UnregCase == "long-path"
+    ${OrIf} $UnregCase == "wsl-hangs"
       CreateDirectory "$Work\wsl-data\TxResBench"
       FileOpen $0 "$Work\wsl-data\TxResBench\ext4.vhdx" w
       FileClose $0
@@ -410,6 +447,12 @@ Section "harness"
     ${If} $UnregCase == "wsl-fails"
       FileOpen $0 "$Work\wsl-exit-code.txt" w
       FileWrite $0 "1"
+      FileClose $0
+    ${EndIf}
+    ; The wsl-hangs case makes the stand-in sleep silently for 10 s (see the
+    ; stand-in), so nsExec times it out and the call's result is "timeout".
+    ${If} $UnregCase == "wsl-hangs"
+      FileOpen $0 "$Work\wsl-sleep.txt" w
       FileClose $0
     ${EndIf}
     !insertmacro NSIS_HOOK_POSTUNINSTALL

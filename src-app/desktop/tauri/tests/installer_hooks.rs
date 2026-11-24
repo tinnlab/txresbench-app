@@ -116,6 +116,37 @@ fn the_windows_config_installs_the_hook_in_a_per_user_installer() {
     let base = json(BASE_CONF);
     assert_eq!(base["bundle"]["createUpdaterArtifacts"], true);
     assert!(base["bundle"].get("windows").is_none(), "the base config sets no other Windows installer mode");
+    // Nothing that builds the real installer passes -DTXR_ defines to
+    // makensis: the hook's own !ifndef defaults are the production values.
+    // Tauri's CLI builds the NSIS installer from these two config files (it
+    // passes no -D flags at all, only charset and verbosity).
+    assert!(!WINDOWS_CONF.contains("TXR_"), "tauri.windows.conf.json passes -DTXR_ defines");
+    assert!(!BASE_CONF.contains("TXR_"), "tauri.conf.json passes -DTXR_ defines");
+}
+
+/// The overridable uninstall defines have their exact production defaults,
+/// each inside its own !ifndef block: the harness can override them (it
+/// defines them before including the hook, or makensis -D passes them), but
+/// the real installer must get the values the hook's own defaults pin —
+/// WSL's Lxss key, wsl.exe through Sysnative, the app's distro name, and the
+/// 60000 ms nsExec timeout for `wsl --unregister`.
+#[test]
+fn the_overridable_defines_have_the_production_defaults() {
+    let lines = code_lines(HOOKS);
+    let expected = [
+        ("TXR_LXSS_KEY", r#""Software\Microsoft\Windows\CurrentVersion\Lxss""#),
+        ("TXR_UNREG_WSL_EXE", r#""$WINDIR\Sysnative\wsl.exe""#),
+        ("TXR_DISTRO", r#""TxResBench""#),
+        ("TXR_UNREG_TIMEOUT_MS", "60000"),
+    ];
+    for (name, value) in expected {
+        let at = lines
+            .iter()
+            .position(|l| *l == format!("!ifndef {name}"))
+            .unwrap_or_else(|| panic!("no !ifndef {name}"));
+        assert_eq!(lines[at + 1], format!("!define {name} {value}"), "{name}");
+        assert_eq!(lines[at + 2], "!endif", "{name}");
+    }
 }
 
 #[test]
@@ -540,7 +571,8 @@ fn only_the_apps_own_distro_is_removed() {
     assert_eq!(
         unreg,
         [
-            r#"nsExec::Exec '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'"#.to_string(),
+            r#"nsExec::Exec '/TIMEOUT=${TXR_UNREG_TIMEOUT_MS}' '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'"#
+                .to_string(),
             r#"DetailPrint "TxResBench's WSL distro: wsl --unregister exited with $TxrWslUnregExit.""#.to_string(),
         ],
         "one wsl.exe call, and the log line"
@@ -607,7 +639,7 @@ fn the_uninstall_hook_never_elevates_and_removes_only_an_empty_directory() {
         assert!(!hook.iter().any(|l| l.contains(banned)), "{banned}");
     }
     let rmdir: Vec<&String> = hook.iter().filter(|l| l.starts_with("RMDir ")).collect();
-    assert_eq!(rmdir, [r#"RMDir "$TxrWslUnregBasePath""#]);
+    assert_eq!(rmdir, [r#"RMDir "$TxrWslUnregDir""#]);
     assert!(!hook.iter().any(|l| l.contains("/r ")), "no recursive deletion");
     assert!(!hook.iter().any(|l| l.contains("DeleteRegKey")), "wsl.exe removes the entry itself");
     // Exact-name match: the one compare is case-sensitive and reads the
@@ -618,6 +650,24 @@ fn the_uninstall_hook_never_elevates_and_removes_only_an_empty_directory() {
         1,
         "only the define's default names the distro"
     );
+    // WSL stores BasePath as \\?\C:\...; the hook strips the \\?\ prefix so
+    // RMDir gets the plain drive path, and only then removes the directory.
+    let strip = hook
+        .iter()
+        .position(|l| *l == r#"StrCpy $TxrWslUnregName $TxrWslUnregDir 4"#)
+        .expect("the prefix is checked");
+    assert_eq!(hook[strip + 1], r#"${If} $TxrWslUnregName == "\\?\""#);
+    assert_eq!(hook[strip + 2], r#"StrCpy $TxrWslUnregDir $TxrWslUnregBasePath "" 4"#);
+    // The hook uses only its own variables: the template's registers
+    // ($0-$9, $R0-$R9) are left as they were.
+    for reg in (0..10).flat_map(|i| [format!("${i}"), format!("$R{i}")]) {
+        assert!(
+            !hook.iter().any(|l| l.split(|c: char| !(c.is_ascii_alphanumeric() || c == '$')).any(|w| w == reg)),
+            "the uninstall hook uses the register {reg}"
+        );
+    }
+    let rmdir_at = hook.iter().position(|l| l.starts_with("RMDir ")).unwrap();
+    assert!(strip < rmdir_at, "the strip happens before RMDir");
 }
 
 /// The harness points the hook's overridable paths at its own key and its own
@@ -628,6 +678,9 @@ fn the_harness_never_touches_the_real_wsl_or_lxss_key() {
     const HARNESS: &str = include_str!("../windows/hook-harness.nsi");
     assert!(HARNESS.contains(r#"!define TXR_LXSS_KEY "Software\TxResBenchHarness\Lxss""#));
     assert!(HARNESS.contains(r#"!define TXR_UNREG_WSL_EXE "$Work\${TXR_HARNESS_WSL}""#));
+    // The harness's own short timeout: the wsl-hangs case's stand-in is silent
+    // for 10 s, so nsExec must time it out (instead of the production 60000).
+    assert!(HARNESS.contains("!define TXR_UNREG_TIMEOUT_MS 3000"));
     assert!(!HARNESS.contains(r#"CurrentVersion\Lxss"#), "the real WSL Lxss key");
     assert!(!HARNESS.contains(r"Sysnative\wsl.exe"), "the real wsl.exe");
     assert!(HARNESS.contains("!insertmacro NSIS_HOOK_POSTUNINSTALL"), "the scenario runs the production macro");
