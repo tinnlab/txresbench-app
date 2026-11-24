@@ -275,11 +275,11 @@ export function formatTrainedDateShort(value: string | null | undefined): string
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The screen-J section facts line: one section per model set, the facts
- * joined with the board's " · " separator, each part only when it applies:
+ * The screen-J set row's facts line (ONE-TABLE round — the set's name has
+ * the facts UNDER it; the count and the made date moved OUT: the Model
+ * column spells the count through `formatSetModelCount`, the Made column
+ * spells the date through `formatSetMade`):
  *
- * - `<N> models` / `1 model` — the section's count (the set's
- *   `model_count`, singular at one; the caller passes the count);
  * - `from the run “<source_label>”` — the set came from a training run
  *   (`source_run_id` present) and carries a `source_label`;
  * - `from the file “<imported_from>”` — the set is an import (no run) and
@@ -287,21 +287,14 @@ export function formatTrainedDateShort(value: string | null | undefined): string
  * - `from “<source_label>”` — the honest fallback when the set has a
  *   source label but it cannot be told apart as run or file (the
  *   brief's degraded spelling);
- * - `made <date>` — the set's `created_at` through the same en-GB
- *   day-month-year formatter the Made column uses (the viewer's local time
- *   zone, never a pinned zone);
  * - `training files kept` — the set's `keep_training_files` fact.
  *
  * The caller decides run/file/ambiguous from the provider facts; this
- * function only spells them. A not-in-a-set section calls it with only
- * the count — the bare "1 model" / "N models" line (no other part
- * applies to a row with no set).
+ * function only spells them. `""` when no part applies (a fallback group
+ * while the sets read has not answered — the page renders no facts line;
+ * the Model column still spells the count).
  */
 export interface ModelSetFactsInput {
-  /** The count (the set's `model_count`; the listed count for no set). */
-  count: number
-  /** The set's `created_at` (the "made" fact); null = omit. */
-  createdAt: string | null | undefined
   /** The set's `keep_training_files`. */
   keepTrainingFiles: boolean
   /** The set's `source_label` ("patients.csv"-style); null = omit. */
@@ -315,10 +308,6 @@ export interface ModelSetFactsInput {
 
 export function formatSetFacts(input: ModelSetFactsInput): string {
   const parts: string[] = []
-  const count = input.count
-  if (Number.isFinite(count)) {
-    parts.push(`${count} ${count === 1 ? 'model' : 'models'}`)
-  }
   const label = input.sourceLabel?.trim() ?? ''
   const file = input.importedFrom?.trim() ?? ''
   if (input.fromRun && label.length > 0) {
@@ -328,10 +317,31 @@ export function formatSetFacts(input: ModelSetFactsInput): string {
   } else if (!input.fromRun && label.length > 0) {
     parts.push(`from \u201c${label}\u201d`)
   }
-  const date = parseDate(input.createdAt)
-  if (date !== null) parts.push(`made ${MADE_DATE_FORMAT.format(date)}`)
   if (input.keepTrainingFiles) parts.push('training files kept')
   return parts.join(' \u00b7 ')
+}
+
+/**
+ * The set row's Model-column count (ONE-TABLE round — the "N models" fact
+ * the facts line used to spell): the board's singular/plural, `3 models` /
+ * `1 model`. The caller passes the set's `model_count` when the record is
+ * known, the listed count for a fallback group (the same source the old
+ * facts line used).
+ */
+export function formatSetModelCount(count: number): string {
+  return `${count} ${count === 1 ? 'model' : 'models'}`
+}
+
+/**
+ * The set row's Made-column entry (ONE-TABLE round — the set's made date
+ * moved from the facts line's "made <date>" part into this column):
+ * "21 Oct 2026" through the same en-GB day-month-year formatter; a missing
+ * or unparseable instant (a fallback group while the sets read has not
+ * answered) → the `UNRECORDED` constant, never a blank entry.
+ */
+export function formatSetMade(createdAt: string | null | undefined): string {
+  const date = parseDate(createdAt)
+  return date === null ? UNRECORDED : MADE_DATE_FORMAT.format(date)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

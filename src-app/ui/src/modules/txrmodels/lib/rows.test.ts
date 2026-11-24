@@ -45,7 +45,7 @@ import {
   TXRMODELS_SET_B,
 } from '../fixtures'
 import {
-  buildModelSetSections,
+  buildModelTableRows,
   buildPretrainedRows,
   buildSavedRows,
   buildSavedSections,
@@ -308,70 +308,145 @@ describe('buildSavedSections — the I run groups (TEST-MOD-06, INV-2)', () => {
   })
 })
 
-describe('buildModelSetSections — the J set groups (TEST-MOD-06)', () => {
-  it('groups one section per known set, newest first, with the not-in-a-set section last', () => {
-    const built = buildModelSetSections(
+describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
+  it('renders one set row per known set, newest first, and the no-set model as a plain top-level row (collapsed sets show only their set row)', () => {
+    const built = buildModelTableRows(
       [TXRMODELS_SET_A, TXRMODELS_SET_B],
       TXRMODELS_J_RESPONSE.models,
+      { expanded: new Set(), focusSetId: null },
     )
-    expect(built.map(section => section.key)).toEqual(['set-a', 'set-b', '__none__'])
-    expect(built[0].title).toBe('CRC cohort, day 60')
-    // The set-a section holds the two rows whose set_id names set-a (the
-    // set's own model_count is the facts line's, never the listed count).
-    expect(built[0].models.map(model => model.method_id)).toEqual([
-      'landmark-cox-current',
-      'relchange-threshold',
+    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+      'set:set-a',
+      'set:set-b',
+      `model:${TXRMODELS_J_RESPONSE.models[2].id}`,
     ])
-    expect(built[0].models).toHaveLength(2)
-    expect(built[0].set).toEqual(TXRMODELS_SET_A)
-    expect(built[1].set).toEqual(TXRMODELS_SET_B)
-    expect(built[2].unsetted).toBe(true)
-    expect(built[2].title).toBe('Not in a set')
-    expect(built[2].set).toBeNull()
-    expect(built[2].models.map(model => model.id)).toEqual([
-      TXRMODELS_J_RESPONSE.models[2].id,
-    ])
+    // The set-a row holds the set's TWO listed rows (the server's subset)
+    // and spells the count the old facts line used — the set's own
+    // model_count (7), never the two listed; matchCount is the listed count.
+    const setA = built[0]
+    expect(setA.kind).toBe('set')
+    if (setA.kind === 'set') {
+      expect(setA.name).toBe('CRC cohort, day 60')
+      expect(setA.set).toEqual(TXRMODELS_SET_A)
+      expect(setA.models.map(model => model.method_id)).toEqual([
+        'landmark-cox-current',
+        'relchange-threshold',
+      ])
+      expect(setA.modelCount).toBe(7)
+      expect(setA.matchCount).toBe(2)
+    }
+    expect(built[1].kind).toBe('set')
+    if (built[1].kind === 'set') expect(built[1].modelCount).toBe(3)
+    // COLLAPSED by default: no model row follows any set row.
+    expect(built.filter(row => row.kind === 'model')).toHaveLength(1)
+    // The no-set model is a top-level plain row (empty Set entry — the page's
+    // convention), NOT a group: the builder has no "Not in a set" section.
+    const loose = built[2]
+    expect(loose.kind).toBe('model')
+    if (loose.kind === 'model') {
+      expect(loose.model.id).toBe(TXRMODELS_J_RESPONSE.models[2].id)
+      expect(loose.inSet).toBe(false)
+    }
+    const setKeys = built.map(row => (row.kind === 'set' ? row.key : ''))
+    expect(setKeys.includes('__none__')).toBe(false)
+    expect(setKeys.filter(Boolean)).toEqual(['set-a', 'set-b'])
   })
 
-  it('sends a set_id the sets list does not know into the not-in-a-set section', () => {
+  it('expands a set row into its model rows (inSet) in the list order; other sets stay collapsed', () => {
+    const built = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      TXRMODELS_J_RESPONSE.models,
+      { expanded: new Set(['set-a']), focusSetId: null },
+    )
+    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+      'set:set-a',
+      `model:${TXRMODELS_J_RESPONSE.models[0].id}`,
+      `model:${TXRMODELS_J_RESPONSE.models[3].id}`,
+      'set:set-b',
+      `model:${TXRMODELS_J_RESPONSE.models[2].id}`,
+    ])
+    // The set-a rows are flagged inSet (the page indents the Model column).
+    for (const row of built) {
+      if (row.kind === 'model' && row.model.set_id === 'set-a') expect(row.inSet).toBe(true)
+    }
+  })
+
+  it('a ?set= focus shows ONLY that set row, always expanded, never the no-set rows', () => {
+    const built = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      TXRMODELS_J_RESPONSE.models,
+      { expanded: new Set(), focusSetId: 'set-a' },
+    )
+    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+      'set:set-a',
+      `model:${TXRMODELS_J_RESPONSE.models[0].id}`,
+      `model:${TXRMODELS_J_RESPONSE.models[3].id}`,
+    ])
+    // The focus set rows are inSet even though the store says collapsed.
+    for (const row of built) {
+      if (row.kind === 'model') expect(row.inSet).toBe(true)
+    }
+  })
+
+  it('sends a set_id the sets list does not know to the top level (never a fallback group when the sets read has answered)', () => {
     const ghost = {
       ...TXRMODELS_J_RESPONSE.models[0],
       id: 'a0000000-0000-4000-8000-000000000099',
       set_id: 'set-ghost',
       set_name: 'Ghost set',
     }
-    const built = buildModelSetSections([TXRMODELS_SET_A], [
-      ghost,
-      TXRMODELS_J_RESPONSE.models[0],
+    const built = buildModelTableRows([TXRMODELS_SET_A], [ghost, TXRMODELS_J_RESPONSE.models[0]], {
+      expanded: new Set(),
+      focusSetId: null,
+    })
+    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+      'set:set-a',
+      `model:${ghost.id}`,
     ])
-    expect(built.map(section => section.key)).toEqual(['set-a', '__none__'])
-    expect(built[1].models.map(model => model.id)).toEqual([ghost.id])
-    expect(built[1].unsetted).toBe(true)
+    expect(built[1].kind).toBe('model')
+    if (built[1].kind === 'model') expect(built[1].inSet).toBe(false)
   })
 
-  it('omits sections with no listed model (the server-side q/set filters)', () => {
-    const built = buildModelSetSections(
+  it('omits set rows with no listed model (the server-side q/set filters)', () => {
+    const built = buildModelTableRows(
       [TXRMODELS_SET_A, TXRMODELS_SET_B],
       TXRMODELS_J_RESPONSE.models.filter(model => model.set_id === 'set-b'),
+      { expanded: new Set(), focusSetId: null },
     )
-    expect(built.map(section => section.key)).toEqual(['set-b'])
+    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+      'set:set-b',
+    ])
   })
 
   it('degrades to the rows\' own facts while the sets read has not answered (null), newest row first', () => {
-    const built = buildModelSetSections(null, TXRMODELS_J_RESPONSE.models)
-    expect(built.map(section => section.key)).toEqual(['set-a', 'set-b', '__none__'])
-    // The rows' own set_name names the section (never a fabricated title).
-    expect(built[0].title).toBe('CRC cohort, day 60')
-    expect(built[0].set).toBeNull()
-    expect(built[0].unsetted).toBe(false)
-    // Order by the groups' newest row: set-a's row 14 (4 Dec) over set-b's
-    // rows (9/29 Nov) — the set summaries are unknown here.
-    expect(built[0].models.map(model => model.id)).toEqual([
-      TXRMODELS_J_RESPONSE.models[0].id,
-      TXRMODELS_J_RESPONSE.models[3].id,
+    const built = buildModelTableRows(null, TXRMODELS_J_RESPONSE.models, {
+      expanded: new Set(['set-a', 'set-b']),
+      focusSetId: null,
+    })
+    // The rows' own set_name names the set rows (never a fabricated title),
+    // the set record is null (the facts-line fallback), and the no-set
+    // model is the plain top-level row at the end.
+    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+      'set:set-a',
+      `model:${TXRMODELS_J_RESPONSE.models[0].id}`,
+      `model:${TXRMODELS_J_RESPONSE.models[3].id}`,
+      'set:set-b',
+      `model:${TXRMODELS_J_RESPONSE.models[1].id}`,
+      `model:${TXRMODELS_J_RESPONSE.models[4].id}`,
+      `model:${TXRMODELS_J_RESPONSE.models[5].id}`,
+      `model:${TXRMODELS_J_RESPONSE.models[2].id}`,
     ])
-    expect(built[1].unsetted).toBe(false)
-    expect(built[2].unsetted).toBe(true)
+    expect(built[0].kind).toBe('set')
+    if (built[0].kind === 'set') {
+      expect(built[0].name).toBe('CRC cohort, day 60')
+      expect(built[0].set).toBeNull()
+      // The record is unknown: the count is the LISTED one.
+      expect(built[0].modelCount).toBe(2)
+      expect(built[0].matchCount).toBe(2)
+    }
+    const setB = built[3]
+    expect(setB.kind).toBe('set')
+    if (setB.kind === 'set') expect(setB.modelCount).toBe(3)
   })
 
   it('sorts an unparseable created_at last in both comparators (never a NaN placement)', () => {
@@ -391,24 +466,26 @@ describe('buildModelSetSections — the J set groups (TEST-MOD-06)', () => {
       name: 'Undated set',
       created_at: 'not-a-date',
     }
-    const built = buildModelSetSections(
+    const built = buildModelTableRows(
       [undatedSet, TXRMODELS_SET_A, TXRMODELS_SET_B],
       [undatedModel, ...TXRMODELS_J_RESPONSE.models],
+      { expanded: new Set(), focusSetId: null },
     )
-    expect(built.map(section => section.key)).toEqual([
-      'set-a',
-      'set-b',
-      'set-undated',
-      '__none__',
-    ])
+    expect(
+      built
+        .filter(row => row.kind === 'set')
+        .map(row => (row.kind === 'set' ? row.key : '')),
+    ).toEqual(['set-a', 'set-b', 'set-undated'])
     // The fallback comparator (the sets read not answered): the undated
-    // group sorts after every dated group, still before not-in-a-set.
-    const fallback = buildModelSetSections(null, [undatedModel, ...TXRMODELS_J_RESPONSE.models])
-    expect(fallback.map(section => section.key)).toEqual([
-      'set-a',
-      'set-b',
-      'set-undated',
-      '__none__',
-    ])
+    // group sorts after every dated group, still before the no-set rows.
+    const fallback = buildModelTableRows(null, [undatedModel, ...TXRMODELS_J_RESPONSE.models], {
+      expanded: new Set(),
+      focusSetId: null,
+    })
+    expect(
+      fallback
+        .filter(row => row.kind === 'set')
+        .map(row => (row.kind === 'set' ? row.key : '')),
+    ).toEqual(['set-a', 'set-b', 'set-undated'])
   })
 })

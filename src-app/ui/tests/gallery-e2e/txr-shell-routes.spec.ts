@@ -985,7 +985,7 @@ test('route History: the toolbar stays above the region, the list scrolls inside
   expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
 })
 
-test('route Models: the inventory table thead sticks to the region top, the footnotes stay pinned', async ({
+test('route Models: the window-filling box is the scroll container, the thead sticks to it, the footnotes stay pinned', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 640 })
@@ -993,20 +993,37 @@ test('route Models: the inventory table thead sticks to the region top, the foot
   await page.waitForTimeout(SETTLE)
   await sizeFrame(page, 640)
 
+  // ONE-TABLE: the page's ScrollRegion IS the window-filling box. Expand
+  // BOTH fixture sets first (the other spec's byte — the two collapsed set
+  // rows alone do not overflow the box), so the scrollport and the sticky
+  // header legs below are REAL measurements again, not style-only.
+  await page.getByTestId('txr-models-set-toggle-set-a').click()
+  await page.getByTestId('txr-models-set-toggle-set-b').click()
+  await page.waitForTimeout(200)
+
+  // Scroll the box, then measure: the thead must stick to its top.
   await scrollRegionTo(page, 'Your models', 300)
-  const sticky = await page.evaluate(() => {
+  const box = await page.evaluate(() => {
     const region = document.querySelector<HTMLElement>('[aria-label="Your models"]')!
     const th = region.querySelector<HTMLElement>('thead th')!
     const regionTop = region.getBoundingClientRect().top
     return {
+      // the computed-style bytes (the one-table round's additions)
+      overflowY: getComputedStyle(region).overflowY,
+      overflowX: getComputedStyle(region).overflowX,
+      thTop: getComputedStyle(th).top,
+      // the original three real-measurement assertions
       overflow: region.scrollHeight > region.clientHeight,
       thPosition: getComputedStyle(th).position,
       thDelta: Math.abs(th.getBoundingClientRect().top - regionTop),
     }
   })
-  expect(sticky.overflow, 'the inventory region scrolls').toBe(true)
-  expect(sticky.thPosition, 'the inventory thead is sticky').toBe('sticky')
-  expect(sticky.thDelta, 'the thead sticks to the region top').toBeLessThanOrEqual(2)
+  expect(box.overflowY, 'the box scrolls vertically inside itself').toBe('auto')
+  expect(box.overflowX, 'the box scrolls horizontally inside itself').toBe('auto')
+  expect(box.thTop, 'the sticky header pins to the box top').toBe('0px')
+  expect(box.overflow, 'the expanded sets overflow the box — it is the scrollport').toBe(true)
+  expect(box.thPosition, 'the inventory thead is sticky').toBe('sticky')
+  expect(box.thDelta, 'the thead sticks to the box top').toBeLessThanOrEqual(2)
   const bar = await page.getByTestId('txr-models-j-footer-bar').boundingBox()
   const frame = await page.locator('[data-gallery-frame]').boundingBox()
   expect(bar).not.toBeNull()

@@ -78,6 +78,7 @@ import { ModelsPage } from './pages/ModelsPage'
 import { TxrModelsDialogHost } from './components/TxrModelsDialogHost'
 import { TxrSavedDialog } from './components/TxrSavedDialog'
 import { TxrModels, useTxrModelsStore } from './stores/TxrModels.store'
+import { isSetExpanded, toggleSetExpanded } from './lib/setExpansion'
 import { ResultsPage } from '../txrresults/pages/ResultsPage'
 import {
   TXRMODELS_IMPORT_OUTCOME,
@@ -351,6 +352,15 @@ function seedJStory(): void {
   })
 }
 
+/** The expanded-set story's seed: the J story's answer + ONE set already
+ *  open — the one-table round's expanded state (the module-level store the
+ *  chevron writes, toggled by the same helper, so the story and the page
+ *  share one truth). */
+function seedJStoryExpanded(): void {
+  seedJStory()
+  if (!isSetExpanded(TXRMODELS_SET_A.id)) toggleSetExpanded(TXRMODELS_SET_A.id)
+}
+
 /** The L / L3 stories' seed: the fixture run's detail + predictions (the
  *  keys belong to `txrresults`' cassette — id-scoped delegation), the
  *  catalogue union (the L dialog's training-data fact source; `txrlist`
@@ -454,11 +464,13 @@ function IStoryView() {
  *  open-folder button is desktop-gated and absent here). The narrow frame
  *  is the 390 px page: the table stacks as labelled cards and the header
  *  controls wrap (ITEM-5, RES-16 — the measured 1002 px page scrollWidth
- *  is the defect this story guards). */
-function JStoryView({ narrow = false }: { narrow?: boolean }) {
+ *  is the defect this story guards). The `expanded` frame is the ONE-table
+ *  state where a set is already open (the module-level store, toggled by
+ *  the same helper the chevron calls). */
+function JStoryView({ narrow = false, expanded = false }: { narrow?: boolean; expanded?: boolean }) {
   return (
     <section style={{ width: narrow ? 390 : '100%', maxWidth: '100%', minWidth: 0 }}>
-      <SeedGate seed={seedJStory}>
+      <SeedGate seed={expanded ? seedJStoryExpanded : seedJStory}>
         <ModelsPage />
       </SeedGate>
     </section>
@@ -710,16 +722,25 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-models-j',
       title: 'Your models (screen J)',
-      note: 'The inventory grouped by set over the server-filtered read: one section per set (newest first, facts line from the SetSummary — model count, run source, made date) plus the last "Not in a set" section for the imported row, the board columns, the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the Open-a-model-file button, the footnotes with the real models root and no open-folder button (web mode).',
+      note: 'The ONE-table inventory over the server-filtered read: a set row per set (newest first — chevron disclosure, the name with its run-source facts line under it, the "N models" Model column, the Made date, the Rename/Export/Delete set actions), CLOSED by default, the no-set imported row as a plain top-level row with an empty Set entry, the board columns, the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the Open-a-model-file button, the footnotes (web mode — no open-folder button).',
       path: '/models',
       initialPath: '/models',
       component: lazy(() => Promise.resolve({ default: JStoryView })),
       fullHeight: true,
     },
     {
+      slug: 'txr-models-j-expanded',
+      title: 'Your models — one set expanded (screen J)',
+      note: 'The one-table round\'s expanded state: set-a is already OPEN (the module-level store the chevron writes), so its two model rows sit indented below the set row, the other set stays closed, and the no-set imported row remains a plain top-level row — the table\'s rows scroll inside the window-filling box.',
+      path: '/models',
+      initialPath: '/models',
+      component: lazy(() => Promise.resolve({ default: () => <JStoryView expanded /> })),
+      fullHeight: true,
+    },
+    {
       slug: 'txr-models-j-narrow-390',
       title: 'Your models at 390 px (screen J)',
-      note: 'The board\'s mobile width: the seven-column table stacks as labelled cards, the search box takes the row and the Open-a-model-file button stays inside the viewport — no horizontal page overflow (ITEM-5, RES-16).',
+      note: 'The board\'s mobile width: the eight-column one-table stacks as labelled cards inside the same window-filling box (a set row is a card: name + facts on top, actions wrapped; empty entries carry no card), the search box takes the row and the Open-a-model-file button stays inside the viewport — no horizontal page overflow (ITEM-5, RES-16).',
       path: '/models',
       initialPath: '/models',
       component: lazy(() =>
@@ -730,7 +751,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-models',
       title: 'Your models (screen J) inside the shell',
-      note: 'The app-shell ITEM-3 route byte: the title + search + import + the set-focus banner fixed, the inventory table in the ONE region (its sticky thead pins to the region), the stored-in + deletion footnotes pinned in the fixed bottom bar. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
+      note: 'The app-shell ITEM-3 route byte: the title + search + import + the set-focus banner fixed, the ONE table in the window-filling box (the page\'s ScrollRegion — its sticky thead pins to the box top, the rows scroll inside the box, the page does not scroll), the stored-in + deletion footnotes pinned in the fixed bottom bar. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
       path: '/models',
       initialPath: '/models',
       component: lazy(() => Promise.resolve({ default: ShellJStoryView })),

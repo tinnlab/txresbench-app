@@ -304,54 +304,84 @@ function sectionSubtitle(set: SetSummary, models: ModelSummary[]): string {
 }
 
 /**
- * One screen-J inventory section (screen J's set grouping): a set's title +
- * the models listed under it, facts spelled by `formatSetFacts` from the
- * `SetSummary` when the sets read has answered, and the row keys' source.
+ * The screen-J one-table join (ONE-TABLE round — the inventory table is ONE
+ * `<table>` with set rows and model rows): a flat, ORDERED list of row
+ * descriptors built from the inventory models × the sets read:
+ *
+ * - a SET row per set the inventory knows (the group header row: the set
+ *   name, its record's facts, the Model-column count, the Made date, the set
+ *   actions) with the set's listed models; the model rows FOLLOW the set
+ *   row only when the set is expanded (`expanded`) or focused (`?set=` —
+ *   the focus view shows exactly that one set, always expanded);
+ * - a MODEL row for every listed model of an expanded set (`inSet: true` —
+ *   the page indents it in the Model column) and, at the TOP level, the
+ *   models with no set (`inSet: false`) — there is no "Not in a set"
+ *   section any more, and no `MODEL_SET_NONE_KEY`: an unsetted model is a
+ *   plain row with an empty Set entry.
+ *
+ * Ordering: known sets by `created_at` desc (newest first), then the
+ * sets-read-not-answered fallback groups (newest row first), then the
+ * top-level no-set model rows. A group with no listed model is omitted
+ * (the server-side `q`/`?set=` filters leave only the matching groups).
+ *
+ * The `sets` contract is the old builder's: `null` means the sets read has
+ * NOT answered yet (or failed) — the grouping degrades to the rows' own
+ * facts (the set name from `set_name`, the group order by the rows' newest
+ * `created_at`, the count the listed one) so the inventory never flashes a
+ * model into the no-set top level while the two reads race. A non-null
+ * list is the provider's truth: a `set_id` not in it (a set deleted from
+ * under the rows) goes to the top level.
+ *
+ * The `expanded` set is the module-level expansion store's snapshot (the
+ * sets are CLOSED by default); the `focusSetId` is the `?set=` param — the
+ * focus view overrides both expansion and the no-set rows (only that set's
+ * rows exist while focused).
  */
-export interface ModelSetSection {
-  /** The stable section key: the set id, or `MODEL_SET_NONE_KEY`. */
-  key: string
-  /** The section title (the set's name, or 'Not in a set'). */
-  title: string
-  /** The set's record (facts source); null for the not-in-a-set section
-   *  and for the sets-read-not-answered fallback groups. */
-  set: SetSummary | null
-  /** The section's models, in the inventory list's order. */
-  models: ModelSummary[]
-  /** True for the not-in-a-set section (the brief's no-actions row). */
-  unsetted: boolean
+export type ModelTableRow =
+  | {
+      kind: 'set'
+      /** The stable key: the set id (never a no-set key). */
+      key: string
+      /** The set's display name (its record's, or the rows' own
+       *  `set_name` fallback while the sets read has not answered). */
+      name: string
+      /** The set's record (the facts source); null for a fallback group. */
+      set: SetSummary | null
+      /** The models listed under this set, in the inventory list's order
+       *  (the server's `q`/`?set=` filters are already applied). */
+      models: ModelSummary[]
+      /** The count the set row's Model column spells: the set's
+       *  `model_count` (the engine's fact — the old facts line's count —
+       *  never the listed count) when the record is known, else the listed
+       *  count. */
+      modelCount: number
+      /** The number of LISTED (post-filter) models — the match-count the
+       *  plan's descriptor names; the part-2 client-side search's future
+       *  surface (a collapsed set with matches stays collapsed in this
+       *  commit, so the page does not spell it yet). */
+      matchCount: number
+    }
+  | {
+      kind: 'model'
+      model: ModelSummary
+      /** True when the row belongs to the set row above it (indented in
+       *  the Model column); false for a no-set top-level row. */
+      inSet: boolean
+    }
+
+/** The builder's view options (the expansion state + the `?set=` focus). */
+export interface ModelTableOptions {
+  /** The expanded set ids (the module-level store's snapshot). */
+  expanded: ReadonlySet<string>
+  /** The `?set=` focus: only that set's rows, always expanded. */
+  focusSetId: string | null
 }
 
-/** The not-in-a-set section's stable key (no `SetSummary` ever carries it;
- *  the underscored spelling keeps a real set id of that raw word from
- *  colliding with it — the section key must never equal a provider set id). */
-export const MODEL_SET_NONE_KEY = '__none__'
-
-/**
- * The screen-J section join (the inventory grouped by set): one section
- * per set the inventory knows, newest set first, then a LAST section for
- * the models whose set is not in the sets list ("Not in a set" — a missing
- * `set_id`, or a `set_id` the sets read does not know).
- *
- * Ordering: known sets by `created_at` desc (the newest set first); the
- * not-in-a-set section is always last.
- *
- * The `sets` contract: `null` means the sets read has NOT answered yet (or
- * failed) — the grouping then degrades to the rows' own facts (the set
- * name from `set_name`, the section order by the rows' newest
- * `created_at`) so the inventory never flashes everything into
- * "Not in a set" while the two reads race, and a failed sets read still
- * renders the rows. A non-null list is the provider's truth: a `set_id`
- * not in it (a set deleted from under the rows) goes to "Not in a set".
- *
- * A section with no listed model is omitted — the server-side `q`/`?set=`
- * filters leave the empty sections hidden (a search hit or the set focus
- * shows only the sections that match).
- */
-export function buildModelSetSections(
+export function buildModelTableRows(
   sets: SetSummary[] | null,
   models: ModelSummary[],
-): ModelSetSection[] {
+  options: ModelTableOptions,
+): ModelTableRow[] {
   const known = new Map((sets ?? []).map(set => [set.id, set] as const))
   const byId = new Map<string, ModelSummary[]>()
   const unsetted: ModelSummary[] = []
@@ -366,14 +396,28 @@ export function buildModelSetSections(
     byId.set(id, bucket)
   }
 
-  const sections: ModelSetSection[] = []
+  interface Group {
+    key: string
+    name: string
+    set: SetSummary | null
+    models: ModelSummary[]
+    modelCount: number
+    matchCount: number
+  }
+  const groups: Group[] = []
   const knownSets = (sets ?? []).slice().sort(
     (a, b) => dateInstant(b.created_at) - dateInstant(a.created_at),
   )
   for (const set of knownSets) {
     const list = byId.get(set.id) ?? []
-    if (list.length === 0) continue
-    sections.push({ key: set.id, title: set.name, set, models: list, unsetted: false })
+    groups.push({
+      key: set.id,
+      name: set.name,
+      set,
+      models: list,
+      modelCount: set.model_count ?? list.length,
+      matchCount: list.length,
+    })
   }
 
   // The sets read not answered: the groups the known-sets loop did not
@@ -382,19 +426,42 @@ export function buildModelSetSections(
   fallback.sort((a, b) => newestInstant(b[1]) - newestInstant(a[1]))
   for (const [id, list] of fallback) {
     const name = list.find(model => model.set_name?.trim())?.set_name?.trim() ?? id
-    sections.push({ key: id, title: name, set: null, models: list, unsetted: false })
-  }
-
-  if (unsetted.length > 0) {
-    sections.push({
-      key: MODEL_SET_NONE_KEY,
-      title: 'Not in a set',
+    groups.push({
+      key: id,
+      name,
       set: null,
-      models: unsetted,
-      unsetted: true,
+      models: list,
+      modelCount: list.length,
+      matchCount: list.length,
     })
   }
-  return sections
+
+  // The view: the focus keeps ONLY the focused set (always expanded); the
+  // unfocused view drops empty groups (the server filters) and shows every
+  // other group with its set row, followed by the no-set top-level rows.
+  const focus = options.focusSetId
+  const visible =
+    focus === null ? groups.filter(group => group.models.length > 0) : groups.filter(group => group.key === focus)
+
+  const rows: ModelTableRow[] = []
+  for (const group of visible) {
+    rows.push({
+      kind: 'set',
+      key: group.key,
+      name: group.name,
+      set: group.set,
+      models: group.models,
+      modelCount: group.modelCount,
+      matchCount: group.matchCount,
+    })
+    if (focus !== null || options.expanded.has(group.key)) {
+      for (const model of group.models) rows.push({ kind: 'model', model, inSet: true })
+    }
+  }
+  if (focus === null) {
+    for (const model of unsetted) rows.push({ kind: 'model', model, inSet: false })
+  }
+  return rows
 }
 
 /** The instant a date string names; an unparseable string is -Infinity —

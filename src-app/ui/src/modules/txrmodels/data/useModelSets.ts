@@ -11,10 +11,13 @@
  *
  * The J page's two reads race on mount (models + sets); the grouping
  * builder degrades to the rows' own facts while this response is `null`
- * (see `buildModelSetSections`), so a slow sets read never flashes the
- * inventory into "Not in a set". `error` is the transport message (the
- * page keeps the degraded grouping — the models list is the honest truth;
- * a failed secondary read is not worth an error line over live rows).
+ * (see `buildModelTableRows`), so a slow sets read never flashes the
+ * inventory into the no-set top level. `response` is the LAST response:
+ * a re-read (`refresh()`) keeps it until the new one lands (the set rows
+ * must not flash "not recorded" mid-refresh — brief 4b F9), and `error`
+ * is the transport message (the page keeps the degraded grouping — the
+ * models list is the honest truth; a failed secondary read is not worth
+ * an error line over live rows).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiClient } from '@/api-client'

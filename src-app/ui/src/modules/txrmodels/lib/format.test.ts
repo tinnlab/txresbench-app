@@ -40,6 +40,8 @@ import {
   formatPredicts,
   formatSavedTotals,
   formatSetFacts,
+  formatSetMade,
+  formatSetModelCount,
   formatTrainingDataWarning,
   formatTrainedOn,
 } from './format'
@@ -230,93 +232,78 @@ describe('formatSavedTotals — screen I\'s totals line (ITEM-5, RES-22)', () =>
   })
 })
 
-describe('formatSetFacts — the J section facts line (TEST-MOD-03)', () => {
-  it('spells the count with the board singular/plural and the run source', () => {
+describe('formatSetFacts — the J set row facts line (TEST-MOD-03, ONE-TABLE)', () => {
+  it('spells the run source (the count and made date live in the Model/Made columns now)', () => {
     expect(
       formatSetFacts({
-        count: 3,
-        createdAt: localNoonIso(2026, 5, 12),
         keepTrainingFiles: false,
         sourceLabel: 'Breast study',
         fromRun: true,
         importedFrom: null,
       }),
-    ).toBe('3 models \u00b7 from the run \u201cBreast study\u201d \u00b7 made 12 May 2026')
-    expect(
-      formatSetFacts({
-        count: 1,
-        createdAt: localNoonIso(2026, 5, 12),
-        keepTrainingFiles: false,
-        sourceLabel: 'Breast study',
-        fromRun: true,
-        importedFrom: null,
-      }),
-    ).toBe('1 model \u00b7 from the run \u201cBreast study\u201d \u00b7 made 12 May 2026')
+    ).toBe('from the run \u201cBreast study\u201d')
   })
 
   it('spells an import as the file it was opened from', () => {
     expect(
       formatSetFacts({
-        count: 2,
-        createdAt: null,
         keepTrainingFiles: false,
         sourceLabel: null,
         fromRun: false,
         importedFrom: 'lung-pilot.txr',
       }),
-    ).toBe('2 models \u00b7 from the file \u201clung-pilot.txr\u201d')
+    ).toBe('from the file \u201clung-pilot.txr\u201d')
   })
 
   it('appends the training-files-kept segment from the keep flag', () => {
     expect(
       formatSetFacts({
-        count: 7,
-        createdAt: localNoonIso(2026, 11, 29),
         keepTrainingFiles: true,
         sourceLabel: 'patients.csv',
         fromRun: true,
         importedFrom: null,
       }),
-    ).toBe(
-      '7 models \u00b7 from the run \u201cpatients.csv\u201d \u00b7 made 29 Nov 2026 \u00b7 training files kept',
-    )
+    ).toBe('from the run \u201cpatients.csv\u201d \u00b7 training files kept')
   })
 
-  it('omits the source segment when the source facts are missing', () => {
+  it('renders "" (the page shows no facts line) when no set fact applies', () => {
+    // A fallback group while the sets read has not answered: no source
+    // label, no run, no import record, no keep flag — the kept version of
+    // the old bare-count line, whose count now lives in the Model column.
     expect(
       formatSetFacts({
-        count: 7,
-        createdAt: localNoonIso(2026, 11, 29),
-        keepTrainingFiles: false,
-        sourceLabel: null,
-        fromRun: true,
-        importedFrom: null,
-      }),
-    ).toBe('7 models \u00b7 made 29 Nov 2026')
-    // A not-in-a-set section: the bare count line, nothing else.
-    expect(
-      formatSetFacts({
-        count: 1,
-        createdAt: null,
         keepTrainingFiles: false,
         sourceLabel: null,
         fromRun: false,
         importedFrom: null,
       }),
-    ).toBe('1 model')
+    ).toBe('')
   })
 
   it('falls to the plain source label when run/file cannot be told apart', () => {
     expect(
       formatSetFacts({
-        count: 4,
-        createdAt: null,
         keepTrainingFiles: false,
         sourceLabel: 'patients.csv',
         fromRun: false,
         importedFrom: null,
       }),
-    ).toBe('4 models \u00b7 from \u201cpatients.csv\u201d')
+    ).toBe('from \u201cpatients.csv\u201d')
+  })
+})
+
+describe('formatSetModelCount / formatSetMade — the J set row columns (TEST-MOD-03, ONE-TABLE)', () => {
+  it('spells the count with the board singular/plural', () => {
+    expect(formatSetModelCount(3)).toBe('3 models')
+    expect(formatSetModelCount(1)).toBe('1 model')
+    expect(formatSetModelCount(7)).toBe('7 models')
+  })
+
+  it('spells the set made date with the en-GB formatter and the unrecorded constant', () => {
+    expect(formatSetMade(localNoonIso(2026, 11, 29))).toBe('29 Nov 2026')
+    expect(formatSetMade(null)).toBe(UNRECORDED)
+    expect(formatSetMade(undefined)).toBe(UNRECORDED)
+    expect(formatSetMade('not-a-date')).toBe(UNRECORDED)
   })
 })
 
