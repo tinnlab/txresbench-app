@@ -27,7 +27,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
@@ -1193,6 +1193,15 @@ impl<A: HarnessApp> TestHarness<A> {
             fn into_inner(mut self) -> std::process::Child {
                 self.0.take().expect("child already taken")
             }
+            /// Observe the child without blocking. `try_wait` reaps the child if
+            /// it has already exited, so the later `Drop` (which calls
+            /// `kill`/`wait`) still finds a `Child` in a waitable state.
+            fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+                self.0
+                    .as_mut()
+                    .expect("child already taken")
+                    .try_wait()
+            }
         }
         impl Drop for KillOnDrop {
             fn drop(&mut self) {
@@ -1206,14 +1215,30 @@ impl<A: HarnessApp> TestHarness<A> {
 
         let base_url = format!("http://127.0.0.1:{}", server_port);
 
-        // Wait for the server to be ready (150 × 200ms = 30s ceiling; boot runs
-        // the security middleware + module registration + the database
-        // connect/migrate, which can exceed a few seconds on a busy box).
+        // Wait for the server to be ready: a WALL-CLOCK deadline 30s after the
+        // spawn, not an iteration count over the probes. A connect to a port
+        // where nothing listens is refused at once on Linux, but the Windows
+        // TCP stack retries it for ~2s per connect — the old 150 × 200ms loop
+        // therefore spent ~330s polling a dead port there. Each probe gets a
+        // short request timeout so one hung probe cannot pass the deadline by
+        // much; the 200ms pause between probes is kept. Boot runs the security
+        // middleware + module registration + the database connect/migrate,
+        // which can exceed a few seconds on a busy box, hence the 30s ceiling.
+        let deadline = Instant::now() + Duration::from_secs(30);
         let client = reqwest::Client::new();
         let health_url = format!("{}{}", base_url, self.app.health_path());
         let mut ready = false;
-        for _ in 0..150 {
-            let mut probe = client.get(&health_url);
+        loop {
+            // A server that has already EXITED never becomes healthy, on any OS
+            // — notice it before probing instead of polling a dead port until
+            // the ceiling (the refused demo boot used to drain the full wait).
+            if let Some(status) = child
+                .try_wait()
+                .expect("try_wait on the test server failed")
+            {
+                panic!("TestServer exited before it became healthy ({status})");
+            }
+            let mut probe = client.get(&health_url).timeout(Duration::from_secs(2));
             for (k, v) in self.app.health_headers() {
                 probe = probe.header(k, v);
             }
@@ -1222,6 +1247,9 @@ impl<A: HarnessApp> TestHarness<A> {
                     ready = true;
                     break;
                 }
+            }
+            if Instant::now() >= deadline {
+                break;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }

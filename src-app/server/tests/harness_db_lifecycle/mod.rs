@@ -447,6 +447,77 @@ async fn per_test_db_is_dropped_when_the_spawn_itself_panics() {
     );
 }
 
+/// A server that EXITS during boot must fail the readiness wait at once.
+///
+/// The old readiness loop polled a fixed 150 × 200ms regardless of the child:
+/// a demo boot that refuses its bundle exits, and the loop then dials a dead
+/// port until the 30s ceiling (on Windows the TCP stack retries a refused
+/// connect ~2s per probe, so it actually burned ~330s and blew the demo
+/// refusal test's 120s budget). The wait now checks the child between probes,
+/// so the panic must name the exit and land in seconds — and, like every
+/// pre-handle panic, must not orphan the per-test database it already copied.
+#[tokio::test]
+async fn an_exiting_server_fails_the_readiness_wait_at_once() {
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+    let opts = crate::common::TestOptions {
+        // A demo boot with no bundle anywhere refuses to start: the real server
+        // binary boots far enough to load its config, then exits non-zero.
+        demo: true,
+        demo_missing_bundle: true,
+        observed_database_name: Some(observed.clone()),
+        ..Default::default()
+    };
+
+    // The spawn panics when the server exits; run it as a task so the panic is
+    // caught as a `JoinError` instead of aborting this test, and bound the wait
+    // so a regressed readiness loop fails this test instead of hanging it.
+    let started = std::time::Instant::now();
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::spawn(async move { TestServer::spawn_with(opts).await }),
+    )
+    .await;
+    let elapsed = started.elapsed();
+
+    let join = match outcome {
+        Err(_) => panic!(
+            "the exiting server was still being waited on after {elapsed:?} — \
+             the readiness wait never noticed the child had exited"
+        ),
+        Ok(join) => join,
+    };
+    let err = match join {
+        Ok(_server) => panic!("a demo boot without a bundle must not succeed"),
+        Err(err) => err,
+    };
+    assert!(err.is_panic(), "the spawn failed without panicking: {err:?}");
+    let payload = err.into_panic();
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .unwrap_or("<non-string panic>");
+    assert!(
+        message.contains("exited before it became healthy"),
+        "the readiness wait must name the exit, got: {message}"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(10),
+        "an exiting server was only noticed after {elapsed:?} — \
+         the wait is bounded by the ceiling, not by the child's exit"
+    );
+
+    let name = observed
+        .lock()
+        .expect("observed-db-name slot")
+        .clone()
+        .expect("the harness must have reached plan_spawn, i.e. created the database");
+    assert!(
+        !file_exists(&name).await,
+        "{name} was created and then orphaned by the exit-detection panic — \
+         the reap is armed too late"
+    );
+}
+
 /// The startup sweep is INSTALLED, not merely present.
 ///
 /// Every other sweep test calls `sweep_stale_test_db_files` directly, so all of
