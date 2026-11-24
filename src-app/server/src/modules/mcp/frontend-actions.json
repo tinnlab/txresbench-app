@@ -254,6 +254,48 @@
       }
     },
     {
+      "id": "intake.setSingleMarkerChoice",
+      "title": "Set how the methods pick their markers",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "Set how the methods that pick their markers from your file choose them (the study step's group): 'ranked' uses the markers that best separate the outcome (the default), 'chosen' uses the marker you name first (the others follow the ranking), 'leave_out' leaves those methods out. A chosen marker must be one of your file's main markers; a marker the file does not have is refused.",
+      "aliases": [
+        "set the marker choice",
+        "marker setting"
+      ],
+      "keywords": [
+        "markers",
+        "single marker",
+        "leave out"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ranked",
+              "chosen",
+              "leave_out"
+            ],
+            "description": "ranked (the default), chosen (with marker), or leave_out."
+          },
+          "marker": {
+            "description": "The file marker to use first (required with mode: chosen).",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
       "id": "intake.setStudyAnswers",
       "title": "Set the study answers",
       "kind": "global",
