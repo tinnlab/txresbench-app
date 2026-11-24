@@ -2917,7 +2917,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING, and when this computer cannot run methods at all (Windows without a usable WSL 2) every verdict is cannot_run + RUNNER_UNAVAILABLE (total_no_env counts them, each method once). The body is a tagged union: `preview` (screen-B schedule + method filters) or `inventory` (the file validator's inventory, with the optional `filters` block). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).",
+        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING, and when no method can run at all (Windows without a usable WSL 2) every verdict is cannot_run + RUNNER_UNAVAILABLE (total_no_env counts them, each method once). The body is a tagged union: `preview` (screen-B schedule + method filters) or `inventory` (the file validator's inventory, with the optional `filters` block). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).",
         "operationId": "MethodCatalogue.eligibility",
         "requestBody": {
           "description": "The eligibility request body — a tagged union carrying exactly one of the two\n request kinds (`{\"preview\": …}` or `{\"inventory\": …}`).",
@@ -8771,7 +8771,7 @@
             "minimum": 0
           },
           "total_no_env": {
-            "description": "The `cannot_run` methods whose reason is\n [`ReasonCode::EnvImageMissing`] or [`ReasonCode::RunnerUnavailable`] —\n the count of catalogue methods this computer cannot run (no published\n environment available, or no method runner — Windows: WSL 2), each\n method counted once, so the list header can say how many exist while\n still listing them.",
+            "description": "The `cannot_run` methods whose reason is\n [`ReasonCode::EnvImageMissing`] or [`ReasonCode::RunnerUnavailable`] —\n the count of catalogue methods that cannot start (no published\n environment available, or no method runner: Windows, WSL 2), each\n method counted once, so the list header can say how many exist while\n still listing them.",
             "type": "integer",
             "format": "uint32",
             "minimum": 0
@@ -11895,7 +11895,7 @@
             ]
           },
           {
-            "description": "The provider's runner-unavailable code (this computer cannot run\n methods — Windows: WSL 2; the store's saved models never receive it\n today, but the wire language is the provider's — the 1:1 mapper).",
+            "description": "The provider's runner-unavailable code (no method can run — Windows:\n WSL 2; the store's saved models never receive it today, but the wire\n language is the provider's — the 1:1 mapper).",
             "type": "string",
             "const": "RUNNER_UNAVAILABLE"
           },
@@ -13335,7 +13335,7 @@
             ]
           },
           {
-            "description": "The provider's runner-unavailable code (this computer cannot run\n methods — Windows: WSL 2; pretrained entries never receive it today,\n but the wire language is the provider's — the 1:1 mapper).",
+            "description": "The provider's runner-unavailable code (no method can run — Windows:\n WSL 2; pretrained entries never receive it today, but the wire\n language is the provider's — the 1:1 mapper).",
             "type": "string",
             "const": "RUNNER_UNAVAILABLE"
           },
@@ -13801,7 +13801,7 @@
             "const": "ENV_IMAGE_MISSING"
           },
           {
-            "description": "This computer cannot run methods: the method runner is unavailable\n (Windows: WSL 2 is missing, too old, turned off by policy, or the\n app's WSL runtime is missing) — the run would fail at start with\n `SANDBOX_WSL_UNAVAILABLE`, so every method is marked in\n advance and the run row carries the SAME code (the run-start stage,\n like [`EnvImageMissing`]).",
+            "description": "No method can run: the method runner is not available (Windows: WSL\n 2 is missing, too old, turned off by policy, or the app's WSL runtime\n is missing) — the run would fail at start with\n `SANDBOX_WSL_UNAVAILABLE`, so every method is marked in\n advance and the run row carries the SAME code (the run-start stage,\n like [`EnvImageMissing`]).",
             "type": "string",
             "const": "RUNNER_UNAVAILABLE"
           },

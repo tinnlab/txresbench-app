@@ -166,7 +166,7 @@ pub fn runner_reason(status: SandboxAvailability, probe_failure: Option<&str>) -
     }
 }
 
-/// Whether NO method can run on this computer, in the one sentence the method
+/// Whether NO method can run at all, in the one sentence the method
 /// list / study preview / picker rows show when it cannot (the eligibility
 /// stage's `RUNNER_UNAVAILABLE`). `None` while the sandbox is `Ready` or has
 /// NOT booted yet ([`NotInitialized`]: unit tests, pre-boot — nothing is

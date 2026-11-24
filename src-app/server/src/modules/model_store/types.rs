@@ -704,9 +704,9 @@ pub enum ModelReasonCode {
     NotRunnable,
     #[serde(rename = "ENV_IMAGE_MISSING")]
     EnvImageMissing,
-    /// The provider's runner-unavailable code (this computer cannot run
-    /// methods — Windows: WSL 2; the store's saved models never receive it
-    /// today, but the wire language is the provider's — the 1:1 mapper).
+    /// The provider's runner-unavailable code (no method can run — Windows:
+    /// WSL 2; the store's saved models never receive it today, but the wire
+    /// language is the provider's — the 1:1 mapper).
     #[serde(rename = "RUNNER_UNAVAILABLE")]
     RunnerUnavailable,
     #[serde(rename = "TASK_INCOMPATIBLE")]

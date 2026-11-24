@@ -225,14 +225,14 @@ describe('reasonGroups (the per-reason partition of the cannot cards)', () => {
     expect(groups[0].cards[0].id).toBe('z')
   })
 
-  it('a method this computer cannot run gets its own runner section, not the environment one (w10a2)', () => {
-    // RUNNER_UNAVAILABLE is a fact about THIS COMPUTER (Windows: WSL 2
+  it('a method no deployment runner can run gets its own runner section, not the environment one (w10a2)', () => {
+    // RUNNER_UNAVAILABLE is a fact about the deployment (Windows: WSL 2
     // unusable), not about a published environment — a card in the
     // "No published environment" group would mislabel it.
-    const runner = card({ id: 'r1', run: { status: 'cannot', coverageLine: '', reasonCode: 'RUNNER_UNAVAILABLE', reasonLine: 'This computer cannot run methods yet', reasonLines: ['This computer cannot run methods yet'], reasonFix: '', disabled: true } })
+    const runner = card({ id: 'r1', run: { status: 'cannot', coverageLine: '', reasonCode: 'RUNNER_UNAVAILABLE', reasonLine: 'methods cannot run yet: WSL 2 is not ready', reasonLines: ['methods cannot run yet: WSL 2 is not ready'], reasonFix: '', disabled: true } })
     const groups = reasonGroups([...RUNNABLE, runner])
     expect(groups.map(g => g.key)).toEqual(['runner'])
-    expect(groups[0].label).toBe('This computer cannot run methods')
+    expect(groups[0].label).toBe('WSL 2 is not ready')
     expect(groups[0].fix).toBe('Use "Set up WSL" in the notice at the top of the app, then restart TxResBench.')
     expect(groups[0].cards[0].id).toBe('r1')
   })

@@ -33,8 +33,8 @@
 //! same method list as the catalogue), because a method with no published
 //! environment can never start (CM-1) and the screens must not offer it;
 //! [`with_runner`] then marks every verdict `cannot_run` +
-//! [`ReasonCode::RunnerUnavailable`] when THIS computer cannot run methods
-//! at all (Windows without a usable WSL 2 — `methods_cannot_run_here` in
+//! [`ReasonCode::RunnerUnavailable`] when no method can run at all (Windows
+//! without a usable WSL 2 — `methods_cannot_run_here` in
 //! `sandbox::config`, the OnceLock boot flags, never a per-request
 //! `wsl.exe` spawn). The production entry points ([`eligibility`],
 //! [`eligibility_for_runtime`]) apply the stage; the pure engines are the
@@ -896,7 +896,7 @@ fn with_runtime_env(images: &EnvManifest, mut resp: EligibilityResponse) -> Elig
     }
 }
 
-/// The RUNNER stage: when THIS computer cannot run methods at all (Windows:
+/// The RUNNER stage: when no method can run at all (Windows:
 /// WSL 2 missing/too old/off — the boot probe failed; `why` is the probe's
 /// sentence), no method can be offered: every verdict is reclassified to
 /// `cannot_run` with [`ReasonCode::RunnerUnavailable`] pushed FIRST (a method

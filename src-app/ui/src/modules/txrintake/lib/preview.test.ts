@@ -562,7 +562,7 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     // The direct line of a runner-only method is the machine sentence (the
     // env-only safety net's sibling).
     const runnerOnly = method('runner-only', 'cannot_run', [{ code: 'RUNNER_UNAVAILABLE' }])
-    expect(excludedReasonLine(runnerOnly, FORMATTERS)).toBe('This computer cannot run methods yet')
+    expect(excludedReasonLine(runnerOnly, FORMATTERS)).toBe('methods cannot run yet: WSL 2 is not ready')
   })
 
   it('renders the shared formatter line for a required marker (board bytes)', () => {

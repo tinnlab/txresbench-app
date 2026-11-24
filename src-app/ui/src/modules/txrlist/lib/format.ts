@@ -189,14 +189,15 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - `NOT_RUNNABLE` → "not available with this build";
  * - `ENV_IMAGE_MISSING` → "no published environment available"
  *   (CM-1's plain reason — the method cannot start without one);
- * - `RUNNER_UNAVAILABLE` → "This computer cannot run methods yet" — a fact
- *   about THIS COMPUTER (the app's start-up check found no usable method
- *   runner; Windows: WSL 2 unusable), never a problem with the user's study
- *   or answers. Like ENV_IMAGE_MISSING, it is the first reason of every
- *   method's verdict, so the row's one line names the machine fact and the
- *   fix points to the shell's WSL notice (see `methodRows.ts`). The shell's
- *   Windows-wide notice ("Methods cannot run yet…", under the header on
- *   every screen) carries the "Set up WSL" offer; the row stays short;
+ * - `RUNNER_UNAVAILABLE` → "methods cannot run yet: WSL 2 is not ready" — a
+ *   fact about the deployment (the app's start-up check found no usable
+ *   method runner; Windows: WSL 2 not ready), never a problem with the
+ *   user's study or answers. Like ENV_IMAGE_MISSING, it is the first reason
+ *   of every method's verdict, so the row's one line names the deployment
+ *   fact and the fix points to the shell's WSL notice (see `methodRows.ts`).
+ *   The shell's Windows-wide notice ("Methods cannot run yet…", under the
+ *   header on every screen) carries the "Set up WSL" offer; the row stays
+ *   short;
  * - `TASK_INCOMPATIBLE` → "needs an outcome column your file lacks";
  * - `RESPONSE_LABEL_MISSING` → "needs a response label in your file";
  * - `SURVIVAL_OUTCOME_MISSING` → "needs survival times in your file";
@@ -273,7 +274,7 @@ export function formatReasonLine(
     case 'ENV_IMAGE_MISSING':
       return NO_PUBLISHED_ENVIRONMENT_REASON
     case 'RUNNER_UNAVAILABLE':
-      return 'This computer cannot run methods yet'
+      return 'methods cannot run yet: WSL 2 is not ready'
     case 'TASK_INCOMPATIBLE':
       return 'needs an outcome column your file lacks'
     case 'RESPONSE_LABEL_MISSING':

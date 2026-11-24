@@ -137,7 +137,7 @@ function reasonFixOf(code: string | null, missingMarkers: ReadonlyArray<{ displa
     case 'NOT_RUNNABLE':
       return 'This method is not available yet.'
     case 'RUNNER_UNAVAILABLE':
-      // A fact about THIS COMPUTER, never the study: the fix points to the
+      // A fact about the deployment, never the study: the fix points to the
       // shell's Windows-wide notice (its slot is under the header on every
       // screen — the "Methods cannot run yet…" alert with "Set up WSL" /
       // "Update WSL") and says the app must be started again after the

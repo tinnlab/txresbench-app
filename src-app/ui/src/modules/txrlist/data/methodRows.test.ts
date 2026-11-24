@@ -209,8 +209,8 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
 
   it('a cannot card whose first reason is RUNNER_UNAVAILABLE reads the machine line and the WSL-notice fix (w10a2)', () => {
     // The eligibility stage pushes RUNNER_UNAVAILABLE FIRST on Windows when
-    // WSL 2 is unusable: the row's ONE line names THIS COMPUTER, never the
-    // study or the answers, and the fix points to the shell's WSL notice.
+    // WSL 2 is unusable: the row's ONE line names the deployment fact, never
+    // the study or the answers, and the fix points to the shell's WSL notice.
     const m = summary({ id: 'alpha', year: 2021, language: 'R' })
     const cards = buildMethodCards(
       [m],
@@ -223,7 +223,7 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
       ]),
     )
     expect(cards[0].run.reasonCode).toBe('RUNNER_UNAVAILABLE')
-    expect(cards[0].run.reasonLine).toBe('This computer cannot run methods yet')
+    expect(cards[0].run.reasonLine).toBe('methods cannot run yet: WSL 2 is not ready')
     expect(cards[0].run.reasonFix).toBe(RUNNER_UNAVAILABLE_FIX)
   })
 

@@ -19,7 +19,7 @@
  * - `fitCounts` — `{total, fit, some, leftOut, noEnvFit}` from the response:
  *   the board's fit / left-out split with the MACHINE facts stripped
  *   (R2-1: a method a deployment fact keeps from starting — no published
- *   environment, or this computer's runner unavailable — is not a study
+ *   environment, or the method runner unavailable — is not a study
  *   answer). `fit` counts the methods with NO answer cause (machine-set
  *   ones included), `leftOut` counts the methods the ANSWERS exclude —
  *   `fit + leftOut === total`, the one closed arithmetic the
@@ -123,7 +123,7 @@ export interface FitCounts {
   /**
    * The board's fit count — methods with NO answer cause (R2-1 + R3-intake-1):
    * the runnable ones plus the machine-set methods whose ONLY reason is a
-   * machine reason (no published environment, or this computer's runner
+   * machine reason (no published environment, or the method runner
    * unavailable — their study verdict is nothing but "can't start yet"; the
    * `noEnvFit` line right below states that fact). The board's own
    * arithmetic is inclusive here (some-fit methods are inside the headline
@@ -177,12 +177,12 @@ export function fitCounts(response: EligibilityResponse): FitCounts {
 
 /** The MACHINE reasons — facts about the deployment, never the answers:
  *  `ENV_IMAGE_MISSING` (a method with no published environment image in
- *  the app's manifest) and `RUNNER_UNAVAILABLE` (THIS computer cannot run
- *  methods at all — Windows: WSL 2 unusable, the start-up check's
- *  verdict). Both are pushed FIRST by the eligibility pipeline — the
- *  runner code ahead of the environment one — so a mixed method's first
- *  reason is always a machine reason, whichever machine fact it carries,
- *  and the panel's machine line ("N of them cannot run yet") owns it. */
+ *  the app's manifest) and `RUNNER_UNAVAILABLE` (no method can run at all —
+ *  Windows: WSL 2 unusable, the start-up check's verdict). Both are pushed
+ *  FIRST by the eligibility pipeline — the runner code ahead of the
+ *  environment one — so a mixed method's first reason is always a machine
+ *  reason, whichever machine fact it carries, and the panel's machine line
+ *  ("N of them cannot run yet") owns it. */
 function isMachineReason(code: string): boolean {
   return code === 'ENV_IMAGE_MISSING' || code === 'RUNNER_UNAVAILABLE'
 }

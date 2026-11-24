@@ -845,9 +845,9 @@ pub enum ReasonCode {
     /// method — the environment is the missing half).
     #[serde(rename = "ENV_IMAGE_MISSING")]
     EnvImageMissing,
-    /// This computer cannot run methods: the method runner is unavailable
-    /// (Windows: WSL 2 is missing, too old, turned off by policy, or the
-    /// app's WSL runtime is missing) — the run would fail at start with
+    /// No method can run: the method runner is not available (Windows: WSL
+    /// 2 is missing, too old, turned off by policy, or the app's WSL runtime
+    /// is missing) — the run would fail at start with
     /// `SANDBOX_WSL_UNAVAILABLE`, so every method is marked in
     /// advance and the run row carries the SAME code (the run-start stage,
     /// like [`EnvImageMissing`]).
@@ -1009,8 +1009,8 @@ pub struct EligibilityResponse {
     pub total_cannot: u32,
     /// The `cannot_run` methods whose reason is
     /// [`ReasonCode::EnvImageMissing`] or [`ReasonCode::RunnerUnavailable`] —
-    /// the count of catalogue methods this computer cannot run (no published
-    /// environment available, or no method runner — Windows: WSL 2), each
+    /// the count of catalogue methods that cannot start (no published
+    /// environment available, or no method runner: Windows, WSL 2), each
     /// method counted once, so the list header can say how many exist while
     /// still listing them.
     pub total_no_env: u32,

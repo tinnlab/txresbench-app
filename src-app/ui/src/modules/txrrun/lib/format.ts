@@ -251,8 +251,8 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
       // pre-vocabulary detail ("no published environment for method
       // <id>" — the same fact, two wordings). `RUNNER_UNAVAILABLE` has no
       // such second wording: the server's stored detail IS the one sentence
-      // ("This computer cannot run methods yet: <the start-up check's
-      // sentence>"), so the row shows the detail as is. Any other code keeps
+      // ("Methods cannot run yet: <the start-up check's sentence>"), so the
+      // row shows the detail as is. Any other code keeps
       // the engine's stored detail verbatim; a row the engine recorded no
       // reason for reads the constant below — a failure is never blank
       // (INV-2).

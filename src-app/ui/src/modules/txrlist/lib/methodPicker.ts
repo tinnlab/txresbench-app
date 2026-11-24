@@ -303,12 +303,12 @@ export const TXRMETHOD_REASON_GROUPS: readonly TxrReasonGroupDef[] = [
   },
   // RUNNER_UNAVAILABLE is NOT in the environment group: that group's label
   // ("No published environment") is about the app's environments, while
-  // this code is a fact about THIS COMPUTER (Windows: WSL 2 unusable) — a
+  // this code is a fact about the deployment (Windows: WSL 2 unusable) — a
   // runner card labelled with the environment sentence would be wrong. The
-  // machine fact gets its own section, right beside the environment one.
+  // deployment fact gets its own section, right beside the environment one.
   {
     key: 'runner',
-    label: 'This computer cannot run methods',
+    label: 'WSL 2 is not ready',
     codes: ['RUNNER_UNAVAILABLE'],
     fix: RUNNER_UNAVAILABLE_FIX,
   },

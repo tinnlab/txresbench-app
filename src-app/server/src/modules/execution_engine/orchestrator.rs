@@ -3908,13 +3908,13 @@ fn reason_line(reason: &crate::modules::method_catalogue::types::Reason) -> Stri
 
 /// The run-row detail for `RUNNER_UNAVAILABLE`: the same one sentence the
 /// screens show ("Use example" says `runner_unavailable`), so the run row
-/// never shows a bare code when this computer cannot run methods. `why` is
-/// the probe's sentence (`methods_cannot_run_here` in `sandbox::config`, read
-/// ONCE per [`classify`]); the fallback stands in when it is somehow absent.
+/// never shows a bare code when no method can run. `why` is the probe's
+/// sentence (`methods_cannot_run_here` in `sandbox::config`, read ONCE per
+/// [`classify`]); the fallback stands in when it is somehow absent.
 fn runner_unavailable_detail(why: Option<&str>) -> String {
     format!(
-        "This computer cannot run methods yet: {}",
-        why.unwrap_or("the method runner is unavailable")
+        "Methods cannot run yet: {}",
+        why.unwrap_or("the method runner is not available")
     )
 }
 
@@ -3991,8 +3991,8 @@ fn classify(
                         // the SAME fact this branch used to discover itself
                         // and report as ENV_UNKNOWN; one vocabulary now, the
                         // screens' verdict and the run row agree, CONS-EE-10 —
-                        // and RUNNER_UNAVAILABLE first when THIS computer
-                        // cannot run methods at all, with its own detail).
+                        // and RUNNER_UNAVAILABLE first when no method can
+                        // run at all, with its own detail).
                         let reason = verdict
                             .reasons
                             .first()
@@ -5152,20 +5152,20 @@ mod tests {
     use sqlx::SqlitePool;
 
     /// The run-row detail for `RUNNER_UNAVAILABLE` (the first reason the
-    /// eligibility stage pushes when this computer cannot run methods):
-    /// the probe's sentence, read once per classify — same words the screens
-    /// and "Use example" show, so the row never carries a bare code.
+    /// eligibility stage pushes when no method can run): the probe's
+    /// sentence, read once per classify — same words the screens and "Use
+    /// example" show, so the row never carries a bare code.
     #[test]
     fn runner_unavailable_detail_carries_the_probe_sentence() {
         assert_eq!(
             runner_unavailable_detail(Some("WSL 2 is not installed")),
-            "This computer cannot run methods yet: WSL 2 is not installed"
+            "Methods cannot run yet: WSL 2 is not installed"
         );
         // Defensive: when the sentence is somehow absent the detail still
         // reads as a sentence.
         assert_eq!(
             runner_unavailable_detail(None),
-            "This computer cannot run methods yet: the method runner is unavailable"
+            "Methods cannot run yet: the method runner is not available"
         );
     }
 

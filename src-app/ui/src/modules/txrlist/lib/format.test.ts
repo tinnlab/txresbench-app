@@ -157,12 +157,12 @@ describe('formatReasonLine', () => {
     expect(formatReasonLine('cannot', SOME('ENV_IMAGE_MISSING'), COVERAGE(38, 38), minDraws, [])).toBe(
       'no published environment available',
     )
-    // RUNNER_UNAVAILABLE is a fact about THIS COMPUTER (the start-up check
-    // found no usable method runner — Windows: WSL 2), pushed FIRST by the
-    // eligibility stage; the row says the machine fact plainly, never a
-    // study/answer blame.
+    // RUNNER_UNAVAILABLE is a fact about the deployment (the start-up check
+    // found no usable method runner — Windows: WSL 2 not ready), pushed FIRST
+    // by the eligibility stage; the row says the deployment fact plainly,
+    // never a study/answer blame.
     expect(formatReasonLine('cannot', SOME('RUNNER_UNAVAILABLE'), COVERAGE(38, 38), minDraws, [])).toBe(
-      'This computer cannot run methods yet',
+      'methods cannot run yet: WSL 2 is not ready',
     )
     expect(formatReasonLine('cannot', SOME('TASK_INCOMPATIBLE'), COVERAGE(38, 38), minDraws, [])).toBe(
       'needs an outcome column your file lacks',
