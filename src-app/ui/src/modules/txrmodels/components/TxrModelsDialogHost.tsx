@@ -27,6 +27,7 @@
 import { useEffect, useState } from 'react'
 import { useEventBusStore } from '@txresbench/framework/events'
 import type { ModelSaveResponse } from '@/api-client/types'
+import type { TxrSaveFileOutcome } from '../lib/export'
 import { TxrSaveModelsDialog } from './TxrSaveModelsDialog'
 import { TxrSaveOneDialog } from './TxrSaveOneDialog'
 import { TxrSavedDialog } from './TxrSavedDialog'
@@ -37,11 +38,11 @@ import { TxrSavedDialog } from './TxrSavedDialog'
 const DIALOG_HOST_GROUP = 'txr-models-dialog-host'
 
 /** The host's open dialog: the event payload (L or L2) or the saved
- *  response (L3); `null` = none open. */
+ *  response + the "Also save as a file" outcome (L3); `null` = none open. */
 type TxrDialogRequest =
   | { kind: 'save-set'; runId: string; methodIds: string[] }
   | { kind: 'save-one'; runId: string; methodId: string }
-  | { kind: 'saved'; response: ModelSaveResponse }
+  | { kind: 'saved'; response: ModelSaveResponse; file: TxrSaveFileOutcome }
   | null
 
 // The release-gated e2e seam for the L entry (the repo's own testing device —
@@ -101,7 +102,7 @@ export function TxrModelsDialogHost() {
         runId={request.runId}
         methodIds={request.methodIds}
         onClose={() => setRequest(null)}
-        onSaved={response => setRequest({ kind: 'saved', response })}
+        onSaved={(response, file) => setRequest({ kind: 'saved', response, file })}
       />
     )
   }
@@ -112,12 +113,16 @@ export function TxrModelsDialogHost() {
         runId={request.runId}
         methodId={request.methodId}
         onClose={() => setRequest(null)}
-        onSaved={response => setRequest({ kind: 'saved', response })}
+        onSaved={response => setRequest({ kind: 'saved', response, file: { status: 'none' } })}
       />
     )
   }
 
   return (
-    <TxrSavedDialog response={request.response} onClose={() => setRequest(null)} />
+    <TxrSavedDialog
+      response={request.response}
+      file={request.file}
+      onClose={() => setRequest(null)}
+    />
   )
 }

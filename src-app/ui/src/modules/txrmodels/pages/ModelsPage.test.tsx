@@ -17,7 +17,9 @@
  *   DEC-17's table; the TESTS.md draft's `Txr.` namespace was an
  *   editorial slip, corrected at this item);
  * - "Open a model file": a File-constructed pick posts the multipart
- *   import (the `file` part) and refreshes the list;
+ *   import (the `file` part) and refreshes the list; a failure surfaces
+ *   the steady "The model file could not be opened." line, except the
+ *   server's 409 SET_NAME_TAKEN, which names the remedy;
  * - Use → `setIntent('reuse')` + the module store's pending id +
  *   navigation to `/predict-files` (the DEC-10 handoff);
  * - Export → the generated download (the provider's attachment saved
@@ -501,10 +503,30 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     // The refresh re-reads the inventory.
     expect(api.listModels.mock.calls.length).toBe(2)
 
+    // The one steady failure line (never the transport's own words).
     api.importModel.mockRejectedValue(new Error('INVALID_CONTAINER'))
     pickImport()
     await settle(0)
-    expect(screen.getByTestId('txr-models-j-import-error').textContent).toBe('INVALID_CONTAINER')
+    expect(screen.getByTestId('txr-models-j-import-error').textContent).toBe(
+      'The model file could not be opened.',
+    )
+  })
+
+  it('an import whose set name is taken (409 SET_NAME_TAKEN) names the remedy', async () => {
+    renderPage()
+    await settle(0)
+    const taken = new Error('a set named "CRC cohort, day 60" already exists (set names are case-insensitive)') as Error & {
+      error_code?: string
+      status?: number
+    }
+    taken.error_code = 'SET_NAME_TAKEN'
+    taken.status = 409
+    api.importModel.mockRejectedValue(taken)
+    pickImport()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-j-import-error').textContent).toBe(
+      'A set with this name already exists. Rename that set first, or open the file from inside it to add its models.',
+    )
   })
 
   it('Use sets the reuse intent + the pending model id and navigates to the predict-files screen', async () => {

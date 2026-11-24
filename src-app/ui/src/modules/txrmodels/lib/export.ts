@@ -50,6 +50,22 @@ export function setExportFilename(name: string): string {
   return `${exportStem(name)}.txr`
 }
 
+/**
+ * The L dialog's "Also save as a file" outcome (dialog L → L3): the ONE set
+ * file through the Save dialog / browser download. `none` when the box was
+ * unticked; `saved`/`downloaded`/`cancelled` are `saveFile`'s own answers
+ * (a cancelled Save dialog is not an error — the models stay saved);
+ * `failed` when the export transport or the file write refused. The server
+ * never writes its own export copy (the wire's `also_export` is always
+ * false), so this outcome is the ONLY record of the file save.
+ */
+export type TxrSaveFileOutcome =
+  | { status: 'none' }
+  | { status: 'saved'; path: string }
+  | { status: 'downloaded' }
+  | { status: 'cancelled' }
+  | { status: 'failed' }
+
 /** The Save dialog's file-type filter for a set file. */
 export const SET_FILE_FILTER = { name: 'TxResBench set', extensions: ['txr'] }
 

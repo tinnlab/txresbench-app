@@ -21,6 +21,12 @@
  * The dialog never performs a second save (the save succeeded — L3 is a
  * report); a navigation (or Done) closes it. `response` null = closed;
  * Escape/backdrop close through the kit Dialog's `onOpenChange`.
+ *
+ * The optional `file` outcome (brief 3, L's "Also save as a file") is
+ * reported under the lead: a cancelled Save dialog ("Your models are
+ * saved. The set file was not saved."), a failed export ("The set file
+ * could not be saved. Your models are saved."), or a saved file's path
+ * through the same `SavedFileNotice` the Models page uses.
  * Test-ids: `txr-models-saved-*`.
  */
 import { type CSSProperties } from 'react'
@@ -28,7 +34,9 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Dialog } from '@txresbench/kit'
 import type { ModelSaveResponse } from '@/api-client/types'
 import { runAction } from '@/core/actions/defineAction'
+import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import { formatBytes } from '../lib/format'
+import type { TxrSaveFileOutcome } from '../lib/export'
 import { modelsPath } from '../routes'
 
 /** The "see my models" button's label (the board's words). */
@@ -81,11 +89,24 @@ function summaryLine(response: ModelSaveResponse): string {
 export interface TxrSavedDialogProps {
   /** The save response; `null` is the closed dialog. */
   response: ModelSaveResponse | null
+  /** The "Also save as a file" outcome (L's post-save Save dialog); the
+   *  default is the no-export case (unticked box / L2, which never
+   *  exports). */
+  file?: TxrSaveFileOutcome
   /** The close request (Done / Escape / backdrop). */
   onClose: () => void
 }
 
-export function TxrSavedDialog({ response, onClose }: TxrSavedDialogProps) {
+/** The one line for a cancelled Save dialog (the models stay saved). */
+const FILE_CANCELLED_LINE = 'Your models are saved. The set file was not saved.'
+
+/** The one line for a failed export (transport/server). */
+const FILE_FAILED_LINE = 'The set file could not be saved. Your models are saved.'
+
+/** The file line's look (the summary's quiet line). */
+const FILE_LINE: CSSProperties = { margin: '6px 0 0', fontSize: 13, color: 'var(--txr-text-2)' }
+
+export function TxrSavedDialog({ response, file = { status: 'none' }, onClose }: TxrSavedDialogProps) {
   const navigate = useNavigate()
 
   // The registered `flow.startPath` (reuse): its first step goes back to the
@@ -129,6 +150,22 @@ export function TxrSavedDialog({ response, onClose }: TxrSavedDialogProps) {
       <p data-testid="txr-models-saved-lead" style={LEAD}>
         {LEAD_TEXT}
       </p>
+      {/* The "Also save as a file" outcome (brief 3): a cancelled Save
+          dialog or a failed export is a plain line under the lead — the
+          models are saved either way; a saved file shows where, through
+          the SAME `SavedFileNotice` the Models page uses for its exports
+          (no notice for the browser download — there is no path). */}
+      {file.status === 'cancelled' ? (
+        <p data-testid="txr-models-saved-file" style={FILE_LINE}>
+          {FILE_CANCELLED_LINE}
+        </p>
+      ) : file.status === 'failed' ? (
+        <p data-testid="txr-models-saved-file" style={FILE_LINE}>
+          {FILE_FAILED_LINE}
+        </p>
+      ) : file.status === 'saved' ? (
+        <SavedFileNotice path={file.path} testId="txr-models-saved-file" />
+      ) : null}
     </Dialog>
   )
 }

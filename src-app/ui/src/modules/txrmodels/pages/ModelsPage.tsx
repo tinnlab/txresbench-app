@@ -13,8 +13,10 @@
  *   in the data hook; a substring on name / method id) + "Open a model
  *   file" (the multipart import: a file picker hands the picked container
  *   to `POST /api/txr/models/import` — CONS-UM-9 — with `set_id` when the
- *   set-focus view is active, then the list refreshes; failures surface
- *   inline);
+ *   set-focus view is active, then the list refreshes; a FAILURE surfaces
+ *   inline: the page's steady "The model file could not be opened." line,
+ *   except the server's 409 SET_NAME_TAKEN, which names the remedy
+ *   (rename the taken set, or open the file from inside it));
  * - the table: the board's seven columns — Model (the display label +
  *   the subline: "N markers", "uses age", "opened from <file>" — the
  *   grown `marker_count` / `uses_covariates` / `imported_from` with the
@@ -315,6 +317,23 @@ const ACTION_FAILED_LINE = 'The model could not be updated.'
 /** The import failure's fallback (never blank). */
 const IMPORT_FAILED_LINE = 'The model file could not be opened.'
 
+/** The import clash line (the server's 409 SET_NAME_TAKEN): the container's
+ *  recorded set name is taken — the page names the remedy instead of the
+ *  engine's words (rename the set, or open the file from inside that set). */
+const IMPORT_NAME_TAKEN_LINE =
+  'A set with this name already exists. Rename that set first, or open the file from inside it to add its models.'
+
+/** True for the server's `SET_NAME_TAKEN` import refusal (the framework
+ *  transport attaches the server's `error_code` to the thrown Error —
+ *  `error_code`, the one stable machine code, never the message). */
+function isSetNameTaken(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    (error as { error_code?: unknown }).error_code === 'SET_NAME_TAKEN'
+  )
+}
+
 const ROW_ACTION_LINK: CSSProperties = { fontSize: 13.5, color: 'var(--txr-brand)' }
 const ROW_ACTION_DANGER: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
 
@@ -585,7 +604,10 @@ export function ModelsPage() {
         await ApiClient.Models.importModel(form)
         refresh()
       } catch (error) {
-        setImportError(errorText(error))
+        // The one clash answer (SET_NAME_TAKEN) names the remedy; every
+        // other failure is the page's steady open-failed line — never the
+        // transport's own words.
+        setImportError(isSetNameTaken(error) ? IMPORT_NAME_TAKEN_LINE : IMPORT_FAILED_LINE)
       }
     },
     [setId, refresh],
