@@ -617,8 +617,15 @@ export function ModelsPage() {
       } catch (error) {
         // The one clash answer (SET_NAME_TAKEN) names the remedy; every
         // other failure is the page's steady open-failed line — never the
-        // transport's own words.
-        setImportError(isSetNameTaken(error) ? IMPORT_NAME_TAKEN_LINE : IMPORT_FAILED_LINE)
+        // transport's own words. brief 3b: the failure's detail is still
+        // logged (the fixed line is the user-facing copy, not the whole
+        // record).
+        if (isSetNameTaken(error)) {
+          setImportError(IMPORT_NAME_TAKEN_LINE)
+        } else {
+          console.warn('model import failed', error)
+          setImportError(IMPORT_FAILED_LINE)
+        }
       }
     },
     [setId, refresh],

@@ -268,6 +268,67 @@ describe('TxrSaveModelsDialog (TEST-MOD-13)', () => {
     })
   })
 
+  it('while the save/export is in flight a close attempt does nothing and onSaved still fires once (brief 3b)', async () => {
+    let resolveSave!: (value: ModelSaveResponse) => void
+    let resolveExport!: (value: Blob) => void
+    let resolveFile!: (value: { status: 'saved'; path: string }) => void
+    api.saveModels.mockReturnValue(
+      new Promise<ModelSaveResponse>(resolve => {
+        resolveSave = resolve
+      }),
+    )
+    api.exportSet.mockReturnValue(
+      new Promise<Blob>(resolve => {
+        resolveExport = resolve
+      }),
+    )
+    api.saveFile.mockReturnValue(
+      new Promise(resolve => {
+        resolveFile = resolve
+      }),
+    )
+    const { onClose, onSaved } = renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-name')).toBeDefined())
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-models-save-name'), {
+        target: { value: 'My fixtures, day 60' },
+      })
+      fireEvent.click(screen.getByTestId('txr-models-save-also-export'))
+      fireEvent.click(screen.getByTestId('txr-models-save-confirm'))
+    })
+    // Busy: Cancel is disabled and the dialog stays mounted.
+    expect(screen.getByTestId('txr-models-save-cancel').hasAttribute('disabled')).toBe(true)
+    expect(screen.getByTestId('txr-models-save')).toBeTruthy()
+    // A close attempt while busy does nothing: the disabled Cancel click,
+    // the Escape key and the corner × (the last two arrive as
+    // `onOpenChange(false)`).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-save-cancel'))
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('txr-models-save')).toBeTruthy()
+    // The save + export finish normally: onSaved fires ONCE with the outcome.
+    await act(async () => {
+      resolveSave(TXRMODELS_SAVE_RESPONSE)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      resolveExport(new Blob(['txr-set-bytes']))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      resolveFile({ status: 'saved', path: '/Users/me/Models/My-fixtures-day-60.txr' })
+      await Promise.resolve()
+    })
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onSaved).toHaveBeenCalledWith(TXRMODELS_SAVE_RESPONSE, {
+      status: 'saved',
+      path: '/Users/me/Models/My-fixtures-day-60.txr',
+    })
+  })
+
   it('unticked "Also save as a file": no export call and the none outcome', async () => {
     const { onSaved } = renderDialog()
     await waitFor(() => expect(screen.getByTestId('txr-models-save-name')).toBeDefined())

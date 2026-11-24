@@ -39,7 +39,11 @@
  * - Cancel / Save N models. Save is refused (disabled) while the name is
  *   empty or no model is selected; a server rejection (409 SET_NAME_TAKEN
  *   / 404 RUN_NOT_FOUND) surfaces inline with the engine's message — the
- *   dialog never closes on error.
+ *   dialog never closes on error. brief 3b: while the save/export is in
+ *   flight (`busy`) Cancel is disabled and EVERY close request is ignored
+ *   (the corner ×, Escape, the backdrop — all through
+ *   `onOpenChange(false)`) so the dialog cannot unmount between the save
+ *   and `onSaved`.
  *
  * The L2 event's `methodIds` are the finished methods' ids; the produced
  * models are the saveable set (a finished method with no model is D15's
@@ -338,12 +342,24 @@ export function TxrSaveModelsDialog({
       description={DESCRIPTION}
       open={runId !== null}
       onOpenChange={open => {
-        if (!open) onClose()
+        // brief 3b: while the save/export is in flight the dialog ignores
+        // EVERY close request (the corner ×, Escape, the backdrop — they all
+        // arrive here as `onOpenChange(false)`) so it cannot unmount between
+        // the save and `onSaved` (the saved response is the only record of
+        // the file outcome).
+        if (!open && !busy) onClose()
       }}
       size="lg"
       footer={
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <Button variant="outline" onClick={onClose} data-testid="txr-models-save-cancel">
+          <Button
+            variant="outline"
+            onClick={onClose}
+            // brief 3b: while the save/export is in flight the dialog cannot
+            // be cancelled (it must stay mounted until `onSaved`).
+            disabled={busy}
+            data-testid="txr-models-save-cancel"
+          >
             Cancel
           </Button>
           <Button

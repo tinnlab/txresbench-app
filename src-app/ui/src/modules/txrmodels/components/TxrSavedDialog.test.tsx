@@ -167,9 +167,10 @@ describe('TxrSavedDialog (TEST-MOD-15)', () => {
 
   it('reports the "Also save as a file" outcome: a cancelled Save dialog line (brief 3)', async () => {
     renderDialog({ file: { status: 'cancelled' } })
-    expect(screen.getByTestId('txr-models-saved-file').textContent).toBe(
-      'Your models are saved. The set file was not saved.',
-    )
+    const line = screen.getByTestId('txr-models-saved-file')
+    expect(line.textContent).toBe('Your models are saved. The set file was not saved.')
+    // brief 3b: the plain line is a live-region status (announced, like the saved notice).
+    expect(line.getAttribute('role')).toBe('status')
     // The save itself is still reported (the models stay saved).
     expect(screen.getByTestId('txr-models-saved-summary').textContent).toBe(
       '\u201cMy fixtures, day 60\u201d \u00b7 27 MB',
@@ -178,8 +179,21 @@ describe('TxrSavedDialog (TEST-MOD-15)', () => {
 
   it('reports the "Also save as a file" outcome: a failed export line (brief 3)', async () => {
     renderDialog({ file: { status: 'failed' } })
-    expect(screen.getByTestId('txr-models-saved-file').textContent).toBe(
+    const line = screen.getByTestId('txr-models-saved-file')
+    expect(line.textContent).toBe(
       'The set file could not be saved. Your models are saved.',
+    )
+    // brief 3b: the plain line is a live-region status (announced, like the saved notice).
+    expect(line.getAttribute('role')).toBe('status')
+  })
+
+  it('a browser download outcome (downloaded) renders no file line and no notice (brief 3b)', async () => {
+    // The website's download has no path — the outcome is silent under the
+    // lead (the save itself is still reported).
+    renderDialog({ file: { status: 'downloaded' } })
+    expect(screen.queryByTestId('txr-models-saved-file')).toBeNull()
+    expect(screen.getByTestId('txr-models-saved-summary').textContent).toBe(
+      '\u201cMy fixtures, day 60\u201d \u00b7 27 MB',
     )
   })
 

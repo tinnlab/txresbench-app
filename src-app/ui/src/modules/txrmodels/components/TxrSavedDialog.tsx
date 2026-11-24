@@ -26,7 +26,10 @@
  * reported under the lead: a cancelled Save dialog ("Your models are
  * saved. The set file was not saved."), a failed export ("The set file
  * could not be saved. Your models are saved."), or a saved file's path
- * through the same `SavedFileNotice` the Models page uses.
+ * through the same `SavedFileNotice` the Models page uses — the two plain
+ * lines carry `role="status"` (brief 3b: a live-region announcement, like
+ * the notice's), a browser `downloaded` outcome renders NO file line
+ * (there is no path to show).
  * Test-ids: `txr-models-saved-*`.
  */
 import { type CSSProperties } from 'react'
@@ -156,11 +159,11 @@ export function TxrSavedDialog({ response, file = { status: 'none' }, onClose }:
           the SAME `SavedFileNotice` the Models page uses for its exports
           (no notice for the browser download — there is no path). */}
       {file.status === 'cancelled' ? (
-        <p data-testid="txr-models-saved-file" style={FILE_LINE}>
+        <p data-testid="txr-models-saved-file" role="status" style={FILE_LINE}>
           {FILE_CANCELLED_LINE}
         </p>
       ) : file.status === 'failed' ? (
-        <p data-testid="txr-models-saved-file" style={FILE_LINE}>
+        <p data-testid="txr-models-saved-file" role="status" style={FILE_LINE}>
           {FILE_FAILED_LINE}
         </p>
       ) : file.status === 'saved' ? (
