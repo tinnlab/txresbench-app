@@ -336,7 +336,7 @@ async fn tampered_dirs_are_refused_and_nothing_is_deleted() {
     let symlink_leg = match std::os::windows::fs::symlink_dir(&trap, &sym_dir.join("input")) {
         Ok(()) => true,
         Err(e) => {
-            crate::common::skip_reason(&format!(
+            crate::common::skip_reason(module_path!(), &format!(
                 "cannot create a directory symlink on this machine ({e}); the \
                  symlinked-input refusal leg of TEST-HS-12 is not exercisable here (the \
                  other two refusals below still assert)"

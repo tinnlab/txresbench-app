@@ -759,14 +759,16 @@ pub fn record_skip(test: &str, reason: &str) {
 
 /// Records a Windows self-skip through [`record_skip`] (the ledger + the
 /// stderr line; a bare `eprintln!` skip would read as a PASS), named by the
-/// running test: libtest names each test's thread after the test. The test
-/// then returns early. Referenced only from `#[cfg(windows)]` arms (on Linux
-/// the gate panics instead of skipping), so this crate's Linux builds see it
-/// as dead.
+/// running test: libtest names each test's thread after the test, but with
+/// `--test-threads=1` it runs tests inline on `main`, so the caller's
+/// `module_path!()` is the fallback. The test then returns early. Referenced
+/// only from `#[cfg(windows)]` arms (on Linux the gate panics instead of
+/// skipping), so this crate's Linux builds see it as dead.
 #[allow(dead_code)]
-pub fn skip_reason(why: &str) {
+pub fn skip_reason(module: &str, why: &str) {
     let thread = std::thread::current();
-    record_skip(thread.name().unwrap_or("<unnamed test>"), why);
+    let name = thread.name().filter(|n| *n != "main").unwrap_or(module);
+    record_skip(name, why);
 }
 
 /// (A) Whether the built-in method list publishes an environment for this
@@ -931,7 +933,7 @@ macro_rules! skip_unless_host_env {
         if let Err(why) = $crate::common::host_has_published_env() {
             #[cfg(windows)]
             {
-                $crate::common::skip_reason(&why);
+                $crate::common::skip_reason(module_path!(), &why);
                 return;
             }
             #[cfg(not(windows))]
@@ -952,7 +954,7 @@ macro_rules! skip_unless_methods_run {
         if let Err(why) = $crate::common::server_stack_supported(&$server).await {
             #[cfg(windows)]
             {
-                $crate::common::skip_reason(&why);
+                $crate::common::skip_reason(module_path!(), &why);
                 return;
             }
             #[cfg(not(windows))]
@@ -970,7 +972,7 @@ macro_rules! skip_unless_python3 {
         if $crate::common::python3().is_none() {
             #[cfg(windows)]
             {
-                $crate::common::skip_reason(
+                $crate::common::skip_reason(module_path!(), 
                     "no Python 3 interpreter on this machine (the generator/packer is a Python tool)",
                 );
                 return;
@@ -989,7 +991,7 @@ macro_rules! skip_unless_bash {
     () => {{
         #[cfg(windows)]
         if !$crate::common::bash_on_path() {
-            $crate::common::skip_reason(
+            $crate::common::skip_reason(module_path!(), 
                 "no bash/sh on PATH (the repo shell script cannot run on this machine)",
             );
             return;

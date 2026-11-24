@@ -103,7 +103,7 @@ async fn live_list_from_loopback_registry_verified_and_served() {
     // shell-capable host.
     #[cfg(windows)]
     {
-        crate::common::skip_reason(
+        crate::common::skip_reason(module_path!(), 
             "the stand-in registry tool (bin/oras) is a POSIX shell script; \
              on Windows the app spawns `oras.exe` and no shell script can stand in, \
              so this host cannot serve the method list through it"
@@ -264,7 +264,7 @@ async fn run_started_then_list_swapped_finishes_on_old_images() {
     // shell stub cannot be spawned as `oras.exe`).
     #[cfg(windows)]
     {
-        crate::common::skip_reason(
+        crate::common::skip_reason(module_path!(), 
             "the stand-in registry tool (bin/oras) is a POSIX shell script; \
              on Windows the app spawns `oras.exe` and no shell script can stand in, \
              so this host cannot serve the method list through it"
