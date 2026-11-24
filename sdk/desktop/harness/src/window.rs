@@ -38,6 +38,9 @@ fn popout_new_window_response(
         tauri::WebviewUrl::External(url),
     )
     .window_features(features)
+    // Leave Tauri's drag-drop handler off so the page's own HTML drag and
+    // drop (the upload boxes) receives drops instead of Tauri.
+    .disable_drag_drop_handler()
     .build()
     {
         Ok(window) => tauri::webview::NewWindowResponse::Create { window },
@@ -159,7 +162,10 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
         state: Some(tauri::window::EffectState::Active),
         radius: Some(config.effect_radius),
         color: None,
-    });
+    })
+    // Leave Tauri's drag-drop handler off so the page's own HTML drag and
+    // drop (the upload boxes) receives drops instead of Tauri.
+    .disable_drag_drop_handler();
 
     // Windows + Linux: native decorations. The OS draws the title bar: the
     // minimize, maximize/restore and close buttons, the drag area, and on
@@ -207,7 +213,10 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
         state: Some(tauri::window::EffectState::Active),
         radius: Some(config.effect_radius),
         color: None,
-    });
+    })
+    // Leave Tauri's drag-drop handler off so the page's own HTML drag and
+    // drop (the upload boxes) receives drops instead of Tauri.
+    .disable_drag_drop_handler();
 
     // macOS: overlay titlebar with native traffic light position (no glitch on resize)
     // x=20 matches the standard inset Apple uses in Notes / Finder /
@@ -297,5 +306,29 @@ mod tests {
                  page replaces them",
             );
         }
+    }
+
+    /// Every `WebviewWindowBuilder` in this file must disable Tauri's drag-drop
+    /// handler: the desktop page's upload boxes use the kit's own HTML drag and
+    /// drop, and on Windows Tauri's handler must be off for HTML drag and drop
+    /// to reach the page at all. Nothing in the repo listens to Tauri's
+    /// drag-drop events, so an enabled handler silently swallows every drop.
+    #[test]
+    fn every_window_builder_disables_the_drag_drop_handler() {
+        let code = window_code();
+        let builders = code.matches("WebviewWindowBuilder::new(").count();
+        let disabled = code.matches(".disable_drag_drop_handler()").count();
+        assert!(
+            builders >= 3,
+            "window.rs must build the main window (macOS + Windows/Linux) and \
+             the pop-out window, found {builders} WebviewWindowBuilder::new( calls",
+        );
+        assert_eq!(
+            builders, disabled,
+            "every WebviewWindowBuilder::new( in window.rs must be followed by \
+             .disable_drag_drop_handler() so the page's own HTML drag and drop \
+             (the step-2 upload boxes) receives drops instead of Tauri \
+             ({builders} builders, {disabled} disable calls)",
+        );
     }
 }
