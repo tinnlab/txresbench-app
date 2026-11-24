@@ -209,6 +209,7 @@ fn generated_and_fixture_catalogues_carry_the_gate_facts() {
 /// (the record is the continuation of the gate, not its replacement).
 #[tokio::test]
 async fn installed_rows_licence_equals_the_catalogue_entry() {
+    crate::skip_unless_python3!();
     let scratch = std::env::temp_dir().join(format!(
         "pc-hyg-licence-{}-{}",
         std::process::id(),

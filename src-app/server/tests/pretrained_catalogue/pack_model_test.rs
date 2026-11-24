@@ -18,7 +18,6 @@
 //! never content from a real use of the app.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use txresbench::modules::model_store::container::{
     read_container_bytes, ContainerHeader, ContainerKind, END_MAGIC, MAGIC,
@@ -45,7 +44,11 @@ fn fixture(rel: &str) -> PathBuf {
 }
 
 fn run_packer(args: &[&str], what: &str) -> std::process::Output {
-    let out = Command::new("python3")
+    // The resolved interpreter (the shared `python3()` finder; the caller's
+    // `skip_unless_python3!()` checked it).
+    let py = crate::common::python3_cmd();
+    let out = std::process::Command::new(&py[0])
+        .args(&py[1..])
         .arg(repo_root().join("scripts/pretrained-catalogue/pack_model_txr.py"))
         .args(args)
         .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -106,6 +109,7 @@ const FIXTURE_SHA: &str = "fadf29c0dbbfbbb39c94aaad7fb5e300f14313a1e663494225acb
 /// test).
 #[test]
 fn packer_output_layout_and_reader_accepted() {
+    crate::skip_unless_python3!();
     let scratch = std::env::temp_dir().join(format!("pc-pack-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).expect("scratch dir");
@@ -177,6 +181,7 @@ fn packer_output_layout_and_reader_accepted() {
 /// `--verify` + `--selftest` both pass on the committed fixture.
 #[test]
 fn packer_runs_are_byte_equal_and_verify_passes() {
+    crate::skip_unless_python3!();
     let scratch = std::env::temp_dir().join(format!("pc-verify-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).expect("scratch dir");
@@ -205,6 +210,7 @@ fn packer_runs_are_byte_equal_and_verify_passes() {
 /// store's in-process seam and land as a pretrained row.
 #[tokio::test]
 async fn packer_output_imports_through_the_store_seam() {
+    crate::skip_unless_python3!();
     let server = TestServer::spawn().await;
     let p = pool(&server).await;
 
@@ -263,6 +269,7 @@ async fn packer_output_imports_through_the_store_seam() {
 /// layout test above).
 #[tokio::test]
 async fn packer_conversions_reach_the_store() {
+    crate::skip_unless_python3!();
     use txresbench::modules::execution_engine::predictions::Conversions;
     use txresbench::modules::rootfs;
 
@@ -332,7 +339,9 @@ async fn packer_conversions_reach_the_store() {
         "b": 1, "mu": 0, "sd": 1, "n": 3, "rate": 0.5}});
     std::fs::write(&facts_path, facts.to_string()).expect("write the facts");
     let refused = server.data_dir().join("refused.txr");
-    let res = Command::new("python3")
+    let py = crate::common::python3_cmd();
+    let res = std::process::Command::new(&py[0])
+        .args(&py[1..])
         .arg(repo_root().join("scripts/pretrained-catalogue/pack_model_txr.py"))
         .args([
             "--tree",

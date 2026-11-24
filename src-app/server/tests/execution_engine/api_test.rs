@@ -181,6 +181,10 @@ fn seed_rerun_input(dir: &PathBuf) {
 /// embedded catalogue facts + the manifest's `bytes_total`.
 #[tokio::test]
 async fn embedded_data_serves_the_surface_without_a_benchmark_tree() {
+    // The manifest-answer legs below read the built-in list's env entry for
+    // this machine's chip type (`env_for`): on an ARM64 machine the shipped
+    // list is amd64-only, so the whole test's premise is false there.
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
 

@@ -105,6 +105,7 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
 /// before they were kept) imports a model with none.
 #[tokio::test]
 async fn export_then_import_keeps_the_conversions() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -195,6 +196,7 @@ async fn export_then_import_keeps_the_conversions() {
 async fn save_export_import_round_trips_the_method_facts_and_image() {
     use txresbench::modules::execution_engine::repository::MethodPatch;
     use txresbench::modules::execution_engine::types::TxrMethodFacts;
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -301,6 +303,7 @@ async fn save_export_import_round_trips_the_method_facts_and_image() {
 /// with UNSAFE_PATH.
 #[tokio::test]
 async fn export_then_import_round_trips_the_container() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);

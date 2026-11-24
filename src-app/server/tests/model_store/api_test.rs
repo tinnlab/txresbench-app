@@ -23,6 +23,7 @@ const METHOD_B: &str = "landmark-cox-current";
 /// again from a run that has the file fills the missing map in.
 #[tokio::test]
 async fn save_then_resolve_carries_the_training_conversion() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -124,6 +125,7 @@ async fn save_then_resolve_carries_the_training_conversion() {
 #[tokio::test]
 async fn run_detail_and_saved_model_carry_the_image_facts() {
     use txresbench::modules::execution_engine::repository::MethodPatch;
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -230,6 +232,7 @@ async fn run_detail_and_saved_model_carry_the_image_facts() {
 /// writes `<slug>-<id8>.txr` whose bytes equal the later set export.
 #[tokio::test]
 async fn save_flow_records_the_run_models_into_a_set() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -423,6 +426,7 @@ async fn save_flow_records_the_run_models_into_a_set() {
 /// SET_NAME_TAKEN.
 #[tokio::test]
 async fn save_flow_refusals_are_typed() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -530,6 +534,7 @@ async fn save_flow_refusals_are_typed() {
 /// set cascade + `keep_files`, and the typed 404s.
 #[tokio::test]
 async fn inventory_lists_filters_renames_and_deletes() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -833,6 +838,7 @@ async fn inventory_lists_filters_renames_and_deletes() {
 /// case-only self-rename is a no-op success.
 #[tokio::test]
 async fn set_rename_conflict_and_caseonly_self_rename() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -993,6 +999,7 @@ async fn the_route_matrix_is_401_403_with_the_health_control() {
 /// TEST-MS-16's 400 arms: the typed request-validation refusals.
 #[tokio::test]
 async fn the_typed_request_validation_refusals() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
@@ -1068,6 +1075,7 @@ async fn the_typed_request_validation_refusals() {
 /// `EMPTY_MODELS`.
 #[tokio::test]
 async fn resolve_returns_verified_engine_assets() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);

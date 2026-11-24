@@ -337,6 +337,9 @@ async fn method_catalogue_eligibility_e2_missing_required_markers() {
 /// `can_run`, coverage 1.0.
 #[tokio::test]
 async fn method_catalogue_eligibility_e2_can_run_when_required_are_present() {
+    // The verdict is `can_run` only for a method with a published environment
+    // on this machine's chip type; on arm64 the shipped list is amd64-only.
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
 
@@ -404,6 +407,7 @@ async fn method_catalogue_eligibility_e2_can_run_when_required_are_present() {
 /// columns answer by NAME (their own keys), not by a parsed standard id.
 #[tokio::test]
 async fn method_catalogue_eligibility_other_system_name_fallback() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
 
@@ -550,6 +554,7 @@ async fn method_catalogue_eligibility_e3_coverage_120_of_151() {
 /// retired row gets no verdict).
 #[tokio::test]
 async fn method_catalogue_eligibility_preview_screen_b() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
 
@@ -879,6 +884,7 @@ fn expected_lpt(seconds: &[f64], lanes: u32) -> f64 {
 
 #[tokio::test]
 async fn method_catalogue_estimate_is_deterministic_and_dec7_consistent() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
 
@@ -989,6 +995,7 @@ async fn method_catalogue_estimate_is_deterministic_and_dec7_consistent() {
 /// UNKNOWN_METHOD (the refusal names the real problem, in request order).
 #[tokio::test]
 async fn method_catalogue_estimate_rejects_with_named_codes() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
 
@@ -1067,6 +1074,7 @@ async fn method_catalogue_estimate_rejects_with_named_codes() {
 
 #[tokio::test]
 async fn method_catalogue_http_equals_the_in_process_seam() {
+    crate::skip_unless_host_env!();
     use txresbench::modules::method_catalogue::eligibility::eligibility;
     use txresbench::modules::method_catalogue::estimate::estimate;
     use txresbench::modules::method_catalogue::types::{

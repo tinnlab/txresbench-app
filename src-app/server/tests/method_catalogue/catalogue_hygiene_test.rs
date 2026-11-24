@@ -85,6 +85,15 @@ fn run_ok(cmd: &mut Command, what: &str) -> std::process::Output {
     out
 }
 
+/// The generator command with the RESOLVED Python 3 (the shared
+/// `python3()` finder; the caller's `skip_unless_python3!()` checked it).
+fn python_command(script: &Path) -> Command {
+    let py = crate::common::python3_cmd();
+    let mut cmd = Command::new(&py[0]);
+    cmd.args(&py[1..]).arg(script);
+    cmd
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST-MC-8 — generator `--check` parity (fixture registry, hermetic)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,12 +104,12 @@ fn run_ok(cmd: &mut Command, what: &str) -> std::process::Output {
 /// `--check` writes NOTHING (parity only) — the tree stays clean.
 #[test]
 fn generator_fixture_parity_and_selftest_are_green() {
+    crate::skip_unless_python3!();
     let repo = repo_root();
     let script = repo.join("scripts/method-catalogue/gen_method_catalogue.py");
 
     run_ok(
-        Command::new("python3")
-            .arg(&script)
+        python_command(&script)
             .arg("--check")
             .arg("--fixtures")
             .current_dir(&repo),
@@ -110,8 +119,7 @@ fn generator_fixture_parity_and_selftest_are_green() {
     // The generator prints its own parity summary; re-run the selftest (the
     // TEST-MC-15/16 invariants are the generator's, the CI leg is here).
     let out = run_ok(
-        Command::new("python3")
-            .arg(&script)
+        python_command(&script)
             .arg("--selftest")
             .current_dir(&repo),
         "generator --selftest",

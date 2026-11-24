@@ -61,6 +61,7 @@ fn inventory() -> Value {
 /// inventory object is accepted verbatim by the methods provider.
 #[tokio::test]
 async fn per_model_eligibility_uses_the_one_inventory_shape() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);

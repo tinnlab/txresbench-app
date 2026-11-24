@@ -46,6 +46,15 @@ fn run_ok(cmd: &mut Command, what: &str) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+/// The generator command with the RESOLVED Python 3 (the shared
+/// `python3()` finder; the caller's `skip_unless_python3!()` checked it).
+fn python_command(script: &Path) -> Command {
+    let py = crate::common::python3_cmd();
+    let mut cmd = Command::new(&py[0]);
+    cmd.args(&py[1..]).arg(script);
+    cmd
+}
+
 /// The hygiene token set — the generator's own scanner set (the single source
 /// of the INV-7 acceptance for the shipped files).
 fn hygiene_tokens() -> Vec<&'static str> {
@@ -163,21 +172,20 @@ fn csv_to_table(name: &str, csv_path: &Path) -> Value {
 
 #[test]
 fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
+    crate::skip_unless_python3!();
     let repo = repo_root();
 
     // The committed parity target re-derives byte-exactly (the generator's
     // hermetic leg — `--check` writes nothing).
     run_ok(
-        Command::new("python3")
-            .arg(repo.join("scripts/file-validator/gen_material.py"))
+        python_command(&repo.join("scripts/file-validator/gen_material.py"))
             .arg("--check")
             .arg("--fixtures")
             .current_dir(&repo),
         "generator --check --fixtures",
     );
     let out = run_ok(
-        Command::new("python3")
-            .arg(repo.join("scripts/file-validator/gen_material.py"))
+        python_command(&repo.join("scripts/file-validator/gen_material.py"))
             .arg("--selftest")
             .current_dir(&repo),
         "generator --selftest",
@@ -473,6 +481,9 @@ fn real_tree_regen_parity_matches_the_committed_files() {
 
 #[test]
 fn no_format_crates_and_guard_integrity_are_green() {
+    // Both scripts are repo shell scripts: without bash/sh on PATH they
+    // cannot run on Windows (the gate host has bash — no skip there).
+    crate::skip_unless_bash!();
     let repo = repo_root();
     for script in [
         "scripts/check-no-format-crates.sh",

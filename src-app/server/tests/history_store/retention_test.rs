@@ -327,13 +327,35 @@ async fn tampered_dirs_are_refused_and_nothing_is_deleted() {
     std::fs::remove_dir_all(sym_dir.join("input")).expect("drop the real input dir");
     #[cfg(unix)]
     std::os::unix::fs::symlink(&trap, sym_dir.join("input")).expect("symlink input out");
+    // Windows: a directory symlink needs the SeCreateSymbolicLinkPrivilege,
+    // which the test machine may not have. When the API refuses, the
+    // symlinked-input leg of the tamper matrix is not exercisable — print a
+    // line and keep the two assertions that DO hold (Linux/macOS always
+    // creates the link, so nothing is weakened there).
+    #[cfg(windows)]
+    let symlink_leg = match std::os::windows::fs::symlink_dir(&trap, &sym_dir.join("input")) {
+        Ok(()) => true,
+        Err(e) => {
+            crate::common::skip_reason(module_path!(), &format!(
+                "cannot create a directory symlink on this machine ({e}); the \
+                 symlinked-input refusal leg of TEST-HS-12 is not exercisable here (the \
+                 other two refusals below still assert)"
+            ));
+            false
+        }
+    };
+    #[cfg(not(windows))]
+    let symlink_leg = true;
 
     // Each refusal: 400 UNSAFE_RUN_DIR, nothing deleted, no retention row.
-    for (id, guard) in [
+    let mut cases = vec![
         (slash_id, "the `/` dir fails the naming rule"),
         (foreign_id, "a foreign path fails the naming rule"),
-        (sym_id, "the symlinked input fails the canonical floor"),
-    ] {
+    ];
+    if symlink_leg {
+        cases.push((sym_id, "the symlinked input fails the canonical floor"));
+    }
+    for (id, guard) in cases {
         let resp = server
             .client
             .post(server.api_url(&format!("/txr/history/{id}/copies/clear")))
@@ -353,10 +375,12 @@ async fn tampered_dirs_are_refused_and_nothing_is_deleted() {
     }
     assert!(outside.join("secret.csv").is_file(), "nothing outside was touched");
     assert!(trap.join("secret.csv").is_file(), "the symlink target survives");
-    assert!(
-        sym_dir.join("input").is_symlink(),
-        "the symlink itself survives the refusal"
-    );
+    if symlink_leg {
+        assert!(
+            sym_dir.join("input").is_symlink(),
+            "the symlink itself survives the refusal"
+        );
+    }
 }
 
 /// TEST-HS-14 — the preference round-trip: the migration-seeded default

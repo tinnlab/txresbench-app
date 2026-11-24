@@ -51,6 +51,9 @@ const DRIVE_METHODS: [&str; 3] = ["landmark-cox-current", "ctdna-tf-four-group",
 /// and the lane cap is never exceeded.
 #[tokio::test]
 async fn admission_contract_admits_sandbox_rows_and_closes_them_terminal() {
+    // Every leg drives a RUN: the method must classify as queued (a published
+    // environment for this machine's chip type) or nothing reaches the executor.
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-admission").await;
     let pool = pool(&server).await;
@@ -126,6 +129,7 @@ async fn admission_contract_admits_sandbox_rows_and_closes_them_terminal() {
 /// written inside the repo.
 #[tokio::test]
 async fn run_dir_tree_lives_under_the_data_root() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-tree").await;
     let pool = pool(&server).await;
@@ -233,6 +237,7 @@ async fn run_dir_tree_lives_under_the_data_root() {
 /// no chances and the note saying why.
 #[tokio::test]
 async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
+    crate::skip_unless_host_env!();
     use txresbench::modules::execution_engine::predictions;
     use txresbench::modules::execution_engine::types::{
         CreateRunRequest, TxrModelAsset, TxrRunInput, TxrRunMode,
@@ -444,6 +449,7 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
 /// that image, not the list's current one.
 #[tokio::test]
 async fn reuse_runs_in_the_recorded_image_after_the_list_changes() {
+    crate::skip_unless_host_env!();
     use txresbench::modules::execution_engine::types::{
         CreateRunRequest, TxrModelAsset, TxrRunInput, TxrRunMode,
     };
@@ -565,6 +571,7 @@ async fn reuse_runs_in_the_recorded_image_after_the_list_changes() {
 /// `log` frames; the run-scoped log serves them after too.
 #[tokio::test]
 async fn live_log_lines_stream_while_the_run_is_active() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-logs").await;
     let pool = pool(&server).await;
@@ -657,6 +664,7 @@ async fn live_log_lines_stream_while_the_run_is_active() {
 /// settings write — INDUSTRIAL note, see DRIFT-1 ITEM-11 #6).
 #[tokio::test]
 async fn mid_run_at_a_time_change_raises_the_lanes_and_never_interrupts() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-lanes").await;
     let pool = pool(&server).await;
@@ -750,6 +758,7 @@ async fn mid_run_at_a_time_change_raises_the_lanes_and_never_interrupts() {
 /// over the harness template DB.
 #[tokio::test]
 async fn growth_fields_round_trip_and_finished_rows_carry_the_task_enum() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-growth").await;
     let pool = pool(&server).await;
@@ -1004,6 +1013,7 @@ pub fn real_stack_gate(server: &TestServer, test: &str, methods: &[&str]) -> boo
 /// never a machinery error — and the container never ran.
 #[tokio::test]
 async fn a_failing_layer_keeps_the_provider_typed_code() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-env-fail").await;
     let pool = pool(&server).await;
@@ -1061,6 +1071,7 @@ async fn a_failing_layer_keeps_the_provider_typed_code() {
 /// under the fixture.
 #[tokio::test]
 async fn a_downloading_layer_rides_the_row_bytes_and_still_finishes() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-download").await;
     let pool = pool(&server).await;
@@ -1120,6 +1131,7 @@ async fn a_downloading_layer_rides_the_row_bytes_and_still_finishes() {
 /// the provider, and the engine's "stopped by the user" line lands.
 #[tokio::test]
 async fn stop_all_types_downloading_skipped_and_running_aborted() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-stop-all").await;
     let pool = pool(&server).await;
@@ -1499,6 +1511,7 @@ async fn test_ee21_real_stack_reuse_path() {
 /// carries `landmark_day` 28.
 #[tokio::test]
 async fn reuse_run_must_use_the_models_own_decision_day() {
+    crate::skip_unless_host_env!();
     use txresbench::modules::execution_engine::types::{
         CreateRunRequest, RunConfig, TxrModelAsset, TxrRunInput, TxrRunMode,
     };

@@ -435,6 +435,9 @@ fn item<'a>(page: &'a Value, id: Uuid) -> &'a Value {
 /// clamp; the run whose dir is gone still lists (TEST-HS-10's no-500 rule).
 #[tokio::test]
 async fn lists_newest_first_with_buckets_paging_and_clamp() {
+    // The fixture's produced-model facts read the manifest's env entries
+    // (`seed_produced_method` → `env_for`), which are amd64-only.
+    crate::skip_unless_host_env!();
     let (server, token, _repo, ids) = seed_fixture().await;
     let ab_cmp = |a: &Uuid, b: &Uuid| b.cmp(a);
 
@@ -526,6 +529,7 @@ async fn lists_newest_first_with_buckets_paging_and_clamp() {
 /// `input_summary.file_names`).
 #[tokio::test]
 async fn filters_kind_status_multi_and_search() {
+    crate::skip_unless_host_env!();
     let (server, token, _repo, ids) = seed_fixture().await;
 
     // kind=learned → every train run; the reuse run is excluded.
@@ -772,6 +776,7 @@ async fn shaped_row_and_detail_match_the_provider_shapes() {
 /// status vocabulary is the 400 `INVALID_STATUS` (DRIFT #15, request-level).
 #[tokio::test]
 async fn unknown_run_is_404_and_bad_status_is_400() {
+    crate::skip_unless_host_env!();
     let (server, token, _repo, _ids) = seed_fixture().await;
 
     let missing = Uuid::new_v4();

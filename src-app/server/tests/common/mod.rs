@@ -315,6 +315,9 @@ impl HarnessApp for CytoHarnessApp {
         // The sqlite leg hands the app the per-test FILE's connection URL (the
         // harness copied it from the migrated template and owns its lifecycle);
         // `database.url` is exactly the config key `ServerConfig` resolves.
+        // Both paths are single-quoted: YAML reads no escapes there, so a
+        // Windows path (`C:\Users\...`) is taken as written; in double quotes
+        // `\U` starts an escape and the config does not parse.
         // The postgresql block is GONE from the app's config surface — the app
         // is single-driver (sqlite) under this node.
         let config_yaml = format!(
@@ -323,7 +326,7 @@ app:
   data_dir: '{data_dir}'
 
 database:
-  url: "{database_url}"
+  url: '{database_url}'
 
 server:
   host: "127.0.0.1"
@@ -742,6 +745,258 @@ pub fn record_skip(test: &str, reason: &str) {
              so the skip is a hard failure"
         );
     }
+}
+
+// ─────────────────────── platform-capability helpers (Windows) ────────────────────
+//
+// The lead's Windows machine (an ARM64 VM) cannot run methods (no WSL and no
+// published environment for arm64), has no Python 3 and no bash; a normal
+// Windows PC (x64 + WSL) can. The helpers below make each affected test ONE
+// line: on Windows a missing capability records the skip (`record_skip`) and
+// the test returns early; on Linux/macOS (what the gate runs) the host has all
+// three, so a would-be skip is a hard failure — the aggregate gate may never
+// silently skip.
+
+/// Records a Windows self-skip through [`record_skip`] (the ledger + the
+/// stderr line; a bare `eprintln!` skip would read as a PASS), named by the
+/// running test: libtest names each test's thread after the test, but with
+/// `--test-threads=1` it runs tests inline on `main`, so the caller's
+/// `module_path!()` is the fallback. The test then returns early. Referenced
+/// only from `#[cfg(windows)]` arms (on Linux the gate panics instead of
+/// skipping), so this crate's Linux builds see it as dead.
+#[allow(dead_code)]
+pub fn skip_reason(module: &str, why: &str) {
+    let thread = std::thread::current();
+    let name = thread.name().filter(|n| *n != "main").unwrap_or(module);
+    record_skip(name, why);
+}
+
+/// (A) Whether the built-in method list publishes an environment for this
+/// machine's architecture — the same predicate the run classification reads
+/// (`MethodList::env_for` → `EnvArch::host()`): on an ARM64 machine the
+/// shipped list is amd64-only, so every `env_for`/`can_run`/`pick` answer is
+/// `None` and methods can only classify `cannot_run`.
+pub fn host_has_published_env() -> Result<(), String> {
+    use txresbench::modules::execution_engine::envmanifest::EnvArch;
+    let list = txresbench::modules::method_list::builtin();
+    match EnvArch::host() {
+        None => Err(
+            "this machine's architecture is outside the published set (amd64 | arm64); \
+             no method has a published environment here"
+                .to_string(),
+        ),
+        Some(arch) => {
+            if list.images.envs.iter().any(|e| e.arch == arch) {
+                Ok(())
+            } else {
+                let mut published: Vec<&str> =
+                    list.images.envs.iter().map(|e| e.arch.as_str()).collect();
+                published.sort_unstable();
+                published.dedup();
+                Err(format!(
+                    "no published environment for this machine type ({}); the built-in \
+                     list publishes {}",
+                    arch.as_str(),
+                    published.join("/"),
+                ))
+            }
+        }
+    }
+}
+
+/// The local-owner session token (the owner carries the `"*"` permission
+/// wildcard, so it passes every permission gate — the sandbox status routes
+/// included).
+pub async fn local_owner_token(server: &TestServer) -> String {
+    let resp = server
+        .client
+        .post(server.api_url("/session/local"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .expect("local session");
+    assert_eq!(resp.status().as_u16(), 200, "local session mints the owner");
+    let body: serde_json::Value = resp.json().await.expect("session body");
+    body["access_token"]
+        .as_str()
+        .or_else(|| body["token"].as_str())
+        .expect("session carries a token")
+        .to_string()
+}
+
+/// (B) Whether the spawned server reports the method stack as supported —
+/// `GET /api/sandbox/envs`' `stack.supported` (`SandboxAvailability::Ready`).
+/// Windows without WSL (the boot probe's `host_unsupported`), macOS without
+/// the VM runtime and Linux without bwrap all report `false`, and a test that
+/// must observe a METHOD actually RUN cannot pass there.
+///
+/// No test in the Windows failing set needs the B half alone — every one of
+/// them is (A)-only (the faked/seeded drive never reaches the sandbox) — so
+/// the probe is kept as the ready-made half of `skip_unless_methods_run!`
+/// for a test that must see a method run through the real stack.
+#[allow(dead_code)]
+pub async fn server_stack_supported(server: &TestServer) -> Result<(), String> {
+    let token = local_owner_token(server).await;
+    let resp = server
+        .client
+        .get(server.api_url("/sandbox/envs"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("sandbox stack probe failed: {e}"))?;
+    if resp.status().as_u16() != 200 {
+        return Err(format!(
+            "sandbox stack probe answered {}",
+            resp.status().as_u16()
+        ));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("sandbox stack body: {e}"))?;
+    if body["stack"]["supported"] == serde_json::json!(true) {
+        return Ok(());
+    }
+    let reason = body["stack"]["reason"]
+        .as_str()
+        .unwrap_or("its start-up check disabled them");
+    Err(format!(
+        "this server cannot run methods ({reason} — its start-up check disabled them)"
+    ))
+}
+
+/// A usable Python 3 interpreter as the command to spawn: `TXR_TEST_PYTHON`
+/// (a path or a wrapper) first, then `python3`, `python`, and on Windows the
+/// `py -3` launcher — each must answer `--version` with a Python 3. `None` =
+/// no Python 3 found. The same approach as the lib's
+/// `pretrained_catalogue::install` test module (which the brief names as the
+/// reference); this is the ONE integration-test copy.
+pub fn python3() -> Option<Vec<String>> {
+    let mut candidates: Vec<Vec<String>> = Vec::new();
+    if let Ok(v) = std::env::var("TXR_TEST_PYTHON") {
+        if !v.trim().is_empty() {
+            candidates.push(vec![v]);
+        }
+    }
+    candidates.push(vec!["python3".to_string()]);
+    candidates.push(vec!["python".to_string()]);
+    #[cfg(windows)]
+    candidates.push(vec!["py".to_string(), "-3".to_string()]);
+    for cmd in candidates {
+        let out = std::process::Command::new(&cmd[0])
+            .args(&cmd[1..])
+            .arg("--version")
+            .output();
+        if let Ok(out) = out {
+            if out.status.success() {
+                let text = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                if text.to_ascii_lowercase().contains("python 3") {
+                    return Some(cmd);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The command [`python3`] resolved after `skip_unless_python3!` ran (it
+/// panics on a non-Windows host, so this is never `None` past that check).
+pub fn python3_cmd() -> Vec<String> {
+    python3().unwrap_or_else(|| {
+        panic!(
+            "no Python 3 interpreter found — the call site must run \
+             skip_unless_python3!() (or set TXR_TEST_PYTHON)"
+        )
+    })
+}
+
+/// Whether `bash` answers on PATH (a repo shell script can be run). Referenced
+/// only from `skip_unless_bash!`'s `#[cfg(windows)]` arm (on Linux/macOS a
+/// missing bash keeps failing at the spawn, exactly as before).
+#[allow(dead_code)]
+pub fn bash_on_path() -> bool {
+    std::process::Command::new("bash")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// One-line gate for (A): the host must have a published environment.
+#[macro_export]
+macro_rules! skip_unless_host_env {
+    () => {{
+        if let Err(why) = $crate::common::host_has_published_env() {
+            #[cfg(windows)]
+            {
+                $crate::common::skip_reason(module_path!(), &why);
+                return;
+            }
+            #[cfg(not(windows))]
+            {
+                panic!("the gate host must have a published environment for its architecture, but: {why}");
+            }
+        }
+    }};
+}
+
+/// One-line gate for (A)+(B): the host must have a published environment AND
+/// the spawned server must report the method stack as supported (a test that
+/// observes a method actually running).
+#[macro_export]
+macro_rules! skip_unless_methods_run {
+    ($server:expr) => {{
+        $crate::skip_unless_host_env!();
+        if let Err(why) = $crate::common::server_stack_supported(&$server).await {
+            #[cfg(windows)]
+            {
+                $crate::common::skip_reason(module_path!(), &why);
+                return;
+            }
+            #[cfg(not(windows))]
+            {
+                panic!("the gate server must report the method stack as supported, but: {why}");
+            }
+        }
+    }};
+}
+
+/// One-line gate for (C): a Python 3 interpreter must exist.
+#[macro_export]
+macro_rules! skip_unless_python3 {
+    () => {{
+        if $crate::common::python3().is_none() {
+            #[cfg(windows)]
+            {
+                $crate::common::skip_reason(module_path!(), 
+                    "no Python 3 interpreter on this machine (the generator/packer is a Python tool)",
+                );
+                return;
+            }
+            #[cfg(not(windows))]
+            panic!("no Python 3 interpreter on this machine (the generator/packer is a Python tool)");
+        }
+    }};
+}
+
+/// One-line gate for (D): a repo shell script can only run when `bash` is on
+/// PATH. Windows-only: on Linux/macOS the gate host has bash, and a missing
+/// one must keep failing loudly at the spawn exactly as today.
+#[macro_export]
+macro_rules! skip_unless_bash {
+    () => {{
+        #[cfg(windows)]
+        if !$crate::common::bash_on_path() {
+            $crate::common::skip_reason(module_path!(), 
+                "no bash/sh on PATH (the repo shell script cannot run on this machine)",
+            );
+            return;
+        }
+    }};
 }
 
 

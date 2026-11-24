@@ -262,6 +262,7 @@ fn fixtures_are_synthetic_in_test_constructs() {
 /// manifest are present and answer for the fixture methods.
 #[test]
 fn the_embedded_facts_answer_for_the_fixture_methods() {
+    crate::skip_unless_host_env!();
     let facts = txresbench::modules::method_list::builtin().method("cox-cutpoint-risk").expect("catalogue method");
     assert_eq!(facts.id, "cox-cutpoint-risk");
     let entry = txresbench::modules::method_list::builtin().env_for("cox-cutpoint-risk").expect("manifest entry");
