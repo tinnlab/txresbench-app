@@ -378,6 +378,18 @@ test.describe('txr-models-j — your models (TEST-MOD-18)', () => {
     await expect(none).toContainText('Not in a set')
     await expect(none).toContainText('1 model')
 
+    // ── the set actions on every real set section (brief 2): the three
+    //    link buttons per set, none on "Not in a set" ──
+    await expect(page.getByTestId('txr-models-set-rename-btn-set-a')).toHaveText('Rename set')
+    await expect(page.getByTestId('txr-models-set-export-btn-set-a')).toHaveText('Export set')
+    await expect(page.getByTestId('txr-models-set-delete-btn-set-a')).toHaveText('Delete set')
+    await expect(page.getByTestId('txr-models-set-rename-btn-set-b')).toHaveText('Rename set')
+    await expect(page.getByTestId('txr-models-set-export-btn-set-b')).toHaveText('Export set')
+    await expect(page.getByTestId('txr-models-set-delete-btn-set-b')).toHaveText('Delete set')
+    await expect(page.getByTestId('txr-models-set-rename-btn-__none__')).toHaveCount(0)
+    await expect(page.getByTestId('txr-models-set-export-btn-__none__')).toHaveCount(0)
+    await expect(page.getByTestId('txr-models-set-delete-btn-__none__')).toHaveCount(0)
+
     // ── the board columns + a run-trained row's subline ──
     const header = await page
       .getByTestId('txr-models-j-table')

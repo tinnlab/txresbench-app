@@ -33,6 +33,7 @@ import { emitSaveModels, emitSaveOneModel } from '@/modules/txrresults/events'
 /** The module-level cassette's owned keys (ApiEndpoints ids, sorted). */
 const OWNED_CASSETTE_KEYS = [
   'ModelSets.deleteSet',
+  'ModelSets.exportSet',
   'ModelSets.listSets',
   'ModelSets.renameSet',
   'Models.checkEligibility',

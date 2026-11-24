@@ -483,6 +483,114 @@
       }
     },
     {
+      "id": "models.deleteSet",
+      "title": "Delete a model set",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Models",
+      "description": "Open the delete confirmation for a set of saved models (by its id). The set is NOT deleted by this action: the confirmation dialog opens and the person confirms there (the files go with the models, the results already made are kept).",
+      "aliases": [
+        "delete the set",
+        "delete this set",
+        "remove the model set"
+      ],
+      "keywords": [
+        "set",
+        "delete"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "setId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "setId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The set id (from the model sets list)."
+          }
+        }
+      }
+    },
+    {
+      "id": "models.exportSet",
+      "title": "Export a model set",
+      "kind": "global",
+      "context": "global",
+      "mutating": false,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Models",
+      "description": "Download a set of saved models (by its id) as the .txr set file: the browser download on the website, the Save dialog in the desktop app. Refused when the set is not in the current model sets list.",
+      "aliases": [
+        "export the set",
+        "export this set",
+        "download the set"
+      ],
+      "keywords": [
+        "set",
+        "export"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "setId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "setId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The set id (from the model sets list)."
+          }
+        }
+      }
+    },
+    {
+      "id": "models.renameSet",
+      "title": "Rename a model set",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Models",
+      "description": "Rename a set of saved models (by its id, the name the \"Your models\" page shows for the set). The set and its model rows keep every other fact; the new name is shown everywhere the set is named.",
+      "aliases": [
+        "rename the set",
+        "rename this set",
+        "rename the model set"
+      ],
+      "keywords": [
+        "set",
+        "rename"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "setId",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "setId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The set id (from the model sets list)."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The new set name."
+          }
+        }
+      }
+    },
+    {
       "id": "models.run",
       "title": "Run the chosen models",
       "kind": "instance",

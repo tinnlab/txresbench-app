@@ -104,6 +104,7 @@ import {
   savedChipPredicate,
   type TxrModelSortable,
 } from '../lib/filters'
+import { subscribeDeleteSetRequest, subscribeModelSetsChanged } from '../lib/setActions'
 import { totalSecondsForSelection } from '../lib/total'
 import { RESEARCH_NOTICE, formatCheckedAgainstLine, formatSavedTotals } from '../lib/format'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
@@ -475,8 +476,15 @@ export function SavedModelsPage() {
     (sectionKey: string, actionId: string): void => {
       const set = saved.sets.find(candidate => candidate.id === sectionKey)
       if (set === undefined) return
-      if (actionId === 'rename' || actionId === 'delete') {
-        setSectionAction({ kind: actionId, set: { id: set.id, name: set.name } })
+      if (actionId === 'rename') {
+        setSectionAction({ kind: 'rename', set: { id: set.id, name: set.name } })
+        return
+      }
+      if (actionId === 'delete') {
+        // ONE path: the registered `models.deleteSet` action opens the
+        // confirm dialog (through the pending-request channel we subscribe
+        // to below; the action never deletes — the person confirms).
+        void runAction('models.deleteSet', { setId: set.id }).catch(() => undefined)
       }
     },
     [saved.sets],
@@ -487,6 +495,25 @@ export function SavedModelsPage() {
   const refreshSaved = useCallback((): void => {
     void useTxrModelsStore.getState().loadSaved({ force: true })
   }, [])
+
+  // The registered `models.deleteSet` action's dialog opening (the same
+  // channel the Models page listens to): a delete request names the set,
+  // this page confirms it with its own wording (Card 3 keeps its labels and
+  // confirm text — the dialog is opened with no new props).
+  useEffect(
+    () =>
+      subscribeDeleteSetRequest(setId => {
+        const set = saved.sets.find(candidate => candidate.id === setId)
+        if (set === undefined) return
+        setSectionAction({ kind: 'delete', set: { id: set.id, name: set.name } })
+      }),
+    [saved.sets],
+  )
+
+  // The registered `models.renameSet` action's refresh (the AI/command path
+  // has no dialog onSaved): the bus re-reads the saved slice; the human
+  // path refreshes through the dialog's own onSaved below — never twice.
+  useEffect(() => subscribeModelSetsChanged(refreshSaved), [refreshSaved])
 
   // ── The Run path (CONS-UM-24/13 — the I arm of TEST-MOD-32) ──────────────
   // The page's one guarded Run + the live model-list instance (`models.run`

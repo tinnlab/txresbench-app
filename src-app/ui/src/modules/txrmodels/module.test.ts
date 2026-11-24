@@ -333,6 +333,11 @@ describe('txrmodels module (TEST-MOD-01)', () => {
       touched.filter(
         p =>
           p.startsWith('src-app/server/') &&
+          // The set-actions item (model-sets brief 2): the ONE server-side
+          // file it moves is the regenerated action manifest — the UI's
+          // `scripts/collect-actions.mjs` writes it (the block's own
+          // sanctioned change; the server code itself never moves).
+          p !== 'src-app/server/src/modules/mcp/frontend-actions.json' &&
           p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
           // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
           // `Method`/`MethodSummary` wire additions' serialization pins

@@ -50,11 +50,14 @@ import { useStepTrailStore, useTxrIntakeStore } from '@/modules/txrintake'
 import {
   TXRMODELS_J_RESPONSE,
   TXRMODELS_MODEL_SET_LIST,
+  TXRMODELS_SET_A,
+  TXRMODELS_SET_B,
   fixtureModelId,
 } from '../fixtures'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
 import { ModelsPage } from './ModelsPage'
 import '@/core/actions/builtin/stepActions'
+import '@/core/actions/builtin/modelSetActions'
 import { RouterBridge } from '@/core/actions/navigateBridge'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
@@ -87,6 +90,9 @@ const api = vi.hoisted(() => ({
   deleteModel: vi.fn(),
   importModel: vi.fn(),
   exportModel: vi.fn(),
+  renameSet: vi.fn(),
+  deleteSet: vi.fn(),
+  exportSet: vi.fn(),
   getUsage: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
@@ -100,6 +106,9 @@ vi.mock('@/api-client', () => ({
     },
     ModelSets: {
       listSets: api.listSets,
+      renameSet: api.renameSet,
+      deleteSet: api.deleteSet,
+      exportSet: api.exportSet,
     },
     History: {
       getUsage: api.getUsage,
@@ -191,6 +200,9 @@ beforeEach(() => {
   api.deleteModel.mockResolvedValue(undefined)
   api.importModel.mockResolvedValue({ models: [], set_id: undefined })
   api.exportModel.mockResolvedValue(new Blob(['txr-bytes']))
+  api.renameSet.mockResolvedValue(TXRMODELS_MODEL_SET_LIST.sets[0])
+  api.deleteSet.mockResolvedValue(undefined)
+  api.exportSet.mockResolvedValue(new Blob(['txr-set-bytes']))
   useTxrIntakeStore.getState().reset()
   useTxrModelsStore.getState().reset()
   createObjectURL.mockClear()
@@ -620,6 +632,148 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(api.listModels.mock.calls.length).toBe(3)
   })
 
+  it('shows the three set actions on every real set section and none on "Not in a set"', async () => {
+    renderPage()
+    await settle(0)
+    // Every real set section: Rename set, Export set, Delete set (link
+    // buttons), the set id in the testids.
+    for (const setId of ['set-a', 'set-b']) {
+      expect(screen.getByTestId(`txr-models-set-rename-btn-${setId}`).textContent).toBe(
+        'Rename set',
+      )
+      expect(screen.getByTestId(`txr-models-set-export-btn-${setId}`).textContent).toBe(
+        'Export set',
+      )
+      expect(screen.getByTestId(`txr-models-set-delete-btn-${setId}`).textContent).toBe(
+        'Delete set',
+      )
+    }
+    // "Not in a set" (the unsetted rows' section) has none of them.
+    const none = screen.getByTestId('txr-models-j-section-__none__')
+    expect(within(none).queryByTestId('txr-models-set-rename-btn-__none__')).toBeNull()
+    expect(within(none).queryByTestId('txr-models-set-export-btn-__none__')).toBeNull()
+    expect(within(none).queryByTestId('txr-models-set-delete-btn-__none__')).toBeNull()
+  })
+
+  it('a sets-read failure keeps the group\u2019s set actions (they act by the real set id)', async () => {
+    api.listSets.mockRejectedValue(new Error('sets down'))
+    renderPage()
+    await settle(0)
+    // The failed sets read yields the fallback groups, named from the rows'
+    // own set_name — a real set id, so the section's actions stay.
+    expect(screen.getByTestId('txr-models-set-rename-btn-set-a')).toBeTruthy()
+    expect(screen.getByTestId('txr-models-set-export-btn-set-a')).toBeTruthy()
+    expect(screen.getByTestId('txr-models-set-delete-btn-set-a')).toBeTruthy()
+  })
+
+  it('Rename set opens the dialog prefilled and calls ModelSets.renameSet, then refreshes models + sets', async () => {
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-rename-btn-set-a'))
+      await Promise.resolve()
+    })
+    const input = screen.getByTestId('txr-models-set-rename-set-a-input') as HTMLInputElement
+    expect(input.value).toBe('CRC cohort, day 60')
+    fireEvent.change(input, { target: { value: 'CRC cohort, day 60 (v2)' } })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-rename-set-a-confirm'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.renameSet).toHaveBeenCalledWith({
+      id: 'set-a',
+      name: 'CRC cohort, day 60 (v2)',
+    })
+    // The refresh re-reads BOTH reads (the section facts are the sets read's).
+    expect(api.listModels.mock.calls.length).toBe(2)
+    expect(api.listSets.mock.calls.length).toBe(2)
+  })
+
+  it('Delete set confirms with the exact button, keeps keep_files false, refreshes and clears the ?set= focus', async () => {
+    // This set records keep_training_files: the confirm body gains the
+    // training-files sentence.
+    api.listSets.mockResolvedValue({
+      ...TXRMODELS_MODEL_SET_LIST,
+      sets: [{ ...TXRMODELS_SET_A, keep_training_files: true }, TXRMODELS_SET_B],
+    })
+    renderPage('/models?set=set-a')
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-delete-btn-set-a'))
+      await Promise.resolve()
+    })
+    // Opening never touches the wire: the action only OPENS the confirm.
+    expect(api.deleteSet).not.toHaveBeenCalled()
+    const confirm = screen.getByTestId('txr-models-set-delete-set-a-confirm')
+    expect(confirm.textContent).toBe('Delete the set')
+    const body = screen.getByTestId('txr-models-set-delete-set-a-body').textContent
+    expect(body).toBe(
+      'This removes the set and its models\u2019 files. Results already made with them are kept in History. The training files kept with this set are removed too.',
+    )
+    await act(async () => {
+      fireEvent.click(confirm)
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.deleteSet).toHaveBeenCalledWith({ id: 'set-a', keep_files: false })
+    // The refresh re-reads the inventory twice: once for the mutation
+    // (still on the focused view) and once when the focus-clear re-issues
+    // the unfiltered read; the sets read refreshes once.
+    expect(api.listModels.mock.calls.length).toBe(3)
+    expect(api.listSets.mock.calls.length).toBe(2)
+    // The deletion of the FOCUSED set clears the URL focus (the set is gone;
+    // the honest page is the unfiltered inventory).
+    expect(screen.getByTestId('route-location').textContent).toBe('/models')
+    expect(screen.queryByTestId('txr-models-j-set-focus')).toBeNull()
+  })
+
+  it('a set that does not keep training files shows the delete body without the extra sentence', async () => {
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-delete-btn-set-a'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-models-set-delete-set-a-body').textContent).toBe(
+      'This removes the set and its models\u2019 files. Results already made with them are kept in History.',
+    )
+  })
+
+  it('Export set saves the attachment under the sanitised set name (.txr)', async () => {
+    renderPage()
+    await settle(0)
+    const createElement = vi.spyOn(document, 'createElement')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-export-btn-set-a'))
+      await Promise.resolve()
+    })
+    // The registered action runs downloadSetExport: the set's current name
+    // is resolved from the sets read, the bytes come from exportSet.
+    expect(api.exportSet).toHaveBeenCalledWith({ id: 'set-a' })
+    const anchor = createElement.mock.results
+      .map(result => result.value)
+      .find(value => value instanceof HTMLAnchorElement) as HTMLAnchorElement
+    expect(anchor.download).toBe('CRC-cohort-day-60.txr')
+    expect(anchor.href).toBe('blob:txr-models-test')
+    expect(clickSpy).toHaveBeenCalled()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:txr-models-test')
+    createElement.mockRestore()
+  })
+
+  it('a failed set export shows the one failure line', async () => {
+    renderPage()
+    await settle(0)
+    api.exportSet.mockRejectedValue(new Error('export down'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-export-btn-set-a'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-models-j-action-error').textContent).toBe(
+      'The set could not be exported.',
+    )
+  })
+
   it('renders the kept-models footnote + the deletion note; no path and no folder button in web mode (qa-fixes4 ITEM-1)', async () => {
     renderPage()
     await settle(0)
@@ -750,6 +904,18 @@ describe('ModelsPage demo arm (TEST-DM-7, ITEM-7)', () => {
     // The deletion footnote is the desktop promise — absent in demo.
     expect(screen.queryByText(/Deleting a model removes its file/)).toBeNull()
     expect(screen.getByTestId('txr-models-j-stored-line')).toBeTruthy()
+  })
+
+  it('the set section actions are absent in demo mode (the pools are the shared one)', async () => {
+    renderPage()
+    await settle(0)
+    // The sections render (the inventory read is the shared pool's), the
+    // set action buttons do not (the server blocks rename/delete/export
+    // of the recorded stubs — the row-action rule, at the set level).
+    expect(screen.getByTestId('txr-models-j-section-set-a')).toBeTruthy()
+    expect(screen.queryByTestId('txr-models-set-rename-btn-set-a')).toBeNull()
+    expect(screen.queryByTestId('txr-models-set-export-btn-set-a')).toBeNull()
+    expect(screen.queryByTestId('txr-models-set-delete-btn-set-a')).toBeNull()
   })
 
   it('desktop mode keeps the import + the row actions and shows no retention block', async () => {

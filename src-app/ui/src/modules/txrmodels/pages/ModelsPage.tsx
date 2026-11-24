@@ -34,6 +34,13 @@
  *   `set_id` filter — with the "Showing the set '<name>' · Show all"
  *   affordance that clears the param (screen K's set links target
  *   `modelsPath(setId)`);
+ * - the section set actions (the set-level rename/export/delete): each real
+ *   set section's header gets Rename set / Export set / Delete set
+ *   (link buttons, no demo, none on "Not in a set"); Rename opens
+ *   `TxrRenameSetDialog` (the same one the I screen uses), Export runs the
+ *   registered `models.exportSet` download (the set's `.txr`), Delete runs
+ *   the registered `models.deleteSet`, which only OPENS
+ *   `TxrDeleteSetDialog` for the person to confirm (it never deletes);
  * - the footnotes: "Models are kept so you can use them for new
  *   patients." (qa-fixes4 ITEM-1, results-r3 R3-results-2: the board's
  *   "Models are stored in <path>" line + its "Open the folder" are gone —
@@ -51,7 +58,7 @@
  * provider's `models_dir` remains in the API response; only its rendering
  * was removed, qa-fixes4 ITEM-1).
  */
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiClient } from '@/api-client'
@@ -65,7 +72,11 @@ import { runAction } from '@/core/actions/defineAction'
 import { Alert, Button, Input } from '@txresbench/kit'
 import { useModelInventory } from '../data/useModelInventory'
 import { useModelSets } from '../data/useModelSets'
-import { downloadModelExport, modelExportLabel } from '../lib/export'
+import { downloadModelExport, modelExportLabel, setExportLabel, SET_EXPORT_FAILED_LINE } from '../lib/export'
+import {
+  subscribeDeleteSetRequest,
+  subscribeModelSetsChanged,
+} from '../lib/setActions'
 import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import {
   formatMade,
@@ -76,7 +87,9 @@ import {
 } from '../lib/format'
 import { buildModelSetSections, type ModelSetSection } from '../lib/rows'
 import { TxrDeleteModelDialog } from '../components/TxrDeleteModelDialog'
+import { TxrDeleteSetDialog } from '../components/TxrDeleteSetDialog'
 import { TxrRenameModelDialog } from '../components/TxrRenameModelDialog'
+import { TxrRenameSetDialog } from '../components/TxrRenameSetDialog'
 
 /** The page's flex spine (the frame fills the routed area). */
 const PAGE_OUTER: CSSProperties = {
@@ -172,6 +185,17 @@ const SECTION_TITLE: CSSProperties = {
 const SECTION_FACTS: CSSProperties = {
   fontSize: 13.5,
   color: 'var(--txr-muted)',
+}
+
+/** The section's action button group (right of the title+facts line on a
+ *  wide window; wraps UNDER the title on a phone — the header's own wrap). */
+const SECTION_ACTIONS: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '2px 12px',
+  alignItems: 'center',
+  marginLeft: 'auto',
+  minWidth: 0,
 }
 
 const TABLE: CSSProperties = {
@@ -348,6 +372,12 @@ function setFactsLine(section: ModelSetSection): string {
 /** The one row dialog at a time (rename or delete; the plan's per-action confirmations). */
 type RowDialog = { kind: 'rename' | 'delete'; model: ModelSummary } | null
 
+/** The one SET dialog at a time (the section header's Rename set /
+ *  Delete set — the row dialogs' set-level twins). */
+type SetDialog = { kind: 'rename' | 'delete'; set: { id: string; name: string } } | null
+
+const NO_SET_DIALOG: SetDialog = null
+
 export function ModelsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -367,11 +397,13 @@ export function ModelsPage() {
   // with the model list (a mutation can change a set's rows/count).
   const sets = useModelSets()
   const [rowDialog, setRowDialog] = useState<RowDialog>(null)
+  const [setDialog, setSetDialog] = useState<SetDialog>(NO_SET_DIALOG)
   const [actionError, setActionError] = useState<string | null>(null)
   // Where the desktop app's Save dialog put an exported model file.
   const [savedPath, setSavedPath] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [exportingSet, setExportingSet] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const models = inventory.response?.models ?? []
@@ -403,6 +435,40 @@ export function ModelsPage() {
     refreshInventory()
     refreshSets()
   }, [refreshInventory, refreshSets])
+
+  // The registered `models.renameSet` action's refresh: the AI/command path
+  // has no dialog `onSaved`, so the action publishes the refresh bus and
+  // EVERY mounted host that shows the sets data re-reads (this page's hooks
+  // here; the saved-models store in the I page). The human path refreshes
+  // through the dialogs' own callbacks — never a double refresh.
+  useEffect(() => subscribeModelSetsChanged(refresh), [refresh])
+
+  /** The set record for a set id: the SetSummary (name + the keep flag) from
+   *  the sets read, else the fallback group's own title (a sets-read-failed
+   *  section still has a real set id and its rows' set name). */
+  const resolveSet = useCallback(
+    (setId: string): { id: string; name: string } | null => {
+      const known = sets.response?.sets.find(set => set.id === setId)
+      if (known !== undefined) return { id: known.id, name: known.name }
+      const section = sections.find(candidate => candidate.key === setId)
+      return section === undefined ? null : { id: section.key, name: section.title }
+    },
+    [sets.response, sections],
+  )
+
+  // The registered `models.deleteSet` action only OPENS the confirm dialog
+  // (it never deletes): the pending-request channel is the seam, and this
+  // page is one of the two hosts (with the saved-models page) that listen.
+  useEffect(
+    () =>
+      subscribeDeleteSetRequest(setId => {
+        const set = resolveSet(setId)
+        if (set === null) return
+        setActionError(null)
+        setSetDialog({ kind: 'delete', set })
+      }),
+    [resolveSet],
+  )
 
   /** Use — the DEC-10 handoff: intent reuse + the pending model id, then
    *  the N screen (the user adds the predict file; the I screen preselects
@@ -450,6 +516,59 @@ export function ModelsPage() {
     setActionError(null)
     setRowDialog({ kind: 'delete', model })
   }, [])
+
+  /** Set Rename — the dialog collects the new name; its confirm goes
+   *  through the ONE `renameSetById` call the registered
+   *  `models.renameSet` action uses (the AI path renames by id + name). */
+  const openSetRename = useCallback((setId: string, name: string): void => {
+    setActionError(null)
+    setSetDialog({ kind: 'rename', set: { id: setId, name } })
+  }, [])
+
+  /** Set Export — the registered `models.exportSet` action owns the
+   *  download (the button and the AI agent take the same path); the
+   *  desktop Save dialog's chosen path is announced like the model export's. */
+  const exportSet = useCallback(
+    async (setId: string): Promise<void> => {
+      setExportingSet(true)
+      setActionError(null)
+      setSavedPath(null)
+      try {
+        const result = (await runAction('models.exportSet', { setId })) as {
+          status: 'saved' | 'downloaded' | 'cancelled'
+          path?: string
+        }
+        if (result.status === 'saved' && result.path !== undefined) setSavedPath(result.path)
+      } catch {
+        // The one failure line (never the transport's own words).
+        setActionError(SET_EXPORT_FAILED_LINE)
+      } finally {
+        setExportingSet(false)
+      }
+    },
+    [],
+  )
+
+  /** Set Delete — the registered `models.deleteSet` action OPENS the
+   *  confirm dialog through the pending-request channel (it never deletes;
+   *  the dialog's confirm is the one delete). */
+  const openSetDelete = useCallback((setId: string): void => {
+    setActionError(null)
+    void runAction('models.deleteSet', { setId }).catch((error: unknown) => {
+      setActionError(error instanceof Error ? error.message : 'The set could not be deleted.')
+    })
+  }, [])
+
+  /** The set delete succeeded: re-read both reads, and clear a `?set=`
+   *  focus that names the deleted set (a dead-view URL is a stale view —
+   *  the honest page is the unfiltered inventory). */
+  const onSetDeleted = useCallback((): void => {
+    refresh()
+    const deletedId = setDialog?.kind === 'delete' ? setDialog.set.id : null
+    if (setId !== null && deletedId !== null && deletedId === setId) {
+      setSearchParams({})
+    }
+  }, [refresh, setDialog, setId, setSearchParams])
 
   /** Import — the picked container to `POST /api/txr/models/import`
    *  (multipart, the `file` part — CONS-UM-9; `set_id` rides when the
@@ -630,6 +749,43 @@ export function ModelsPage() {
                   {section.title}
                 </h2>
                 <span style={SECTION_FACTS}>{setFactsLine(section)}</span>
+                {/* The three set actions: every real set section gets them
+                    (a sets-read-failed fallback group keeps its buttons —
+                    they act by the real set id; the NOT-in-a-set section has
+                    none; the demo's pools are the shared one and the server
+                    blocks both, ITEM-7). */}
+                {!isDemo && !section.unsetted ? (
+                  <div
+                    data-testid={`txr-models-set-actions-${section.key}`}
+                    style={SECTION_ACTIONS}
+                  >
+                    <Button
+                      data-testid={`txr-models-set-rename-btn-${section.key}`}
+                      variant="link"
+                      style={ROW_ACTION_LINK}
+                      onClick={() => openSetRename(section.key, section.title)}
+                    >
+                      Rename set
+                    </Button>
+                    <Button
+                      data-testid={`txr-models-set-export-btn-${section.key}`}
+                      variant="link"
+                      style={ROW_ACTION_LINK}
+                      disabled={exportingSet}
+                      onClick={() => void exportSet(section.key)}
+                    >
+                      {setExportLabel()}
+                    </Button>
+                    <Button
+                      data-testid={`txr-models-set-delete-btn-${section.key}`}
+                      variant="link"
+                      style={ROW_ACTION_DANGER}
+                      onClick={() => openSetDelete(section.key)}
+                    >
+                      Delete set
+                    </Button>
+                  </div>
+                ) : null}
               </header>
               <div style={TABLE_BOX}>
           <table
@@ -781,6 +937,23 @@ export function ModelsPage() {
         model={rowDialog?.kind === 'delete' ? rowDialog.model : null}
         onClose={() => setRowDialog(null)}
         onDeleted={refresh}
+      />
+      <TxrRenameSetDialog
+        set={setDialog?.kind === 'rename' ? setDialog.set : null}
+        onClose={() => setSetDialog(NO_SET_DIALOG)}
+        onSaved={refresh}
+      />
+      <TxrDeleteSetDialog
+        set={setDialog?.kind === 'delete' ? setDialog.set : null}
+        onClose={() => setSetDialog(NO_SET_DIALOG)}
+        onDeleted={onSetDeleted}
+        confirmLabel="Delete the set"
+        keepsTrainingFiles={
+          setDialog?.kind === 'delete' && setDialog.set !== null
+            ? (sets.response?.sets.find(set => set.id === setDialog.set.id)
+                ?.keep_training_files ?? false)
+            : false
+        }
       />
     </main>
   )

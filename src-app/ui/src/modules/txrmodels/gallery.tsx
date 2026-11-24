@@ -658,6 +658,11 @@ export const gallery: ModuleGallery = {
       name: (ctx.body as { name?: string } | undefined)?.name ?? TXRMODELS_SET_A.name,
     }),
     'ModelSets.deleteSet': () => undefined,
+    // The set export is a byte surface (like the model export — the cassette
+    // answers JSON only); the J story's buttons render and the rename /
+    // delete flows work, an export click answers undefined (the story does
+    // not assert the download bytes).
+    'ModelSets.exportSet': () => undefined,
     // the row actions (J) + the save dialogs
     'Models.renameModel': (ctx: MockRequestContext) => ({
       ...TXRMODELS_SAVED[0]!,

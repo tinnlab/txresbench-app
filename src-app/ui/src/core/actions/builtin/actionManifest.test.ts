@@ -8,7 +8,8 @@
 // TxResBench strip: the user/group/session-settings actions were removed with the auth and
 // account-management modules they served, and the sandbox/jobs/provenance/workstore settings
 // actions with their single-cell modules. The manifest carries the app-owned surface that
-// remains (9 actions), pinned here so a skipped regen cannot silently drift the two sides.
+// remains (12 actions with the model-set trio), pinned here so a skipped regen cannot
+// silently drift the two sides.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -36,6 +37,9 @@ const EXPECTED: Record<string, { permission: string; mutating: boolean }> = {
   'flow.startPath': { permission: 'mcp::use', mutating: true },
   'models.useModel': { permission: 'mcp::use', mutating: true },
   'history.useSettingsAgain': { permission: 'mcp::use', mutating: true },
+  'models.renameSet': { permission: 'mcp::use', mutating: true },
+  'models.exportSet': { permission: 'mcp::use', mutating: false },
+  'models.deleteSet': { permission: 'mcp::use', mutating: true },
   'flow.setLastDrawDay': { permission: 'mcp::use', mutating: true },
   'runSettings.setDay': { permission: 'mcp::use', mutating: true },
   'runSettings.setCovariates': { permission: 'mcp::use', mutating: true },
