@@ -1345,6 +1345,61 @@ mod tests {
         );
     }
 
+    /// The example cohort clears the cross-check thresholds — the new
+    /// small-cohort refusal ([`BundleError::CrossCheckTooSmall`]) must NOT
+    /// silently shrink the example set: every fitted method's bundle refusal
+    /// comes from ANOTHER leg, never from the cross-check (a generator change
+    /// that shrinks the example fails here instead of silently dropping a
+    /// method from the pick).
+    #[test]
+    fn example_cohort_clears_the_crosscheck_minimum() {
+        let inputs = inputs();
+        // The strata of the run's displayed outcome (progression at the
+        // run's look-ahead day) over the canonical train side the pick
+        // judges: the cohort-level form of the per-fold rule.
+        let h = inputs.config.look_ahead_day;
+        let (event, beyond) =
+            inputs
+                .train
+                .patients
+                .iter()
+                .fold((0usize, 0usize), |(e, b), p| {
+                    match (p.pfs_days, p.pfs_event) {
+                        (Some(t), Some(ev)) if ev == 1 && t <= h => (e + 1, b),
+                        (Some(t), Some(_)) if t > h => (e, b + 1),
+                        _ => (e, b),
+                    }
+                });
+        let known = event + beyond;
+        assert!(
+            known >= bundle::CROSSCHECK_MIN_PATIENTS,
+            "the example keeps only {known} known labels — below \
+             CROSSCHECK_MIN_PATIENTS = {}",
+            bundle::CROSSCHECK_MIN_PATIENTS
+        );
+        assert!(
+            event >= bundle::CROSSCHECK_MIN_PER_CLASS && beyond >= bundle::CROSSCHECK_MIN_PER_CLASS,
+            "the example's classes are {event}/{beyond} — each must be >= \
+             CROSSCHECK_MIN_PER_CLASS = {}",
+            bundle::CROSSCHECK_MIN_PER_CLASS
+        );
+        // And, exactly: no fitted method's bundle preflight on the example is
+        // refused by the cross-check (a different leg — the marker rule, say —
+        // may still refuse it).
+        for method in &catalogue().methods {
+            if method.fitted {
+                if let Err(e) = inputs.preflight(method) {
+                    assert_ne!(
+                        e.code(),
+                        "BUNDLE_CROSSCHECK_TOO_SMALL",
+                        "{}: the cross-check must not refuse an example method",
+                        method.id
+                    );
+                }
+            }
+        }
+    }
+
     /// Bug 2's example half: the pick applies the run's per-method covariates
     /// rule, so a `none`-mode method is never refused by the example preflight
     /// just because the run's covariates checkbox is ON. With the checkbox ON
@@ -1790,21 +1845,25 @@ mod tests {
         }
     }
 
-    /// A picked method that a cross-fit fold would refuse once it is
+    /// A picked method that the cross-check would refuse once it is
     /// `fitted`: for each cohort size (ascending, stopping at the first that
     /// gives the case), the unmodified amd64 pick on the cut rows — from ONE
     /// eligibility run, since the cut leaves the inventory unchanged — and,
     /// for each picked method that is not fitted, a copy of just that method
     /// marked `fitted` whose marker set and first train/test bundles build
-    /// but whose call is refused `BUNDLE_NO_LEARNABLE_OUTCOME` at a
-    /// cross-fit fold's rest set. Returns the cut inputs and the modified
-    /// method.
+    /// but whose call is refused [`BundleError::CrossCheckTooSmall`] (the
+    /// cohort is below [`CROSSCHECK_MIN_PATIENTS`], so some fold's training
+    /// part cannot support the stratified fit — the refusal the new rule put
+    /// before the first call in place of the old fold-bundle
+    /// `BUNDLE_NO_LEARNABLE_OUTCOME`, which the cross-check makes
+    /// unreachable). Returns the cut inputs and the modified method.
     fn crossfit_refused_case(full: &ExampleRunInputs) -> Option<(ExampleRunInputs, Method)> {
-        let refused = Err(BundleError::NoLearnableOutcome {
-            min: bundle::MIN_TRAINING_PATIENTS,
+        let refused = Err(BundleError::CrossCheckTooSmall {
+            needed_patients: bundle::MIN_TRAINING_PATIENTS,
+            needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
         });
         let runnable = runnable_methods(catalogue(), full, amd64_env);
-        (bundle::MIN_TRAINING_PATIENTS..full.train.patients.len()).find_map(|n| {
+        (bundle::MIN_TRAINING_PATIENTS..bundle::CROSSCHECK_MIN_PATIENTS).find_map(|n| {
             let cut = cut_inputs(full, n);
             let picked = first_passing(rank_fast(&runnable, cut.patients()), |m| {
                 cut.preflight(m).is_ok()
@@ -1841,16 +1900,17 @@ mod tests {
     /// bundles ([`orchestrator::method_bundles`]). On the real catalogue and
     /// the real example no method is refused past the marker rule, so the
     /// case is built and searched for ([`crossfit_refused_case`]): the rows
-    /// are cut so the full-cohort train bundle learns but a cross-fit fold's
-    /// rest set does not, and a picked method is marked `fitted` in a copy
-    /// of the catalogue, so its call would build the cross-fit bundles and be
-    /// refused between its calls. That method leaves the pick (it was picked
-    /// unmodified on the same rows); the rest of the pick stays.
+    /// are cut to a cohort the full-cohort train bundle learns from but that
+    /// is too small to cross-check, and a picked method is marked `fitted` in
+    /// a copy of the catalogue, so its call is
+    /// `BUNDLE_CROSSCHECK_TOO_SMALL` before its first container call. That
+    /// method leaves the pick (it was picked unmodified on the same rows);
+    /// the rest of the pick stays.
     #[test]
     fn a_method_the_bundle_stage_refuses_is_not_picked() {
         let full = inputs();
         let (cut, modified) = crossfit_refused_case(&full)
-            .expect("a picked method that a cross-fit fold refuses once fitted");
+            .expect("a picked method the cross-check refuses once fitted");
         let target = modified.id.clone();
         let mut cat = catalogue().clone();
         *cat.methods
@@ -1891,10 +1951,11 @@ mod tests {
         // The bundle stage refuses it, so the pick leaves it out.
         assert_eq!(
             cut.preflight(fitted),
-            Err(BundleError::NoLearnableOutcome {
-                min: bundle::MIN_TRAINING_PATIENTS
+            Err(BundleError::CrossCheckTooSmall {
+                needed_patients: bundle::MIN_TRAINING_PATIENTS,
+                needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
             }),
-            "{target}: a cross-fit fold's rest set learns no outcome"
+            "{target}: the cut cohort is too small to cross-check"
         );
         let unmodified = pick_from(catalogue(), &cut, amd64_env);
         assert!(

@@ -99,6 +99,26 @@ use crate::modules::method_list::MethodList;
 /// x-check).
 pub const MIN_TRAINING_PATIENTS: usize = 10;
 
+/// The smallest whole training cohort on which the K=3 stratified cross-fit
+/// folds can all work (the run's "refuse the dataset if there is too few
+/// patients" rule): a cohort of `n` patients with a known label keeps at
+/// least `n - ceil(n/3) >= MIN_TRAINING_PATIENTS` of them in every fold's
+/// training part, so `n >= 15`. The per-fold check itself uses
+/// [`MIN_TRAINING_PATIENTS`]; this constant is the proven cohort-level
+/// counterpart of it (and [`CROSSCHECK_MIN_PER_CLASS`] the per-class one).
+pub const CROSSCHECK_MIN_PATIENTS: usize = 15;
+
+/// The smallest per-class count of the cohort above: a class of `c` patients
+/// keeps at least `c - ceil(c/3) >= 2` of itself in every fold's training
+/// part, so `c >= 3`.
+pub const CROSSCHECK_MIN_PER_CLASS: usize = 3;
+
+/// The per-fold per-class minimum of the cross-check — a fold's training
+/// part needs at least this many patients of either class to anchor the
+/// stratified calibration ([`crate::modules::execution_engine::predictions::crossfit_fold_problem`]'s
+/// rule, this module's [`BundleError::CrossCheckTooSmall`] detail).
+pub(crate) const CROSSCHECK_FOLD_MIN_PER_CLASS: usize = 2;
+
 /// The outcome vocabulary of the contract (`progression` = pfs,
 /// `death` = os, `no_response` / `progressive_disease` = the response
 /// labels), in the package's `outcome_names()` order — the order
@@ -349,6 +369,19 @@ pub enum BundleError {
     /// companion name) — the selection must never hold a marker the file
     /// lacks.
     MarkerNotInFile { marker: String },
+    /// A `fitted` method's cross-check cannot be run: some fold's training
+    /// part has fewer than [`MIN_TRAINING_PATIENTS`] patients with a known
+    /// label for the strata outcome, or fewer than
+    /// [`CROSSCHECK_FOLD_MIN_PER_CLASS`] of either class (the user's
+    /// "refuse the dataset if there is too few patients"; the refusal comes
+    /// before any container call).
+    CrossCheckTooSmall {
+        /// The training part's known-label minimum ([`MIN_TRAINING_PATIENTS`]).
+        needed_patients: usize,
+        /// The training part's per-class minimum
+        /// ([`CROSSCHECK_FOLD_MIN_PER_CLASS`]).
+        needed_per_class: usize,
+    },
 }
 
 impl BundleError {
@@ -370,6 +403,7 @@ impl BundleError {
             BundleError::MarkerRankingNoOutcome { .. } => "BUNDLE_MARKER_RANKING_NO_OUTCOME",
             BundleError::MarkersLeftOut => "BUNDLE_MARKERS_LEFT_OUT",
             BundleError::MarkerNotInFile { .. } => "BUNDLE_MARKER_NOT_IN_FILE",
+            BundleError::CrossCheckTooSmall { .. } => "BUNDLE_CROSSCHECK_TOO_SMALL",
         }
     }
 }
@@ -466,6 +500,14 @@ impl fmt::Display for BundleError {
             BundleError::MarkerNotInFile { marker } => write!(
                 f,
                 "{}: the marker you chose, `{marker}`, is not one of this file's markers.",
+                self.code()
+            ),
+            BundleError::CrossCheckTooSmall {
+                needed_patients,
+                needed_per_class,
+            } => write!(
+                f,
+                "{}: too few patients to check the chances: each check needs at least {needed_patients} patients to learn from, with at least {needed_per_class} who had the outcome and {needed_per_class} who did not",
                 self.code()
             ),
         }

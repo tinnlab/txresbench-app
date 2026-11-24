@@ -87,7 +87,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::modules::execution_engine::bundle::{parse_csv, parse_number, CsvTable};
+use crate::modules::execution_engine::bundle::{self, parse_csv, parse_number, CsvTable};
 use crate::modules::execution_engine::types::{EngineReasonCode, TxrCoverage, TxrTask};
 use crate::modules::method_catalogue::types::{Method, MethodGroup};
 
@@ -1694,8 +1694,10 @@ pub struct FoldStrataDeficit {
 
 /// Whether the TRAINING part of fold `k` (all patients whose fold is not `k`)
 /// can support the stratified calibration: `Some(...)` with the training
-/// part's stratum-1/2 counts when either is below 2, `None` otherwise (a
-/// weighted logistic fit needs both classes; 2 is the smallest useful count —
+/// part's stratum-1/2 counts when either is below
+/// [`bundle::CROSSCHECK_FOLD_MIN_PER_CLASS`], `None` otherwise (a
+/// weighted logistic fit needs both classes;
+/// [`bundle::CROSSCHECK_FOLD_MIN_PER_CLASS`] is the smallest useful count —
 /// a single point cannot anchor the curve). The helper ONLY reports:
 /// refuse-or-mark is still the callers' open decision, so nothing here
 /// changes behaviour.
@@ -1716,7 +1718,9 @@ pub fn crossfit_fold_problem(
             _ => {}
         }
     }
-    if stratum1 < 2 || stratum2 < 2 {
+    if stratum1 < bundle::CROSSCHECK_FOLD_MIN_PER_CLASS
+        || stratum2 < bundle::CROSSCHECK_FOLD_MIN_PER_CLASS
+    {
         Some(FoldStrataDeficit { stratum1, stratum2 })
     } else {
         None
@@ -3141,8 +3145,9 @@ mod tests {
     }
 
     /// [`crossfit_fold_problem`] reports (never refuses) the training-side
-    /// strata of one fold: `Some` when either stratum has fewer than 2
-    /// patients in the training part, `None` otherwise.
+    /// strata of one fold: `Some` when either stratum has fewer than
+    /// [`bundle::CROSSCHECK_FOLD_MIN_PER_CLASS`] patients in the training
+    /// part, `None` otherwise.
     #[test]
     fn crossfit_fold_problem_reports_the_training_strata() {
         // A hand-built partition (fold = index % 3) with a small stratum 2.

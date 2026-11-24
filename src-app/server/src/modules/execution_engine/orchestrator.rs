@@ -950,6 +950,23 @@ impl StackMethodExecutor {
         };
         let outcome_spec = run_task(facts, ctx.config.endpoint, settings.look_ahead_day);
 
+        // The too-small-cohort refusal (the user's "refuse the dataset if
+        // there is too few patients") comes BEFORE any container call: a
+        // `fitted` method is refused — with no silent in-sample fallback —
+        // when the 3 stratified folds cannot work, also when it returns its
+        // own probability and otherwise ran no folds at all. [`cohort_folds`]
+        // both checks and builds the folds (the one construction the
+        // preflight shares), so the cross-fit loop below reuses them.
+        let needs = needs_list(facts, &train_bundle.outcomes, settings);
+        let crossfit_folds = if facts.fitted {
+            match cohort_folds(&train_bundle, &needs, settings) {
+                Ok(folds) => Some(folds),
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            }
+        } else {
+            None
+        };
+
         let bundle_dir = ctx.run_dir.join("bundles").join(&method_id);
         let outputs_dir = ctx.run_dir.join("output").join(&method_id);
         let model_dir = ctx.run_dir.join("models").join(&method_id);
@@ -999,7 +1016,6 @@ impl StackMethodExecutor {
         }
 
         // ── the training scores (the conversion band's input) ───────────────
-        let needs = needs_list(facts, &train_bundle.outcomes, settings);
         let mut score_tables: Vec<bundle::CsvTable> = Vec::new();
         if !needs.is_empty() {
             if facts.fitted {
@@ -1010,7 +1026,9 @@ impl StackMethodExecutor {
                 // preflight checks, one function so the two paths cannot
                 // differ — and are STRATIFIED by the first learned outcome,
                 // unlike the package's plain inner folds.
-                let folds = cohort_folds(&train_bundle, &needs, settings);
+                let folds = crossfit_folds
+                    .as_deref()
+                    .expect("a fitted method carries its checked folds");
                 for k in 0..super::predictions::CROSS_FIT_FOLDS {
                     let (sub_bundle, fold_test) = match crossfit_fold_bundles(
                         &train,
@@ -1918,23 +1936,47 @@ fn cohort_test_bundle(
 /// The ONE cross-fit fold construction of the train path — [`execute_train`]
 /// and [`train_bundle_preflight`] both take their folds from here, so the two
 /// paths cannot differ. The strata come from the FIRST outcome the method
-/// learns (the first entry of `needs`), the labels are the written
-/// `train/outcomes.csv` rows (the sorted cohort — the same order
-/// `patient_ids` carries, so `folds[i]` is fold of `patient_ids[i]`), and
-/// the folds are [`predictions::crossfit_folds_stratified`] at the run's
-/// seed and `K`. `needs` must be non-empty: the callers already gate — with
-/// no need the conversion band is not run at all, so no folds are built
-/// (as before).
+/// learns (the first entry of `needs` — or, for a `fitted` method with no
+/// need, it returned its own probability for every learned outcome and
+/// otherwise ran no folds at all, the first of `train.outcomes`), the labels
+/// are the written `train/outcomes.csv` rows (the sorted cohort — the same
+/// order `patient_ids` carries, so `folds[i]` is fold of `patient_ids[i]`),
+/// and the folds are [`predictions::crossfit_folds_stratified`] at the run's
+/// seed and `K`.
+///
+/// The user's "refuse the dataset if there is too few patients" rule is
+/// enforced HERE: after the strata and the folds are built, every fold's
+/// training part is checked — [`predictions::crossfit_fold_problem`] for the
+/// per-class minimum and the known-label count of [`bundle::MIN_TRAINING_PATIENTS`]
+/// — and the first fold that cannot support the stratified fit refuses the
+/// method with [`bundle::BundleError::CrossCheckTooSmall`]. A missing or
+/// unparsable `outcomes.csv` means no label is known at all: that is the
+/// same refusal (never empty folds, never a silent unfit run).
 fn cohort_folds(
     train: &bundle::TrainBundle,
     needs: &[(String, Option<f64>)],
     settings: &bundle::BundleSettings,
-) -> Vec<usize> {
-    debug_assert!(
-        !needs.is_empty(),
-        "the callers build folds only when a need exists"
-    );
-    let outcome = &needs[0].0;
+) -> Result<Vec<usize>, bundle::BundleError> {
+    let first_outcome = |o: &str| -> (String, Option<f64>) {
+        let h = if super::predictions::is_survival(o) {
+            Some(settings.look_ahead_day)
+        } else {
+            None
+        };
+        (o.to_string(), h)
+    };
+    let (outcome, _) = if needs.is_empty() {
+        // A fitted method with NO need (it writes its own probability for
+        // every learned outcome) ran no folds before — the refusal still
+        // applies, on the first outcome the method learns.
+        let first = train
+            .outcomes
+            .first()
+            .expect("a train bundle always learns at least one outcome");
+        first_outcome(first)
+    } else {
+        needs[0].clone()
+    };
     let outcomes_csv = train
         .files
         .iter()
@@ -1945,26 +1987,47 @@ fn cohort_folds(
     // empty-table fallback follows the executor's own reading of the file.
     let table = bundle::parse_csv(&outcomes_csv).unwrap_or_else(|_| bundle::CsvTable::empty());
     let labels = super::predictions::training_labels(&table);
-    let mut strata = super::predictions::fold_strata(&labels, outcome, settings.look_ahead_day);
+    let strata = super::predictions::fold_strata(&labels, &outcome, settings.look_ahead_day);
     if strata.len() != train.patient_ids.len() {
         // The outcome file is absent or does not parse (its label table is
         // then empty — or otherwise not the sorted cohort, so the strata
-        // cannot index the patients). Never let that starve the cross-fit of
-        // folds: fall back to ALL-ZERO strata — one stratum holding every
-        // patient — so the seeded deal is the plain balanced one (the
-        // package's old unstratified partition), at the full cohort length.
-        strata = vec![0; train.patient_ids.len()];
+        // cannot index the patients). No label is known, so no fold's
+        // training part meets the cross-check minimum: refuse (never empty
+        // folds — a refusal is what the caller acts on now).
+        return Err(crosscheck_too_small());
     }
     debug_assert_eq!(
         strata.len(),
         train.patient_ids.len(),
         "the strata index the cohort one-to-one"
     );
-    super::predictions::crossfit_folds_stratified(
+    let folds = super::predictions::crossfit_folds_stratified(
         &strata,
         TxrLimits::SEED as u64,
         super::predictions::CROSS_FIT_FOLDS,
-    )
+    );
+    for k in 0..super::predictions::CROSS_FIT_FOLDS {
+        let deficit = super::predictions::crossfit_fold_problem(&strata, &folds, k);
+        let known: usize = strata
+            .iter()
+            .zip(&folds)
+            .filter(|(_, f)| **f != k)
+            .filter(|(s, _)| **s != 0)
+            .count();
+        if known < bundle::MIN_TRAINING_PATIENTS || deficit.is_some() {
+            return Err(crosscheck_too_small());
+        }
+    }
+    Ok(folds)
+}
+
+/// The too-small-cohort refusal with the engine's own thresholds (one
+/// construction for the check and its detail).
+fn crosscheck_too_small() -> bundle::BundleError {
+    bundle::BundleError::CrossCheckTooSmall {
+        needed_patients: bundle::MIN_TRAINING_PATIENTS,
+        needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+    }
 }
 
 /// Every bundle a train-mode call builds, built without running anything —
@@ -1997,11 +2060,20 @@ pub(crate) fn train_bundle_preflight(
     }
     let bundles = method_bundles(train, predict, facts, settings, min_draws)?;
     let needs = needs_list(facts, &bundles.train.outcomes, settings);
+    // The small-cohort refusal is part of the bundle stage for EVERY
+    // `fitted` method — also when `needs` is empty (it returns its own
+    // probability and would otherwise run no folds at all): `cohort_folds`
+    // checks and returns the folds in one pass, so the per-fold loop below
+    // shares the checked construction ([`execute_train`] does the same).
+    let folds = if facts.fitted {
+        Some(cohort_folds(&bundles.train, &needs, settings)?)
+    } else {
+        None
+    };
     if needs.is_empty() {
         return Ok(());
     }
-    if facts.fitted {
-        let folds = cohort_folds(&bundles.train, &needs, settings);
+    if let Some(folds) = folds {
         for k in 0..super::predictions::CROSS_FIT_FOLDS {
             crossfit_fold_bundles(
                 train,
@@ -7734,31 +7806,6 @@ mod tests {
         subset_canonical(train, &keep)
     }
 
-    /// A fitted catalogue method plus a cohort size where the method's first
-    /// bundles build but a cross-fit fold's rest set learns no outcome — a
-    /// search over the catalogue and the sizes, so the case does not hang on
-    /// one method's facts.
-    fn crossfit_refusal_case(
-        train: &CanonicalBundle,
-        settings: &bundle::BundleSettings,
-    ) -> Option<(String, CanonicalBundle)> {
-        let cat = &crate::modules::method_list::builtin().catalogue;
-        let refused = Err(bundle::BundleError::NoLearnableOutcome {
-            min: bundle::MIN_TRAINING_PATIENTS,
-        });
-        (bundle::MIN_TRAINING_PATIENTS..train.patients.len()).find_map(|n| {
-            let cut = first_cohort_patients(train, n);
-            cat.methods
-                .iter()
-                .filter(|m| m.fitted)
-                .find(|m| {
-                    method_bundles(&cut, None, m, settings, m.min_draws).is_ok()
-                        && train_bundle_preflight(&cut, None, m, settings, m.min_draws) == refused
-                })
-                .map(|m| (m.id.clone(), cut.clone()))
-        })
-    }
-
     /// The ONE-construction rule behind the executor/preflight parity: the
     /// shared [`cohort_folds`] derives the strata from the FIRST learned
     /// need's training labels (the written outcomes.csv — the sorted cohort)
@@ -7790,7 +7837,8 @@ mod tests {
             "the fixture cohort learns at least one outcome"
         );
 
-        let folds = cohort_folds(&bundles.train, &needs, &settings);
+        let folds = cohort_folds(&bundles.train, &needs, &settings)
+            .expect("the cohort's folds can be built (it passes the cross-check)");
         assert_eq!(folds.len(), bundles.train.patient_ids.len());
         let mut counts = [0usize; predictions::CROSS_FIT_FOLDS];
         for f in &folds {
@@ -7825,15 +7873,17 @@ mod tests {
         );
     }
 
-    /// The fallback of [`cohort_folds`] when the outcome file is missing or
-    /// does not parse: the label table is then empty (or otherwise not the
-    /// sorted cohort), so the strata do not index the patients. The function
-    /// must NOT propagate that as empty folds — the cross-fit would give the
-    /// conversion band no training risks at all. It falls back to ALL-ZERO
-    /// strata (one stratum, every patient), so the delivered folds are the
-    /// full cohort length and exactly the plain balanced seeded deal.
+    /// The cross-check of [`cohort_folds`] when the outcome file is missing
+    /// or does not parse: the label table is then empty (or otherwise not the
+    /// sorted cohort), so the strata cannot index the patients — but more
+    /// fundamentally no label is known at all, so no fold's training part can
+    /// meet the cross-check minimum. The function must NOT propagate that as
+    /// empty folds (the cross-fit would give the conversion band no training
+    /// risks at all): it REFUSES with [`bundle::BundleError::CrossCheckTooSmall`],
+    /// the same refusal the user's "refuse the dataset if there is too few
+    /// patients" rule gives for a cohort whose labels are all unknown.
     #[test]
-    fn cohort_folds_fall_back_to_a_plain_deal_without_outcomes() {
+    fn cohort_folds_refuses_when_no_label_is_known() {
         let settings = bundle::BundleSettings::for_run(
             &RunConfig {
                 decision_day: 56.0,
@@ -7853,6 +7903,10 @@ mod tests {
             marker_names: vec!["14804-9".to_string()],
             patient_ids: patient_ids.clone(),
         };
+        let too_small = Err(bundle::BundleError::CrossCheckTooSmall {
+            needed_patients: bundle::MIN_TRAINING_PATIENTS,
+            needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+        });
 
         // outcomes.csv ABSENT: the bundle carries only the long tables.
         let absent = bundle_with(vec![
@@ -7865,30 +7919,317 @@ mod tests {
                 csv: "patient_id,day,marker,value,unit\n".to_string(),
             },
         ]);
-        let folds = cohort_folds(&absent, &needs, &settings);
-        assert_eq!(folds.len(), patient_ids.len(), "full-length folds");
-        let plain = predictions::crossfit_folds_stratified(
-            &vec![0; patient_ids.len()],
-            TxrLimits::SEED as u64,
-            predictions::CROSS_FIT_FOLDS,
-        );
-        assert_eq!(folds, plain, "the fallback is the plain balanced seeded deal");
-        let mut counts = [0usize; predictions::CROSS_FIT_FOLDS];
-        for f in &folds {
-            assert!(*f < predictions::CROSS_FIT_FOLDS, "fold ids are in 0..K");
-            counts[*f] += 1;
-        }
-        assert_eq!(counts, [4, 4, 4], "12 patients over 3 folds stay balanced");
+        assert_eq!(cohort_folds(&absent, &needs, &settings), too_small);
 
-        // outcomes.csv present but UNPARSABLE: the same fallback kicks in.
+        // outcomes.csv present but UNPARSABLE: the same refusal.
         let unparsable = bundle_with(vec![bundle::BundleFile {
             name: "outcomes.csv",
             csv: "\"unterminated".to_string(),
         }]);
-        assert_eq!(
-            cohort_folds(&unparsable, &needs, &settings),
-            plain,
-            "an unparsable outcomes.csv falls back the same way"
+        assert_eq!(cohort_folds(&unparsable, &needs, &settings), too_small);
+
+        // A parseable table whose rows carry NO known label (every response
+        // cell empty): the strata are all-zero but the labels exist and index
+        // the cohort, and the per-fold check still refuses — zero known
+        // labels in every training part.
+        let all_unknown = bundle_with(vec![bundle::BundleFile {
+            name: "outcomes.csv",
+            csv: "patient_id,pfs_time,pfs_event,os_time,os_event,no_response,progressive_disease\n"
+                .to_string()
+                + &(0..12)
+                    .map(|i| format!("C{i:02},,,,,,\n"))
+                    .collect::<String>(),
+        }]);
+        assert_eq!(cohort_folds(&all_unknown, &needs, &settings), too_small);
+    }
+
+    /// A cross-check [`bundle::TrainBundle`] from a strata pattern (the
+    /// synthetic `C00..` cohort; stratum 1 = event by the look-ahead day,
+    /// stratum 2 = followed beyond it, 0 = unknown) — the written
+    /// `outcomes.csv` the way [`cohort_folds`] reads it, over the `progression`
+    /// outcome at the run's look-ahead.
+    fn crosscheck_bundle(strata: &[usize]) -> bundle::TrainBundle {
+        let mut csv = String::from("patient_id,pfs_time,pfs_event\n");
+        for (i, s) in strata.iter().enumerate() {
+            let (t, e) = match s {
+                1 => ("100", "1"),
+                2 => ("300", "0"),
+                _ => ("", ""),
+            };
+            csv.push_str(&format!("C{i:02},{t},{e}\n"));
+        }
+        bundle::TrainBundle {
+            files: vec![bundle::BundleFile {
+                name: "outcomes.csv",
+                csv,
+            }],
+            params: serde_json::json!({}),
+            outcomes: vec!["progression".to_string()],
+            n_outcome: Default::default(),
+            warnings: Vec::new(),
+            marker_names: Vec::new(),
+            patient_ids: (0..strata.len()).map(|i| format!("C{i:02}")).collect(),
+        }
+    }
+
+    /// [`CROSSCHECK_MIN_PATIENTS`] and [`CROSSCHECK_MIN_PER_CLASS`] are NOT
+    /// hand-picked — they are exactly the brute-forced thresholds: the
+    /// smallest cohort (patients, and per-class count) where the K=3
+    /// stratified folds stop reporting a problem through [`cohort_folds`] +
+    /// [`predictions::crossfit_fold_problem`]. The check runs over every n in
+    /// 1..40 and every class split (the two strata only, every patient
+    /// known), and the pinned cases sit on the boundary: 15 patients (8+7
+    /// and 3+12) pass, 14 (7+7) and 2+13 fail.
+    #[test]
+    fn crosscheck_constants_are_the_smallest_passing_cohort_thresholds() {
+        let settings = bundle::BundleSettings::for_run(
+            &RunConfig {
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            1,
+        );
+        let needs = vec![("progression".to_string(), Some(238.0))];
+        let passes = |n: usize, stratum1: usize| -> bool {
+            let mut strata = vec![1usize; stratum1];
+            strata.resize(n, 2usize);
+            cohort_folds(&crosscheck_bundle(&strata), &needs, &settings).is_ok()
+        };
+        // The per-class threshold, independently: with the total condition out
+        // of the way (30 known labels), the smallest class count that keeps
+        // >= 2 of itself in every fold's training part.
+        let min_per_class = (1..=20)
+            .find(|&c| passes(30, c))
+            .expect("a class of 3 passes at n=30");
+        assert_eq!(min_per_class, bundle::CROSSCHECK_MIN_PER_CLASS);
+        // The patients threshold: the smallest n where EVERY class split with
+        // at least the per-class minimum in each class passes (below it the
+        // balanced split is the binding one — the fold's training part keeps
+        // fewer than MIN_TRAINING_PATIENTS).
+        let min_patients = (1..=40)
+            .find(|&n| {
+                n >= 2 * min_per_class
+                    && (min_per_class..=n - min_per_class).all(|c1| passes(n, c1))
+            })
+            .expect("n=15 and up passes every such split");
+        assert_eq!(min_patients, bundle::CROSSCHECK_MIN_PATIENTS);
+        // The boundary cases the reasoning names.
+        assert!(passes(15, 8), "8+7 = 15: every fold's rest keeps 10 of 15");
+        assert!(!passes(14, 7), "7+7 = 14: a fold's rest keeps 9");
+        assert!(
+            passes(15, 3),
+            "3+12 = 15: the class of 3 keeps 2 in the rest"
+        );
+        assert!(!passes(15, 2), "2+13: the class of 2 keeps 1 in the rest");
+    }
+
+    /// The cohort fixture's train side cut to its first `n` patients (sorted
+    /// ids) with the pfs labels forced to `stratum1` events by the look-ahead
+    /// and `n - stratum1` followed beyond it — the canonical shape the
+    /// small-cohort refusal tests control (every label known).
+    fn cohort_strata_cut(train: &CanonicalBundle, n: usize, stratum1: usize) -> CanonicalBundle {
+        let mut cut = first_cohort_patients(train, n);
+        for (i, p) in cut.patients.iter_mut().enumerate() {
+            if i < stratum1 {
+                p.pfs_days = Some(100.0);
+                p.pfs_event = Some(1);
+            } else {
+                p.pfs_days = Some(300.0);
+                p.pfs_event = Some(0);
+            }
+        }
+        cut
+    }
+
+    /// The small-cohort refusal per method kind. A file below the minimum
+    /// refuses EVERY `fitted` method — a score-only learner (the conversion
+    /// band needs the folds) and an own-probability learner (it ran no folds
+    /// before: without this rule its cohort was never checked) — with
+    /// `BUNDLE_CROSSCHECK_TOO_SMALL` and ZERO sandbox calls (the check is
+    /// before the fit), while a fixed-rule method on the same file is NOT
+    /// refused and runs.
+    #[tokio::test]
+    async fn too_small_cohort_refuses_fitted_methods_before_any_call() {
+        let _g = rootfs::scoped_data_root(test_data_dir("too-small-cohort"));
+        let pool = merged_pool().await;
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        // 12 known-label patients: every bundle builds (12 >= MIN_TRAINING_PATIENTS
+        // for the first bundles), but each fold's training part keeps only
+        // 8 (< 10).
+        let small = Arc::new(first_cohort_patients(train, 12));
+        let cat = &crate::modules::method_list::builtin().catalogue;
+        for (method_id, expect_refused) in [
+            // Score-only learner: the cross-fit folds are its conversion
+            // band's input.
+            ("crbm", true),
+            // Own-probability learner (p_progression_H* + p_death_H* → no
+            // need at all): it would otherwise run no folds.
+            ("landmark-cox-current", true),
+            // Fixed rule (not `fitted`): never refused by this rule.
+            ("ctdna-tf-four-group", false),
+        ] {
+            let facts = cat.method(method_id).expect("a catalogue method");
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(method_id);
+            make_method_dirs(&run_dir, method_id);
+            let (mut ctx, _cancel) = executor_ctx(
+                &run_dir,
+                method_id,
+                Some(small.clone()),
+                None,
+                None,
+                true,
+                RunTarget::TrainMethod,
+            );
+            ctx.min_draws = facts.min_draws;
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+            if expect_refused {
+                assert_eq!(outcome.state, TxrMethodState::Failed, "{method_id}");
+                let reason = outcome.reason.as_ref().expect("a refusal reason");
+                assert_eq!(
+                    reason.code, "BUNDLE_CROSSCHECK_TOO_SMALL",
+                    "{method_id}: {reason:?}"
+                );
+                assert_eq!(
+                    reason.detail,
+                    format!(
+                        "{}: too few patients to check the chances: each check needs at least {} \
+                         patients to learn from, with at least {} who had the outcome and {} who \
+                         did not",
+                        "BUNDLE_CROSSCHECK_TOO_SMALL",
+                        bundle::MIN_TRAINING_PATIENTS,
+                        bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+                        bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+                    ),
+                    "{method_id}"
+                );
+                assert!(
+                    calls.is_empty(),
+                    "{method_id}: refused before any sandbox call: {:?}",
+                    calls
+                );
+            } else {
+                assert_eq!(
+                    outcome.state,
+                    TxrMethodState::Finished,
+                    "{method_id}: {:?}",
+                    outcome.reason
+                );
+                assert!(!calls.is_empty(), "{method_id}: the fixed-rule method runs");
+            }
+        }
+    }
+
+    /// The cohort just above the minimum is NOT refused: 15 patients with
+    /// 8/7 classes pass the check for an own-probability `fitted` method —
+    /// the kind that previously ran no folds at all — and the preflight and
+    /// the executor agree (both accept it). 14 patients (7/7) is one short
+    /// and both refuse it.
+    #[tokio::test]
+    async fn fifteen_patients_pass_and_fourteen_is_refused() {
+        let _g = rootfs::scoped_data_root(test_data_dir("threshold-cohort"));
+        let pool = merged_pool().await;
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        let method_id = "landmark-cox-current";
+        let facts = crate::modules::method_list::builtin()
+            .method(method_id)
+            .expect("facts");
+
+        for (n, stratum1, pass) in [(15, 8, true), (14, 7, false)] {
+            let cut = Arc::new(cohort_strata_cut(train, n, stratum1));
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(format!("{method_id}-{n}"));
+            make_method_dirs(&run_dir, method_id);
+            let (mut ctx, _cancel) = executor_ctx(
+                &run_dir,
+                method_id,
+                Some(cut.clone()),
+                None,
+                None,
+                true,
+                RunTarget::TrainMethod,
+            );
+            ctx.min_draws = facts.min_draws;
+            let preflight = call_bundle_preflight(&ctx, facts).expect("a train call's context");
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            if pass {
+                assert_eq!(preflight, Ok(()), "n={n}: the preflight is not refused");
+                assert_eq!(
+                    outcome.state,
+                    TxrMethodState::Finished,
+                    "n={n}: {:?}",
+                    outcome.reason
+                );
+                assert!(
+                    outcome.prob_source == Some(TxrProbSource::Native),
+                    "n={n}: the own-probability column stays native"
+                );
+            } else {
+                let err = preflight.expect_err("n={n}: the preflight refuses");
+                assert_eq!(err.code(), "BUNDLE_CROSSCHECK_TOO_SMALL", "n={n}");
+                assert_eq!(outcome.state, TxrMethodState::Failed, "n={n}");
+                let reason = outcome.reason.expect("a refusal reason");
+                assert_eq!(reason.code, "BUNDLE_CROSSCHECK_TOO_SMALL", "n={n}");
+            }
+            let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+            if !pass {
+                assert!(calls.is_empty(), "n={n}: refused before any call");
+            }
+        }
+    }
+
+    /// The class-imbalance case: 30 patients but only 2 with the outcome
+    /// (28 followed beyond the look-ahead) is refused — every fold's
+    /// training part keeps only 1 of the 2.
+    #[tokio::test]
+    async fn thirty_patients_with_two_events_are_refused() {
+        let _g = rootfs::scoped_data_root(test_data_dir("imbalanced-cohort"));
+        let pool = merged_pool().await;
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        let cut = Arc::new(cohort_strata_cut(train, 30, 2));
+        let method_id = "crbm";
+        let facts = crate::modules::method_list::builtin()
+            .method(method_id)
+            .expect("facts");
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root().join(method_id);
+        make_method_dirs(&run_dir, method_id);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            method_id,
+            Some(cut),
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("a verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        let reason = outcome.reason.expect("a refusal reason");
+        assert_eq!(reason.code, "BUNDLE_CROSSCHECK_TOO_SMALL", "{reason:?}");
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "refused before any sandbox call: {:?}",
+            calls
         );
     }
 
@@ -8082,8 +8423,10 @@ mod tests {
     /// `BUNDLE_*` code. The cases cover each leg on the cohort fixture: the
     /// marker rule, the train bundle (draw minimum, covariates), the test
     /// bundle over a separate predict file (covariates without a predict
-    /// patients table, a missing marker) and a cross-fit fold refused after
-    /// the main fit call.
+    /// patients table, a missing marker) and a cohort too small to
+    /// cross-check (the refusal now comes before the first call; it replaced
+    /// the fold-bundle `BUNDLE_NO_LEARNABLE_OUTCOME` refusal, which the
+    /// cross-check's ≥ 10 known labels per fold makes unreachable).
     #[tokio::test]
     async fn call_bundle_preflight_matches_the_executor_bundle_stage() {
         use crate::modules::file_validator::types::CanonCell;
@@ -8101,7 +8444,6 @@ mod tests {
             save_models: true,
             ..Default::default()
         };
-        let settings = method_bundle_settings(&config, detect_cpus());
         let cat = &crate::modules::method_list::builtin().catalogue;
 
         // A method the cohort's one marker cannot satisfy.
@@ -8141,8 +8483,6 @@ mod tests {
             .clone();
         let mut without_marker = (*train).clone();
         without_marker.values.retain(|v| v.feature != main);
-        let (crossfit, small) = crossfit_refusal_case(&train, &settings)
-            .expect("a fitted method refused only at its cross-fit folds");
 
         let covariates_on = RunConfig {
             covariates: true,
@@ -8254,11 +8594,11 @@ mod tests {
                 ..case("a predict file without the trained marker", base, &train)
             },
             Case {
-                expect: Some("BUNDLE_NO_LEARNABLE_OUTCOME"),
+                expect: Some("BUNDLE_CROSSCHECK_TOO_SMALL"),
                 ..case(
-                    "a cross-fit fold too small to learn",
-                    &crossfit,
-                    &Arc::new(small),
+                    "a cohort too small to cross-check",
+                    "crbm",
+                    &Arc::new(first_cohort_patients(&train, 12)),
                 )
             },
         ];
@@ -8318,12 +8658,11 @@ mod tests {
                 "{name}: the case reaches the leg it names"
             );
             let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
-            if name == "a cross-fit fold too small to learn" {
-                // The fold bundles are built between calls, as before: the
-                // main fit ran, then the first fold's bundle was refused.
-                assert_eq!(calls.len(), 1, "{name}: only the main fit ran");
-                assert_eq!(calls[0].mode, MethodRunMode::FitOnly, "{name}");
-            } else if preflight.is_err() {
+            if preflight.is_err() {
+                // The too-small and every other bundle refusal happen BEFORE
+                // any container call (for `fitted` methods the cross-check
+                // replaced the old fold-bundle refusal, which sat between
+                // calls).
                 assert!(calls.is_empty(), "{name}: refused before any call");
             }
         }
