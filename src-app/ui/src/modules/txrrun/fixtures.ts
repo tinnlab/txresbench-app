@@ -25,6 +25,7 @@
  */
 import type {
   EligibilityResponse,
+  MarkerRankingResponse,
   Method,
   MethodListResponse,
   MethodSummary,
@@ -320,6 +321,32 @@ export function txrrunRecheckEligibility(ctx: { body?: unknown }): EligibilityRe
           }
         : method,
     ),
+  }
+}
+
+/**
+ * The E story's marker-ranking answer (single-marker-choice round 2c): the
+ * ranking of the SEEDED FILE's own two main markers — the fixed twin's
+ * `ldh` column (with its `LDH` spelling) and its `cea` column — at the
+ * fixture's decision day (56). `top`/`offered` carry exactly the column
+ * keys the validated inventory names (`ldh`, `cea`), so the step-4 line and
+ * the cards' "uses …" fact never name a marker the file does not carry,
+ * and the story's step-3 marker select offers the same pair.
+ */
+export function txrrunMarkerRanking(): MarkerRankingResponse {
+  return {
+    ranking: [
+      { marker: 'ldh', score: 0.62, n: 24, coverage: 1 },
+      { marker: 'cea', score: 0.55, n: 24, coverage: 1 },
+    ],
+    offered: ['ldh', 'cea'],
+    top: ['ldh', 'cea'],
+    ranking_patients: 24,
+    markers_by_kind: {
+      any: ['ldh', 'cea'],
+      multi: { '1': ['ldh'], '2': ['ldh', 'cea'], '3': ['ldh', 'cea'] },
+      single: ['ldh'],
+    },
   }
 }
 

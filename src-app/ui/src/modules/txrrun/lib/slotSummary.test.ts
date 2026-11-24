@@ -26,6 +26,7 @@ function snapshot(overrides: Partial<IntakeSnapshot> = {}): IntakeSnapshot {
       drawsDuringTreatment: null,
       lastDrawDay: null,
     },
+    singleMarkerChoice: { mode: 'ranked' },
     patients: {
       source: { name: 'patients.csv', format: 'csv' },
       table: {

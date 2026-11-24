@@ -76,6 +76,7 @@ import {
   TXRRUN_RUN_F,
   TXRRUN_STREAM_RUN_IDS,
   txrrunMethodDetail,
+  txrrunMarkerRanking,
   txrrunSmallEligibility,
   txrrunSmallMethods,
   txrrunOnRequest,
@@ -286,18 +287,22 @@ function ERecheckStoryView() {
 
 /**
  * The module's cassette: the E screen's own reads (the sticky config, the
- * keep-copies preference, the About card) and the F screen's run controls —
- * the run-control responders RECORD the request into the seam before
- * answering, so the gallery-e2e can assert the posted bytes. `Txr.getRun` /
- * `Txr.listRunLogs` are deliberately NOT here (their one owner is
- * `txrresults`; the F stories extend them at mount per the header note), and
- * the `MethodCatalogue.*` catalogue/eligibility/estimate keys belong to
- * `txrlist` — the E story receives them through the shared cassette.
+ * keep-copies preference, the About card) and the step-4 marker-ranking
+ * call (single-marker-choice round 2c — answered with the story's file's
+ * own markers; the endpoint's owner is this module, no sibling seeds it),
+ * and the F screen's run controls — the run-control responders RECORD the
+ * request into the seam before answering, so the gallery-e2e can assert the
+ * posted bytes. `Txr.getRun` / `Txr.listRunLogs` are deliberately NOT here
+ * (their one owner is `txrresults`; the F stories extend them at mount per
+ * the header note), and the `MethodCatalogue.*` catalogue/eligibility/
+ * estimate keys belong to `txrlist` — the E story receives them through the
+ * shared cassette.
  */
 export const gallery: ModuleGallery = {
   cassette: {
     'MethodCatalogue.detail': () => txrrunMethodDetail(),
     'Txr.getAnalysisConfig': TXRRUN_APP_CONFIG,
+    'Txr.markerRanking': () => txrrunMarkerRanking(),
     'Txr.updateAnalysisConfig': undefined,
     'Txr.createRun': (ctx: MockRequestContext) =>
       txrrunRunSummary({ id: TXRRUN_RUN_F.id, at_a_time: TXRRUN_RUN_F.config.at_a_time ?? 3 }),

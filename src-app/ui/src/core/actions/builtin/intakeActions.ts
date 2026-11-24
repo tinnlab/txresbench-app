@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { Permissions } from '@/api-client/permissions'
 import { ApiClient } from '@/api-client'
-import type { FilterOptions } from '@/api-client/types'
+import type { FilterOptions, SingleMarkerChoice } from '@/api-client/types'
 import { defineAction } from '../defineAction'
 import { TxrIntake, useTxrIntakeStore } from '@/modules/txrintake/stores/TxrIntake.store'
 import {
@@ -10,6 +10,7 @@ import {
   filterOptionsTreatmentIds,
 } from '@/modules/txrintake/lib/filters'
 import { fetchCached } from '@/modules/txrintake/data/fetchCache'
+import { mainMarkerKeys } from '@/modules/txrlist/lib/markerPlan'
 
 // The screen-B answers, as the AI sees them (step2-filters): the disease
 // node, the ticked treatment classes and the outcome pill are the method
@@ -130,6 +131,80 @@ defineAction({
       disease_group: after.disease,
       treatment_classes: after.treatments ?? [],
       outcome: after.outcome,
+    }
+  },
+})
+
+/**
+ * The step-3 marker choice (single-marker-choice round 2): how the methods
+ * that pick their markers from the file choose them — the ranked markers
+ * (the default), the person's chosen marker, or "leave those methods out".
+ * The three radios and the marker select of the study step's group call it
+ * (the same rule the AI drives), and it writes the ONE global intake store
+ * value the step-4 eligibility request and the run request carry.
+ *
+ * Refusals are the choice's own contract: a `chosen` mode without a marker,
+ * or with a marker that is not one of the file's main markers (a companion
+ * `__detected`/`__lod` name is exactly a non-main marker — it is the base
+ * marker's fact, never a choice), is refused plainly and changes nothing.
+ * The file must be in and checked for `chosen` — the main-marker list is the
+ * validated inventory's; the store does not fabricate one.
+ */
+
+/** The refusal when `chosen` carries no marker. */
+export const MARKER_CHOICE_NO_MARKER = 'Choose a marker of your file.'
+
+/** The refusal when the file is not checked yet (no main-marker list). */
+export const MARKER_CHOICE_FILE_NOT_READY =
+  'Add your file and check it before choosing a marker.'
+
+/** ONE unknown-marker refusal, naming the marker. */
+function unknownMarkerError(marker: string): Error {
+  return new Error(`"${marker}" is not a marker of your file.`)
+}
+
+defineAction({
+  id: 'intake.setSingleMarkerChoice',
+  title: 'Set how the methods pick their markers',
+  permission: Permissions.McpUse,
+  mutating: true,
+  group: 'Analysis',
+  description:
+    "Set how the methods that pick their markers from your file choose them (the study step's group): 'ranked' uses the markers that best separate the outcome (the default), 'chosen' uses the marker you name first (the others follow the ranking), 'leave_out' leaves those methods out. A chosen marker must be one of your file's main markers; a marker the file does not have is refused.",
+  aliases: ['set the marker choice', 'marker setting'],
+  keywords: ['markers', 'single marker', 'leave out'],
+  params: z.object({
+    mode: z
+      .enum(['ranked', 'chosen', 'leave_out'])
+      .describe('ranked (the default), chosen (with marker), or leave_out.'),
+    marker: z
+      .string()
+      .optional()
+      .describe('The file marker to use first (required with mode: chosen).'),
+  }),
+  run: async ({ mode, marker }) => {
+    let choice: SingleMarkerChoice
+    switch (mode) {
+      case 'ranked':
+        choice = { mode: 'ranked' }
+        break
+      case 'leave_out':
+        choice = { mode: 'leave_out' }
+        break
+      case 'chosen': {
+        const chosen = marker?.trim()
+        if (chosen === undefined || chosen.length === 0) throw new Error(MARKER_CHOICE_NO_MARKER)
+        const inventory = useTxrIntakeStore.getState().validation?.inventory
+        if (inventory === undefined) throw new Error(MARKER_CHOICE_FILE_NOT_READY)
+        if (!mainMarkerKeys(inventory.markers).includes(chosen)) throw unknownMarkerError(chosen)
+        choice = { mode: 'chosen', marker: chosen }
+        break
+      }
+    }
+    TxrIntake.setSingleMarkerChoice(choice)
+    return {
+      mode: (choice as { mode: 'ranked' | 'chosen' | 'leave_out' }).mode,
+      marker: choice.mode === 'chosen' ? choice.marker : undefined,
     }
   },
 })

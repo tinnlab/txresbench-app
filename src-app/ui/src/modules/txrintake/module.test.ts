@@ -261,6 +261,7 @@ describe('ITEM-2 — the state-contract barrel (PROV-UI-INTAKE-2)', () => {
         drawsDuringTreatment: 2,
         lastDrawDay: 56,
       },
+      singleMarkerChoice: { mode: 'ranked' },
       patients: null,
       measurements,
       predictMeasurements: null,

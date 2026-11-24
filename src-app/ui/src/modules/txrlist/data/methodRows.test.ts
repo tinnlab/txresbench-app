@@ -41,7 +41,7 @@ import type {
   Timing,
 } from '@/api-client/types'
 import { buildMethodCards } from './methodRows'
-import { RUNNER_UNAVAILABLE_FIX } from '../lib/format'
+import { RUNNER_UNAVAILABLE_FIX, formatMethodNeedsLine } from '../lib/format'
 
 const TIMING: Timing = { base_seconds_per_fold: 60, benchmarked_units: 2, quality: 'measured' }
 
@@ -278,6 +278,13 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
       covariates: null,
       covariatesMode: 'none',
       draws: '3+ draws',
+      // The single-marker plan's per-kind facts (round 2): the fixture
+      // carries no `required_markers` (no fixed list) — the "uses …"
+      // needs-line fact is null until the plan is known.
+      markerKind: 'multi',
+      markerCount: 1,
+      noFixedList: true,
+      markersUsed: null,
     })
     const optional = buildMethodCards(
       [
@@ -296,6 +303,10 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
       covariates: 'covariates optional',
       covariatesMode: 'optional',
       draws: '3+ draws',
+      markerKind: 'any',
+      markerCount: 0,
+      noFixedList: true,
+      markersUsed: null,
     })
     // The raw mode is the catalogue's own (`required` — the display string is
     // never parsed by the Extra-inputs switch's automatic steps).
@@ -355,5 +366,71 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
     expect(cards[0].run.reasonLines).toEqual([
       'Made for Immune checkpoint inhibitor, not your treatments',
     ])
+  })
+
+  it('carries the plan facts: the no-list kind and the planned markers on the needs line (single-marker-choice round 2)', () => {
+    const plan: import('@/api-client/types').PlanBlock = {
+      mode: 'ranked',
+      top: ['M2', 'M1', 'M3'],
+      offered: ['M2', 'M1', 'M3'],
+    }
+    const single = summary({ id: 's', year: 2021, language: 'R', markers: { kind: 'single', count: 1 } })
+    const multi = summary({ id: 'm', year: 2021, language: 'R', markers: { kind: 'multi', count: 2 } })
+    const cards = buildMethodCards(
+      [single, multi],
+      eligibility([verdict('s'), verdict('m')]),
+      {},
+      plan,
+      ['M1', 'M2', 'M3'],
+    )
+    // The plan facts ride the card even without a plan (the kind + the
+    // fixed-list fact are catalogue facts); `markersUsed` comes with it.
+    expect(cards[0].needs.markerKind).toBe('single')
+    expect(cards[0].needs.noFixedList).toBe(true)
+    expect(cards[0].needs.markersUsed).toEqual(['M2'])
+    expect(cards[0].run.reasonLine.includes('uses M2')).toBe(false)
+    expect(formatMethodNeedsLine(cards[0].needs, null)).toBe('Needs: 1 marker · 3+ draws · uses M2')
+    // multi k gets the top k
+    expect(cards[1].needs.markersUsed).toEqual(['M2', 'M1'])
+    // Without the plan the fact is unknown (never fabricated).
+    const bare = buildMethodCards([single], eligibility([verdict('s')]))
+    expect(bare[0].needs.markersUsed).toBeNull()
+    // A fixed-list method is not a plan method.
+    const fixed = summary({ id: 'f', year: 2021, language: 'R', markers: { kind: 'single', count: 1 }, required_markers: { list_source: 'x', markers: [], match: 'all', min_fraction: 0 } })
+    const fixedCards = buildMethodCards([fixed], eligibility([verdict('f')]), {}, plan)
+    expect(fixedCards[0].needs.noFixedList).toBe(false)
+    expect(fixedCards[0].needs.markersUsed).toBeNull()
+  })
+
+  it('the new reason codes get their fix lines (single-marker-choice round 1b)', () => {
+    const plan: import('@/api-client/types').PlanBlock = { mode: 'leave_out' }
+    const mk = (id: string, reason: string) =>
+      buildMethodCards(
+        [summary({ id, year: 2021, language: 'R', markers: { kind: 'single', count: 1 } })],
+        eligibility([
+          verdict(id, { status: 'cannot_run', reasons: [{ code: reason } as never] }),
+        ]),
+        {},
+        plan,
+      )[0]
+    expect(mk('lost', 'MARKERS_LEFT_OUT').run.reasonFix).toBe('Choose a marker setting for them in step 3.')
+    expect(mk('norank', 'MARKER_RANKING_UNAVAILABLE').run.reasonFix).toBe(
+      'Use a file with more patients measured before and during treatment.',
+    )
+    expect(mk('nomarker', 'MARKER_NOT_IN_FILE').run.reasonFix).toBe('Choose another marker in step 3.')
+    const missing = buildMethodCards(
+      [summary({ id: 'feat', year: 2021, language: 'R' })],
+      eligibility([
+        verdict('feat', {
+          status: 'cannot_run',
+          reasons: [{ code: 'MODEL_FEATURE_MISSING' } as never],
+          missing_markers: [{ id: 'LDH', id_system: 'other', display_name: 'LDH' }],
+        }),
+      ]),
+    )[0]
+    expect(missing.run.reasonLine).toBe(
+      'needs the marker LDH it was trained on, which your file does not have',
+    )
+    expect(missing.run.reasonFix).toBe('Use a file that has LDH.')
   })
 })

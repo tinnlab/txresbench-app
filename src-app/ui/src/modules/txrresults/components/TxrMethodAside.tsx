@@ -24,7 +24,7 @@
 import type { CSSProperties } from 'react'
 import { Button } from '@txresbench/kit'
 import type { TxrHeatmapColumn } from '../types'
-import { formatCoverage, formatProbSourceLine } from '../lib/format'
+import { formatCoverage, formatMarkersUsedLine, formatProbSourceLine } from '../lib/format'
 
 const CARD: CSSProperties = {
   border: '1px solid var(--txr-border)',
@@ -65,6 +65,13 @@ export interface TxrMethodAsideProps {
   method?: TxrHeatmapColumn | null
   /** "Show the log" — opens the log dialog for the method (RES-11's log link). */
   onShowLog?: (methodId: string) => void
+  /**
+   * The run's marker rule was the person's `chosen` one (single-marker-choice
+   * round 2 — read the run's config `single_marker`): the method-facts
+   * card's marker line then reads "(your choice)" instead of "(best
+   * separates the outcome)".
+   */
+  chosenMarkers?: boolean
 }
 
 export function TxrMethodAside({
@@ -72,9 +79,11 @@ export function TxrMethodAside({
   onOpenChance,
   method,
   onShowLog,
+  chosenMarkers = false,
 }: TxrMethodAsideProps) {
   const coverage = method?.coverage ?? null
   const coverageLine = coverage ? formatCoverage(coverage.scored, coverage.eligible) : null
+  const markersUsed = method?.markersUsed ?? null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {method ? (
@@ -84,6 +93,13 @@ export function TxrMethodAside({
           {coverageLine !== null ? (
             <div data-testid="txr-results-coverage" style={FACT_LINE}>
               {coverageLine}
+            </div>
+          ) : null}
+          {/* single-marker-choice round 2: the marker the run's rule gave the
+              method (nothing for a method without `markers_used`). */}
+          {markersUsed !== null && markersUsed.length > 0 ? (
+            <div data-testid="txr-results-markers-used" style={FACT_LINE}>
+              {formatMarkersUsedLine(markersUsed, chosenMarkers)}
             </div>
           ) : null}
           <div data-testid="txr-results-prob-source" style={FACT_LINE}>

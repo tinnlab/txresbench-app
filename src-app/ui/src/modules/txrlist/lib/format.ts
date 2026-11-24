@@ -41,15 +41,18 @@ import type { TxrMethodNeeds, TxrMethodRank, TxrRunStatus } from '../types'
  * The reason-code vocabulary the formatter renders.
  *
  * The provider's own 18 codes (PROV-MC-5, `ReasonCode` from the generated
- * api-client — the closed set `method-catalogue` may emit) plus the two
+ * api-client — the closed set `method-catalogue` may emit) plus the
  * model-list codes the grown branches render (PROV-MS-9
  * `MODEL_REQUIREMENTS_UNRECORDED`, PROV-PC-8 `ASSET_NOT_AVAILABLE` — the
- * model builders on D/I emit these, not the method endpoint). Anything
- * else falls to the constant fallback — a code is never rendered blank.
+ * model builders on D/I emit these, not the method endpoint — and the
+ * saved-model eligibility's `MODEL_FEATURE_MISSING`, single-marker-choice
+ * round 1b: a recorded feature the file lacks). Anything else falls to the
+ * constant fallback — a code is never rendered blank.
  */
 export type TxrReasonCode =
   | ReasonCode
   | 'MODEL_REQUIREMENTS_UNRECORDED'
+  | 'MODEL_FEATURE_MISSING'
   | 'ASSET_NOT_AVAILABLE'
 
 /** The per-code params a reason carries (`params` keys are per-code; the
@@ -206,6 +209,15 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - `MARKER_COUNT_UNMET` → "takes a set number of markers; your file has a
  *   different number" (the run engine's marker-count rule; a constant line,
  *   since the templates never read `params`);
+ * - `MARKERS_LEFT_OUT` → "left out: it picks its markers from your file,
+ *   and you chose to leave these out" (single-marker-choice round 1b);
+ * - `MARKER_RANKING_UNAVAILABLE` → "its markers cannot be ranked on this
+ *   file" (the plan's no-ranking reason — the code's `message` param is the
+ *   step-4 line's own text, not this row's);
+ * - `MARKER_NOT_IN_FILE` → "the chosen marker is not in your file";
+ * - `MODEL_FEATURE_MISSING` → "needs the marker LDH it was trained on,
+ *   which your file does not have" (the saved-model eligibility's
+ *   recorded-feature refusal, naming the missing feature);
  * - `MODEL_REQUIREMENTS_UNRECORDED` → "its requirements weren't
  *   recorded";
  * - `ASSET_NOT_AVAILABLE` → "the model file isn't available";
@@ -287,6 +299,14 @@ export function formatReasonLine(
       return 'needs survival times in your file'
     case 'MARKER_COUNT_UNMET':
       return 'takes a set number of markers; your file has a different number'
+    case 'MARKERS_LEFT_OUT':
+      return 'left out: it picks its markers from your file, and you chose to leave these out'
+    case 'MARKER_RANKING_UNAVAILABLE':
+      return 'its markers cannot be ranked on this file'
+    case 'MARKER_NOT_IN_FILE':
+      return 'the chosen marker is not in your file'
+    case 'MODEL_FEATURE_MISSING':
+      return `needs the marker ${formatMissingItem(missingMarkers)} it was trained on, which your file does not have`
     case 'MODEL_REQUIREMENTS_UNRECORDED':
       return "its requirements weren't recorded"
     case 'ASSET_NOT_AVAILABLE':
@@ -308,11 +328,13 @@ export function formatReasonLine(
 
 /**
  * The plain sentence-join of the board ("a and b", "a, b and c" — no
- * Oxford comma, the `joinPhrases` rule of the panel sentence).
+ * Oxford comma, the `joinPhrases` rule of the panel sentence). Exported for
+ * the marker-plan "uses …" phrasing (the same bytes as the other joins).
  */
-function joinPlain(parts: ReadonlyArray<string>): string {
-  if (parts.length <= 1) return parts.join('')
-  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+export function joinPlainList(parts: ReadonlyArray<string>): string {
+  const kept = parts.filter(part => part.trim().length > 0)
+  if (kept.length <= 1) return kept.join('')
+  return `${kept.slice(0, -1).join(', ')} and ${kept[kept.length - 1]}`
 }
 
 /**
@@ -334,7 +356,7 @@ export function diseaseNotMatchedLine(params: TxrReasonParams | undefined): stri
   const madeFor = params?.made_for
   if (typeof madeFor === 'string' && madeFor.length > 0) {
     const named = madeFor.split(', ').map(part => DISEASE_SCOPE_NAMES[part] ?? part)
-    return `Made for ${joinPlain(named)}, not your disease`
+    return `Made for ${joinPlainList(named)}, not your disease`
   }
   return 'Made for another disease'
 }
@@ -358,7 +380,7 @@ export function treatmentNotMatchedLine(
     const label = labels.treatmentClasses?.find(treatment => treatment.id === id)?.label
     return typeof label === 'string' && label.length > 0 ? label : id
   })
-  return `Made for ${joinPlain(named)}, not your treatments`
+  return `Made for ${joinPlainList(named)}, not your treatments`
 }
 
 /**
@@ -465,6 +487,9 @@ export function formatMethodNeedsLine(
   parts.push(`Needs: ${needs.markers}`)
   if (needs.covariates !== null) parts.push(needs.covariates)
   parts.push(needs.draws)
+  if (needs.markersUsed !== null && needs.markersUsed !== undefined && needs.markersUsed.length > 0) {
+    parts.push(`uses ${joinPlainList(needs.markersUsed)}`)
+  }
   return parts.join(' · ')
 }
 

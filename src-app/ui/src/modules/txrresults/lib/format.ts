@@ -498,6 +498,24 @@ export function formatChanceMissingNote(
 }
 
 /**
+ * The method-facts card's marker line (single-marker-choice round 2):
+ * "Marker used: M1 (best separates the outcome)" / "Markers used: M1, M2
+ * (best separate the outcome)" — and "(your choice)" when the run's marker
+ * rule was the person's `chosen` one (the run's config `single_marker`).
+ * The caller renders it only when the column carries `markers_used`
+ * (nothing otherwise — the plan did not pick markers for this method).
+ */
+export function formatMarkersUsedLine(markers: ReadonlyArray<string>, chosen: boolean): string {
+  const label = markers.length === 1 ? 'Marker used' : 'Markers used'
+  const verdict = chosen
+    ? 'your choice'
+    : markers.length === 1
+      ? 'best separates the outcome'
+      : 'best separate the outcome'
+  return `${label}: ${formatPatientList(markers)} (${verdict})`
+}
+
+/**
  * The H method-facts card's coverage line (qa-fixes RES-11): "Scored for 68
  * of 94 patients" — the coverage record counts null when the column carries
  * none.

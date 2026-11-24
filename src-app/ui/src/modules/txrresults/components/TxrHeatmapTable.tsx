@@ -71,7 +71,7 @@ import type { CSSProperties } from 'react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Button, Tooltip } from '@txresbench/kit'
 import type { TxrHeatmapRow, TxrHeatmapView } from '../types'
-import { formatPct, RESULTS_TABLE_MAX_HEIGHT } from '../lib/format'
+import { formatPatientList, formatPct, RESULTS_TABLE_MAX_HEIGHT } from '../lib/format'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The windowing constants (PROV-UR-5: fixed row height + bounded window)
@@ -472,6 +472,17 @@ export function TxrHeatmapTable({ view }: TxrHeatmapTableProps) {
                   >
                     <span>{col.label}</span>
                     <span style={METHOD_HEADER_LABEL}>{col.groupLabel}</span>
+                    {/* single-marker-choice round 2: a no-list method the run's
+                        marker rule gave markers reads the plan's fact under its
+                        group label; nothing for the others. */}
+                    {col.markersUsed !== undefined && col.markersUsed.length > 0 ? (
+                      <span
+                        style={METHOD_HEADER_LABEL}
+                        data-testid={`txr-heatmap-uses-${col.methodId}`}
+                      >
+                        uses {formatPatientList(col.markersUsed)}
+                      </span>
+                    ) : null}
                   </th>
                 ))}
               </tr>

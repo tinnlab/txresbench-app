@@ -36,6 +36,7 @@ import {
 import type { TxrMethodCard } from '../types'
 import type { TxrReasonLabels } from '../lib/format'
 import { buildMethodCards } from './methodRows'
+import { mainMarkerKeys } from '../lib/markerPlan'
 
 export interface UseMethodRowsResult {
   /** The joined screen-E cards for the last loaded inventory. */
@@ -144,7 +145,15 @@ export function useMethodRows(
           return
         }
         mixed.current = 0
-        setCards(buildMethodCards(list.methods.filter(method => method.runnable), eligibility, labels))
+        setCards(
+          buildMethodCards(
+            list.methods.filter(method => method.runnable),
+            eligibility,
+            labels,
+            inventory.marker_plan ?? null,
+            mainMarkerKeys(inventory.markers),
+          ),
+        )
         setNoEnvCount(eligibility.total_no_env ?? 0)
         const sequence = eligibility.method_list_sequence ?? list.method_list_sequence ?? null
         setMethodListSequence(sequence)

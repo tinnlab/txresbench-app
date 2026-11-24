@@ -696,3 +696,27 @@ describe('TxrHeatmapTable qa-fixes2 ITEM-7 (R2-11 — Average only for 2+ method
     expect(cells.map(c => c.textContent)).toEqual(['42%', '33%', '52%'])
   })
 })
+
+describe('TxrHeatmapTable marker line (single-marker-choice round 2)', () => {
+  it('renders the third header line "uses …" for a no-list method the run gave markers', () => {
+    const columns = [methodCol(0, 'Dynamic risk'), methodCol(1, 'Static risk')]
+    columns[0].markersUsed = ['ctDNA', 'LDH']
+    const rows: GivenRow[] = [
+      { patientId: 'S0000', cells: [0.33, 0.52], average: 42 },
+      { patientId: 'S0001', cells: [0.52, 0.2], average: 36 },
+    ]
+    render(<TxrHeatmapTable view={viewFixture(columns, rows)} />)
+    expect(screen.getByTestId('txr-heatmap-uses-method-1').textContent).toBe(
+      'uses ctDNA and LDH',
+    )
+    // Nothing for the method whose run row carried no marker set.
+    expect(screen.queryByTestId('txr-heatmap-uses-method-2')).toBeNull()
+  })
+
+  it('a single marker reads "uses {marker}"', () => {
+    const columns = [methodCol(0, 'Dynamic risk')]
+    columns[0].markersUsed = ['ctDNA']
+    render(<TxrHeatmapTable view={viewFixture(columns, [{ patientId: 'S0000', cells: [0.33], average: 33 }])} />)
+    expect(screen.getByTestId('txr-heatmap-uses-method-1').textContent).toBe('uses ctDNA')
+  })
+})

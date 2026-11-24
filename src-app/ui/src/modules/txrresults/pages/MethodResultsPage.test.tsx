@@ -938,3 +938,39 @@ describe("MethodResultsPage — the methods' own results (B)", () => {
     expect(ids(section, 'txr-own-row-')).toEqual(ids(view.getByTestId('txr-bars'), 'txr-bars-row-'))
   })
 })
+
+describe('MethodResultsPage marker facts (single-marker-choice round 2)', () => {
+  it('the one-method facts card shows the recorded markers with "(your choice)" when the run rule was chosen', async () => {
+    const run = runFixture()
+    run.config = {
+      ...run.config,
+      single_marker: { mode: 'chosen', marker: 'ctDNA' },
+    }
+    run.methods = run.methods.map(m =>
+      m.method_id === 'lm-cox-a' ? { ...m, markers_used: ['ctDNA', 'LDH'] } : m,
+    )
+    api.getRun.mockResolvedValue(run)
+    const view = await renderLoaded('/analysis/run-1/results/methods/lm-cox-a')
+    expect(view.getByTestId('txr-results-markers-used').textContent).toBe(
+      'Markers used: ctDNA and LDH (your choice)',
+    )
+  })
+
+  it('reads "(best separates the outcome)" for the recorded marker set when the rule was ranked', async () => {
+    const run = runFixture()
+    run.methods = run.methods.map(m =>
+      m.method_id === 'lm-cox-a' ? { ...m, markers_used: ['ctDNA'] } : m,
+    )
+    api.getRun.mockResolvedValue(run)
+    const view = await renderLoaded('/analysis/run-1/results/methods/lm-cox-a')
+    expect(view.getByTestId('txr-results-markers-used').textContent).toBe(
+      'Marker used: ctDNA (best separates the outcome)',
+    )
+  })
+
+  it('renders no marker line when the method carried no recorded marker set (a fixed-list method, or none)', async () => {
+    const view = await renderLoaded('/analysis/run-1/results/methods/lm-cox-a')
+    expect(view.getByTestId('txr-results-method-facts')).toBeTruthy()
+    expect(view.queryByTestId('txr-results-markers-used')).toBeNull()
+  })
+})

@@ -12,7 +12,7 @@ import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
-import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
+import { attachMarkersUsed, buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv } from '../index'
 import { predictionsSaveError, predictionsSaveLabel } from '../lib/download'
 import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
@@ -242,8 +242,8 @@ export function MethodResultsPage() {
   // not change the hook order — the ITEM-8 note (ai) rule).
   const endpointKey = run ? endpointKeyOf(run) : 'pfs'
   const allColumns = useMemo(
-    () => (predictions ? buildColumns(predictions, endpointKey) : []),
-    [predictions, endpointKey],
+    () => (predictions ? attachMarkersUsed(buildColumns(predictions, endpointKey), run?.methods ?? []) : []),
+    [predictions, endpointKey, run],
   )
   const horizon = run?.outcome?.horizon ?? run?.config?.look_ahead_day ?? 0
   const labelDay = run?.config?.label_day ?? null
@@ -758,6 +758,7 @@ export function MethodResultsPage() {
                     method={activeColumn}
                     onShowLog={activeColumn ? method => TxrResults.openLog(method) : undefined}
                     onOpenChance={() => TxrResults.openChanceDialog(true)}
+                    chosenMarkers={run.config?.single_marker?.mode === 'chosen'}
                   />
                 </aside>
               </div>

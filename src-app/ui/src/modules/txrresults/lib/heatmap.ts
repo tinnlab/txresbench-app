@@ -197,6 +197,39 @@ export function nativeValuesOf(m: TxrPredictionsResponse['methods'][number]): Tx
   return { scores, calls }
 }
 
+/**
+ * The run detail's method rows (the `markers_used` fact lives there, never on
+ * the predictions wire) — the join `attachMarkersUsed` reads.
+ */
+export interface TxrRunMethodMarkers {
+  method_id: string
+  markers_used?: string[] | null
+}
+
+/**
+ * Attach the run's recorded marker sets to the columns (single-marker-choice
+ * round 2): the predictions response carries no `markers_used`, so the run
+ * detail's method rows are joined by method id — a no-list method the run's
+ * marker rule gave markers reads them on its column (the heatmap and
+ * own-results headers' third "uses …" line); everything else (a fixed-list
+ * method, a reuse run, an older row) keeps `markersUsed` unset.
+ */
+export function attachMarkersUsed(
+  columns: TxrHeatmapColumn[],
+  runMethods: ReadonlyArray<TxrRunMethodMarkers>,
+): TxrHeatmapColumn[] {
+  const byId = new Map<string, string[]>()
+  for (const row of runMethods) {
+    if (row.markers_used !== null && row.markers_used !== undefined && row.markers_used.length > 0) {
+      byId.set(row.method_id, row.markers_used)
+    }
+  }
+  return columns.map(column => {
+    const markers = byId.get(column.methodId)
+    return markers === undefined ? column : { ...column, markersUsed: markers }
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // `buildAvg` / `spreadOf` — the per-patient derived numbers
 // ─────────────────────────────────────────────────────────────────────────────

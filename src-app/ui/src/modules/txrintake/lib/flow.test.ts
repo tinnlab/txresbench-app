@@ -83,6 +83,7 @@ function makeSnapshot(overrides: Partial<IntakeSnapshot> = {}): IntakeSnapshot {
       drawsDuringTreatment: null,
       lastDrawDay: null,
     },
+    singleMarkerChoice: { mode: 'ranked' },
     patients: loadedFile('patients.csv', PATIENTS_TABLE),
     measurements: loadedFile('measurements.csv', MEASUREMENTS_TABLE),
     predictMeasurements: null,

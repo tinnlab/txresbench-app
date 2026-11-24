@@ -48,6 +48,7 @@ describe('txrresults view-model types (PROV-UR-3)', () => {
       notes: (string | null)[]
       constantValue: number | null
       native?: { scores: (number | null)[]; calls: (0 | 1 | null)[] | null } | null
+      markersUsed?: string[]
     }>()
   })
 

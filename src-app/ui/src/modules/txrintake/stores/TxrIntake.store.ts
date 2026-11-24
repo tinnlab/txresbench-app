@@ -36,6 +36,7 @@ import type {
   FilterOptions,
   MarkerMapping,
   ParsedTable as EngineParsedTable,
+  SingleMarkerChoice,
   TxrRunInput,
   ValidationResponse,
 } from '@/api-client/types'
@@ -161,6 +162,14 @@ export interface PersistedIntake {
   intent: IntakeIntent
   mode: IntakeSnapshot['mode']
   study: StudyAnswers
+  /**
+   * The step-3 marker choice (single-marker-choice round 2): the same
+   * "next to the study answers" persistence — the answers survive a reload,
+   * so the choice does too (a reload loses the files, so the group does not
+   * re-render, but stepping through again with the same files finds the
+   * answer where it was left).
+   */
+  singleMarkerChoice: SingleMarkerChoice
   fileRecalls: FileRecalls
   joins: JoinOffer[]
   mapping: MarkerMapping[]
@@ -293,6 +302,28 @@ export function normalizePersistedStudy(persisted: unknown): StudyAnswers {
   return study
 }
 
+/**
+ * Normalise ONE persisted `singleMarkerChoice` value into the current wire
+ * shape (single-marker-choice round 2): a `chosen` mode needs a non-empty
+ * marker string; anything else of the wrong shape (or a mode the server does
+ * not know) is the default `ranked` — never a crash, never a guessed marker.
+ * The marker's membership in the file is NOT resolved here (the files do not
+ * survive a reload — the registered action refuses an unknown marker when it
+ * is set, and the step-4 plan validates it against the current inventory
+ * before it reaches the run).
+ */
+export function normalizeSingleMarkerChoice(persisted: unknown): SingleMarkerChoice {
+  const raw = (typeof persisted === 'object' && persisted !== null ? persisted : {}) as Record<
+    string,
+    unknown
+  >
+  if (raw.mode === 'chosen' && typeof raw.marker === 'string' && raw.marker.length > 0) {
+    return { mode: 'chosen', marker: raw.marker }
+  }
+  if (raw.mode === 'leave_out') return { mode: 'leave_out' }
+  return { mode: 'ranked' }
+}
+
 const BIRTH_FILE_RECALLS: FileRecalls = {
   patients: null,
   measurements: null,
@@ -381,6 +412,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
       intent: s.intent,
       mode: s.mode,
       study: s.study,
+      singleMarkerChoice: s.singleMarkerChoice,
       fileRecalls: s.fileRecalls,
       joins: s.joins,
       mapping: s.mapping,
@@ -393,6 +425,9 @@ const TxrIntakeDef = defineStore('TxrIntake', {
         ...(p.intent !== undefined ? { intent: p.intent } : {}),
         ...(p.mode !== undefined ? { mode: p.mode } : {}),
         ...(p.study !== undefined ? { study: normalizePersistedStudy(p.study) } : {}),
+        ...(p.singleMarkerChoice !== undefined
+          ? { singleMarkerChoice: normalizeSingleMarkerChoice(p.singleMarkerChoice) }
+          : {}),
         ...(p.fileRecalls !== undefined ? { fileRecalls: p.fileRecalls } : {}),
         ...(p.joins !== undefined ? { joins: p.joins } : {}),
         ...(p.mapping !== undefined ? { mapping: p.mapping } : {}),
@@ -404,6 +439,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     intent: 'train' as IntakeIntent,
     mode: 'study' as IntakeSnapshot['mode'],
     study: { ...EMPTY_STUDY },
+    singleMarkerChoice: { mode: 'ranked' } as SingleMarkerChoice,
     patients: null as LoadedFile | null,
     measurements: null as LoadedFile | null,
     predictMeasurements: null as LoadedFile | null,
@@ -447,6 +483,18 @@ const TxrIntakeDef = defineStore('TxrIntake', {
       /** Merge one B answer group change (any field; unanswered fields stay null). */
       patchStudy: (patch: Partial<StudyAnswers>) => {
         set(s => ({ study: { ...s.study, ...patch } }))
+      },
+
+      /**
+       * The step-3 marker choice (single-marker-choice round 2): how the
+       * methods that pick their markers from the file choose them. The
+       * REGISTERED `intake.setSingleMarkerChoice` action validates before it
+       * writes (a `chosen` mode needs a real marker of the file); this store
+       * write is the same dumb mutation the human controls perform, exactly
+       * like `patchStudy` vs `intake.setStudyAnswers`.
+       */
+      setSingleMarkerChoice: (choice: SingleMarkerChoice) => {
+        set({ singleMarkerChoice: choice })
       },
 
       /**
@@ -792,6 +840,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           intent: 'train',
           mode: 'study',
           study: { ...EMPTY_STUDY },
+          singleMarkerChoice: { mode: 'ranked' } as SingleMarkerChoice,
           patients: null,
           measurements: null,
           predictMeasurements: null,
