@@ -1,0 +1,26 @@
+{
+  "ranking": [
+    {
+      "marker": "A",
+      "score": 0.5,
+      "n": 12,
+      "coverage": 1.0
+    },
+    {
+      "marker": "B",
+      "score": 0.25,
+      "n": 12,
+      "coverage": 1.0
+    }
+  ],
+  "offered": [
+    "A",
+    "B"
+  ],
+  "top": [
+    "A",
+    "B"
+  ],
+  "ranking_patients": 12,
+  "error": null
+}

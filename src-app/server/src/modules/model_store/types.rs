@@ -636,6 +636,12 @@ pub struct ResolvedAsset {
     /// model's own day, bug 3). Absent on a pre-bug-3 client asset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_day: Option<f64>,
+    /// The marker set the model was trained on (the row's recorded `features`
+    /// — the engine element's `features`; single-marker-choice round 1b: a
+    /// reuse run uses these markers, not the count rule). Empty on a model
+    /// saved before they were kept.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -729,12 +735,30 @@ pub enum ModelReasonCode {
     OutcomeNotMatched,
     #[serde(rename = "MODEL_REQUIREMENTS_UNRECORDED")]
     ModelRequirementsUnrecorded,
+    /// A recorded FEATURE of a no-fixed-list model is absent from the file
+    /// (single-marker-choice round 1b): the reuse run uses the model's
+    /// recorded markers, so the file must carry it — the verdict refuses with
+    /// "needs the marker {X} it was trained on, which your file does not
+    /// have" / "Use a file that has {X}.". Params: `marker` (the feature
+    /// name).
+    #[serde(rename = "MODEL_FEATURE_MISSING")]
+    ModelFeatureMissing,
+    /// The provider's marker-plan codes (a saved model's eligibility request
+    /// carries the catalogue's `InventoryEligibilityRequest`, so the wire
+    /// language must cover the catalogue's codes 1:1 — mapped by
+    /// [`ModelReasonCode::from_catalogue`]).
+    #[serde(rename = "MARKERS_LEFT_OUT")]
+    MarkersLeftOut,
+    #[serde(rename = "MARKER_RANKING_UNAVAILABLE")]
+    MarkerRankingUnavailable,
+    #[serde(rename = "MARKER_NOT_IN_FILE")]
+    MarkerNotInFile,
 }
 
 impl ModelReasonCode {
-    /// The closed code list, in documentation order (18 provider codes + the
-    /// store's own).
-    pub const ALL: [ModelReasonCode; 19] = [
+    /// The closed code list, in documentation order (21 provider codes + the
+    /// store's own + the recorded-feature code).
+    pub const ALL: [ModelReasonCode; 23] = [
         ModelReasonCode::RequiredMarkerMissing,
         ModelReasonCode::MarkerGroupMissing,
         ModelReasonCode::DetectionCallMissing,
@@ -754,6 +778,10 @@ impl ModelReasonCode {
         ModelReasonCode::TreatmentNotMatched,
         ModelReasonCode::OutcomeNotMatched,
         ModelReasonCode::ModelRequirementsUnrecorded,
+        ModelReasonCode::ModelFeatureMissing,
+        ModelReasonCode::MarkersLeftOut,
+        ModelReasonCode::MarkerRankingUnavailable,
+        ModelReasonCode::MarkerNotInFile,
     ];
 
     /// The code's wire string.
@@ -778,6 +806,10 @@ impl ModelReasonCode {
             ModelReasonCode::TreatmentNotMatched => "TREATMENT_NOT_MATCHED",
             ModelReasonCode::OutcomeNotMatched => "OUTCOME_NOT_MATCHED",
             ModelReasonCode::ModelRequirementsUnrecorded => "MODEL_REQUIREMENTS_UNRECORDED",
+            ModelReasonCode::ModelFeatureMissing => "MODEL_FEATURE_MISSING",
+            ModelReasonCode::MarkersLeftOut => "MARKERS_LEFT_OUT",
+            ModelReasonCode::MarkerRankingUnavailable => "MARKER_RANKING_UNAVAILABLE",
+            ModelReasonCode::MarkerNotInFile => "MARKER_NOT_IN_FILE",
         }
     }
 
@@ -804,6 +836,9 @@ impl ModelReasonCode {
             ReasonCode::DiseaseNotMatched => ModelReasonCode::DiseaseNotMatched,
             ReasonCode::TreatmentNotMatched => ModelReasonCode::TreatmentNotMatched,
             ReasonCode::OutcomeNotMatched => ModelReasonCode::OutcomeNotMatched,
+            ReasonCode::MarkersLeftOut => ModelReasonCode::MarkersLeftOut,
+            ReasonCode::MarkerRankingUnavailable => ModelReasonCode::MarkerRankingUnavailable,
+            ReasonCode::MarkerNotInFile => ModelReasonCode::MarkerNotInFile,
         }
     }
 }
@@ -1081,6 +1116,7 @@ mod tests {
         assert_eq!(err.field, "model_ids");
 
         let inventory = InventoryEligibilityRequest {
+        marker_plan: None,
             patients: 38,
             decision_day: 56.0,
             baseline_max_day: 0.0,
@@ -1145,6 +1181,7 @@ mod tests {
             conversions: Default::default(),
             method_facts: None,
             decision_day: Some(28.0),
+            features: Vec::new(),
         };
         let json = serde_json::to_value(&engine_asset).expect("engine asset serializes");
         let mine: ResolvedAsset = serde_json::from_value(json.clone())

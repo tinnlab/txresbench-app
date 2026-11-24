@@ -130,6 +130,12 @@ pub struct ExampleRunInputs {
     pub train: Arc<CanonicalBundle>,
     pub predict: Option<Arc<CanonicalBundle>>,
     pub config: RunConfig,
+    /// The example run's ONE marker plan (audit fix 4): the example run IS a
+    /// learn run — the run start computes the plan the same way — so the
+    /// pick's preflight must judge the no-list methods by the SAME plan
+    /// (otherwise a method the run would run on its ranked marker is refused
+    /// at the pick, or a method the run would refuse is picked).
+    pub marker_plan: Option<crate::modules::execution_engine::marker_rank::MarkerPlan>,
     /// The CPU count the run detects at start
     /// ([`orchestrator::detect_cpus`]) — the count every method's call
     /// settings are derived with, so a pick derives each method's settings
@@ -152,16 +158,19 @@ impl ExampleRunInputs {
     /// settings ([`orchestrator::train_call_bundle_settings`] — the same
     /// per-method rule as the run, so e.g. a `none`-mode method is never
     /// refused for the run's covariates checkbox, bug 2) and the method's
-    /// `min_draws`. `Ok` means the run never refuses the method with a
-    /// `BUNDLE_*` code.
+    /// `min_draws`. The settings carry the example run's marker plan (audit
+    /// fix 4), so a no-list method is preflighted on its PLANNED markers —
+    /// exactly what the run will do. `Ok` means the run never refuses the
+    /// method with a `BUNDLE_*` code.
     pub fn preflight(&self, method: &Method) -> Result<(), BundleError> {
-        let settings = orchestrator::train_call_bundle_settings(
+        let mut settings = orchestrator::train_call_bundle_settings(
             &self.config,
             self.cpus,
             method,
             &self.train,
             self.predict.as_deref(),
         );
+        settings.marker_plan = self.marker_plan.clone();
         orchestrator::train_bundle_preflight(
             &self.train,
             self.predict.as_deref(),
@@ -236,12 +245,27 @@ fn run_inputs_of(list: &MethodList, request: CreateRunRequest) -> Result<Example
             .map_err(not_valid)?;
     let validation = error_free(canonical.validated)?;
     let train = canonical.train.ok_or_else(no_training_side)?;
+    // The example run's ONE marker plan (audit fix 4): the SAME function and
+    // inputs as a learn run's plan (run start) — the canonical train side,
+    // the endpoint, the decision day, the baseline maximum and the choice.
+    let marker_plan = Some(crate::modules::execution_engine::marker_rank::plan_for(
+        &train,
+        request.config.endpoint,
+        request.config.decision_day,
+        crate::modules::file_validator::types::DEFAULT_BASELINE_MAX_DAY,
+        request
+            .config
+            .single_marker
+            .clone()
+            .unwrap_or(crate::modules::execution_engine::marker_rank::SingleMarkerChoice::Ranked),
+    ));
     let cpus = detect_cpus();
     Ok(ExampleRunInputs {
         validation,
         train,
         predict: canonical.predict,
         config: request.config,
+        marker_plan,
         cpus,
     })
 }
@@ -958,6 +982,7 @@ mod tests {
     use super::*;
     use crate::modules::execution_engine::bundle::{self, BundleError, MarkerSelection};
     use crate::modules::execution_engine::envmanifest::{EnvArch, ManifestEntry};
+    use crate::modules::execution_engine::marker_rank as marker_rank;
     use crate::modules::method_catalogue::types::{MarkerKind, ReasonCode};
 
     // The shipped list (the built-in method list), as one request reads it.
@@ -1139,14 +1164,14 @@ mod tests {
         }
     }
 
-    /// The three-marker example refuses every `single` method without a fixed
-    /// marker list (`BUNDLE_MARKER_COUNT_UNMET`), so none is picked; since
-    /// FOLLOW-UP 1 eligibility applies the same count rule and says
-    /// `CannotRun` (`MARKER_COUNT_UNMET`) for them too, so they are never
-    /// offered. The set is the methods that otherwise pass the pick's filters
-    /// (the methods the pick used to return).
+    /// The three-marker example's plan is a valid ranking (audit fix 4 makes
+    /// the pick's preflight carry it — the same plan a learn run computes), so
+    /// a `single` method without a fixed list is now runnable on the ranked
+    /// top marker: its preflight passes and the pick may include it. The
+    /// count rule still refuses it WITHOUT the plan (the eligibility/
+    /// preview no-plan path and any reuse/other caller), pinned here.
     #[test]
-    fn a_single_marker_method_without_a_fixed_list_is_not_picked_on_the_three_marker_example() {
+    fn a_single_marker_method_without_a_fixed_list_is_rankable_under_the_plan() {
         let inputs = inputs();
         assert_eq!(
             MarkerSelection::all(&inputs.train).mains(),
@@ -1180,34 +1205,78 @@ mod tests {
             "the catalogue has fast single-marker methods without a fixed list (the case \
              under test)"
         );
+
+        // The run's ONE plan: a valid ranking on the example (100 patients,
+        // three main markers all measured by the decision day).
+        let plan = inputs.marker_plan.as_ref().expect("the example run carries its plan");
+        let ranking = plan.result.as_ref().expect("the example ranks");
+        assert!(ranking.ranking_patients >= crate::modules::execution_engine::marker_rank::MIN_PATIENTS);
+        assert!(ranking.top.len() >= 1, "{ranking:?}");
         for id in &single_without_list {
+            let method = cat.method(id).expect("catalogue method");
+            // The screens' inventory verdict WITHOUT the plan block still
+            // says the count rule (hidden) — the no-plan path is unchanged.
             let verdict = verdicts
                 .methods
                 .iter()
                 .find(|m| &m.id == id)
                 .expect("a verdict per catalogue method");
-            assert_eq!(verdict.status, EligibilityStatus::CannotRun, "{id}: hidden, not offered");
+            assert_eq!(verdict.status, EligibilityStatus::CannotRun, "{id}: no-plan → hidden");
             assert!(
                 verdict.reasons.iter().any(|r| r.code == ReasonCode::MarkerCountUnmet),
                 "{id}: the count rule names the cause: {:?}",
                 verdict.reasons
             );
-            let method = cat.method(id).expect("catalogue method");
-            match inputs.preflight(method) {
-                Err(BundleError::MarkerCountUnmet { expected: 1, names }) => {
-                    assert_eq!(names, ["M1", "M2", "M3"], "{id}");
-                }
-                other => panic!("{id}: expected BUNDLE_MARKER_COUNT_UNMET, got {other:?}"),
-            }
+            // The pick's preflight WITHOUT the plan still refuses it with the
+            // count rule (today's rule for a caller with no plan).
+            let settings = orchestrator::train_call_bundle_settings(
+                &inputs.config,
+                inputs.cpus,
+                method,
+                &inputs.train,
+                inputs.predict.as_deref(),
+            );
+            assert_eq!(
+                orchestrator::train_bundle_preflight(
+                    &inputs.train,
+                    inputs.predict.as_deref(),
+                    method,
+                    &settings,
+                    method.min_draws,
+                ),
+                Err(BundleError::MarkerCountUnmet { expected: 1, names: vec!["M1".to_string(), "M2".to_string(), "M3".to_string()] }),
+                "{id}: without the plan the count rule still refuses it"
+            );
+            // WITH the example run's plan, the same preflight passes on the
+            // ranked top marker — the pick and the run agree.
+            assert!(
+                inputs.preflight(method).is_ok(),
+                "{id}: under the plan the single method runs on the ranked marker"
+            );
+            assert_eq!(
+                marker_rank::markers_for(MarkerKind::Single, 1, plan),
+                vec![ranking.top[0].clone()],
+                "{id}: the single method receives the top-ranked marker"
+            );
         }
 
+        // The pick may now include these methods (they pass the pick's own
+        // preflight); whichever of them is picked runs on the plan's marker,
+        // never the whole file.
         let host = pick_fast_methods(&inputs);
         let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         for id in host.iter().chain(amd64.iter()) {
-            assert!(
-                !single_without_list.contains(id),
-                "{id} is a single-marker method without a fixed list — the run refuses it"
-            );
+            if single_without_list.contains(id) {
+                assert_eq!(
+                    marker_rank::markers_for(
+                        MarkerKind::Single,
+                        1,
+                        inputs.marker_plan.as_ref().expect("plan"),
+                    ),
+                    vec![ranking.top[0].clone()],
+                    "{id}: a picked no-list single method runs on the ranked marker"
+                );
+            }
         }
     }
 
@@ -1333,9 +1402,12 @@ mod tests {
 
         // The run-wide base settings WOULD have refused it — the exact
         // verdict the fix removes from the pick (the same base settings the
-        // per-method derivation starts from, covariates forced on).
+        // per-method derivation starts from, covariates forced on; the run's
+        // marker plan is carried, so the ONLY difference from the preflight
+        // is the covariates flag, not the marker rule).
         let run_wide = bundle::BundleSettings {
             covariates: true,
+            marker_plan: bare_inputs.marker_plan.clone(),
             ..orchestrator::train_call_bundle_settings(
                 &bare_inputs.config,
                 bare_inputs.cpus,
@@ -1694,12 +1766,26 @@ mod tests {
 
     /// The example inputs with the training rows cut to the first `n`
     /// patients (the validation, the predict side and the config unchanged).
+    /// The marker plan is recomputed over the cut train side (the same
+    /// plan_for a learn run would compute on those rows).
     fn cut_inputs(full: &ExampleRunInputs, n: usize) -> ExampleRunInputs {
+        let train = first_patients(&full.train, n);
+        let marker_plan = Some(crate::modules::execution_engine::marker_rank::plan_for(
+            &train,
+            full.config.endpoint,
+            full.config.decision_day,
+            crate::modules::file_validator::types::DEFAULT_BASELINE_MAX_DAY,
+            full.config
+                .single_marker
+                .clone()
+                .unwrap_or(crate::modules::execution_engine::marker_rank::SingleMarkerChoice::Ranked),
+        ));
         ExampleRunInputs {
             validation: full.validation.clone(),
-            train: Arc::new(first_patients(&full.train, n)),
+            train: Arc::new(train),
             predict: full.predict.clone(),
             config: full.config.clone(),
+            marker_plan,
             cpus: full.cpus,
         }
     }

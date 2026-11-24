@@ -197,6 +197,7 @@ mod tests {
         // The inventory is the provider's exact type (CONS-FV-2: the same
         // struct the eligibility route deserializes — no app-side copy).
         let inv = super::types::InventoryEligibilityRequest {
+            marker_plan: None,
             patients: 0,
             decision_day: 56.0,
             baseline_max_day: 0.0,

@@ -386,6 +386,10 @@ pub struct MethodRunContext {
     /// The method list the run took at its start: the method's facts come
     /// from it, never from a list that replaced it meanwhile.
     pub list: Arc<MethodList>,
+    /// The run's ONE marker plan (single-marker-choice round 1a), computed at
+    /// run start for learn runs; `None` on reuse/predict runs and the other
+    /// callers (exactly today's behaviour).
+    pub marker_plan: Option<super::marker_rank::MarkerPlan>,
 }
 
 /// The terminal facts the executor learned (the drive loop applies them to
@@ -402,6 +406,9 @@ pub struct MethodOutcome {
     pub task: Option<TxrTask>,
     /// The produced `/model` facts when the run saves models (X1).
     pub model: Option<ProducedModelFacts>,
+    /// The main markers a no-list method of a learn run was given (the run's
+    /// marker plan; `None` = not recorded).
+    pub markers_used: Option<Vec<String>>,
 }
 
 /// The produced-model record the drive loop persists on the method row
@@ -726,6 +733,7 @@ fn failed_outcome(reason: TxrRunReason) -> MethodOutcome {
         coverage: None,
         task: None,
         model: None,
+        markers_used: None,
     }
 }
 
@@ -742,6 +750,7 @@ fn aborted_outcome() -> MethodOutcome {
         coverage: None,
         task: None,
         model: None,
+        markers_used: None,
     }
 }
 
@@ -866,8 +875,11 @@ impl MethodExecutor for StackMethodExecutor {
                     .expect("train mode always carries the train side");
                 // The per-method covariates flag (bug 2): a train call's
                 // settings carry the method's own modes and data verdict.
-                let settings =
+                let mut settings =
                     train_call_bundle_settings(&ctx.config, ctx.cpus, facts, train, ctx.predict.as_deref());
+                // The run's ONE marker plan (computed at run start for learn
+                // runs): the no-list methods' marker sets come from it.
+                settings.marker_plan = ctx.marker_plan.clone();
                 self.execute_train(&ctx, facts, &spec, &settings, timeout_secs)
                     .await
             }
@@ -1291,6 +1303,18 @@ impl StackMethodExecutor {
             coverage: Some(coverage),
             task: Some(outcome_spec.task),
             model,
+            // The recorded marker list of a no-list method of a learn run
+            // (single-marker-choice round 1a: `markers_used` on the method
+            // row); fixed-list methods and plan-less calls record nothing.
+            markers_used: if super::marker_rank::is_no_list(
+                facts.markers.kind,
+                facts.required_markers.as_ref(),
+            ) && ctx.marker_plan.is_some()
+            {
+                Some(selection.mains().to_vec())
+            } else {
+                None
+            },
         })
     }
 
@@ -1309,13 +1333,30 @@ impl StackMethodExecutor {
             .predict
             .clone()
             .expect("reuse mode always carries the predict side");
-        let selection = match bundle::method_marker_set(
-            &predict,
-            &facts.markers,
-            facts.required_markers.as_ref(),
-        ) {
-            Ok(s) => s,
-            Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+        // Marker selection for a saved model: the model's RECORDED features
+        // (the marker set it was trained on — PLAN.md section 5), not the
+        // count rule — but ONLY for a model whose method has NO fixed marker
+        // list (the same gate the saved-model eligibility applies; audit
+        // fix 2). A fixed-list model keeps today's selection exactly (its
+        // list, resolved in the file); a model with no recorded features
+        // (saved before they were kept) keeps today's count rule. Each
+        // recorded feature is resolved to the predict file's own marker name
+        // with the SAME matcher the saved-model eligibility uses
+        // (case-insensitive / id / alias), so "can run" and the run agree; a
+        // predict file without one is refused by the test bundle
+        // (`BUNDLE_TEST_MARKER_MISSING`).
+        let recorded_selection = !asset.features.is_empty() && facts.required_markers.is_none();
+        let selection = if asset.features.is_empty() || facts.required_markers.is_some() {
+            match bundle::method_marker_set(
+                &predict,
+                &facts.markers,
+                facts.required_markers.as_ref(),
+            ) {
+                Ok(s) => s,
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            }
+        } else {
+            bundle::selection_for_features(&ctx.list, &asset.features, &predict)
         };
         let test_bundle = match bundle::test_bundle_with_markers(
             ctx.predict_patients.as_deref(),
@@ -1429,14 +1470,31 @@ impl StackMethodExecutor {
             // model's scores over the run's own cohort (the honest
             // training-side band). The cohort's marker set, train bundle and
             // test bundle over the cohort itself are exactly a train call's
-            // first bundles with no predict file ([`method_bundles`]).
+            // first bundles with no predict file ([`method_bundles`]). Audit
+            // fix 3: the recorded-features selection applies ONLY when the
+            // model HAS recorded features and no fixed list; otherwise this
+            // is [`method_bundles`] exactly as before (the count rule over
+            // the run's training side), never the predict side's selection.
             let MethodBundles {
                 train: train_bundle,
                 test: cohort_test,
                 ..
-            } = match method_bundles(&train, None, facts, settings, ctx.min_draws) {
-                Ok(b) => b,
-                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            } = if recorded_selection {
+                match method_bundles_with_selection(
+                    &train,
+                    None,
+                    settings,
+                    ctx.min_draws,
+                    &selection,
+                ) {
+                    Ok(b) => b,
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                }
+            } else {
+                match method_bundles(&train, None, facts, settings, ctx.min_draws) {
+                    Ok(b) => b,
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                }
             };
             let cohort_score = self
                 .predict_call(
@@ -1535,6 +1593,7 @@ impl StackMethodExecutor {
             coverage: Some(coverage),
             task: Some(outcome_spec.task),
             model: None,
+            markers_used: None,
         })
     }
 
@@ -1748,8 +1807,12 @@ pub fn call_bundle_preflight(
             ctx.method_id
         ))
     })?;
-    let settings =
+    let mut settings =
         train_call_bundle_settings(&ctx.config, ctx.cpus, facts, train, ctx.predict.as_deref());
+    // The run's marker plan (computed at run start for learn runs): the
+    // preflight's marker verdicts must be the executor's — a no-list method
+    // is not refused/selected by one rule at preflight and another at run.
+    settings.marker_plan = ctx.marker_plan.clone();
     Ok(train_bundle_preflight(
         train,
         ctx.predict.as_deref(),
@@ -1780,9 +1843,25 @@ pub(crate) fn method_bundles(
     settings: &bundle::BundleSettings,
     min_draws: u32,
 ) -> Result<MethodBundles, bundle::BundleError> {
-    let selection =
-        bundle::method_marker_set(train, &facts.markers, facts.required_markers.as_ref())?;
-    let train_bundle = bundle::train_bundle_with_markers(train, settings, min_draws, &selection)?;
+    let selection = bundle::method_marker_set_with_plan(
+        train,
+        &facts.markers,
+        facts.required_markers.as_ref(),
+        settings.marker_plan.as_ref(),
+    )?;
+    method_bundles_with_selection(train, predict, settings, min_draws, &selection)
+}
+
+/// [`method_bundles`] over an ALREADY-CHOSEN marker selection (the reuse
+/// cohort refit's arm: a saved model's recorded markers, not the count rule).
+pub(crate) fn method_bundles_with_selection(
+    train: &CanonicalBundle,
+    predict: Option<&CanonicalBundle>,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+    selection: &bundle::MarkerSelection,
+) -> Result<MethodBundles, bundle::BundleError> {
+    let train_bundle = bundle::train_bundle_with_markers(train, settings, min_draws, selection)?;
     let (predict_bundle, predict_patients): (&CanonicalBundle, Option<&[CanonicalPatient]>) =
         match predict {
             Some(p) => (p, None),
@@ -1793,10 +1872,10 @@ pub(crate) fn method_bundles(
         predict_bundle,
         settings,
         min_draws,
-        &selection,
+        selection,
     )?;
     Ok(MethodBundles {
-        selection,
+        selection: selection.clone(),
         train: train_bundle,
         test: test_bundle,
     })
@@ -2244,6 +2323,10 @@ pub struct RunDrive {
     job_ids: Mutex<std::collections::HashMap<String, Uuid>>,
     /// The global-cap bump guard (DEC-6).
     cap_guard: Mutex<Option<GlobalCapGuard>>,
+    /// The run's ONE marker plan (single-marker-choice round 1a): computed at
+    /// run start for learn runs, passed to every method's context (the
+    /// no-list methods' marker sets + the records).
+    marker_plan: Option<super::marker_rank::MarkerPlan>,
 }
 
 impl RunDrive {
@@ -2657,6 +2740,79 @@ fn write_run_input_record(
         .map_err(|e| AppError::internal_error(format!("run input record serialize: {e}")))?;
     let path = dir.join("input").join("run-input.json");
     std::fs::write(&path, bytes).map_err(io_app("write run-input record", path.clone()))
+}
+
+/// The run's marker-choice record (`<run dir>/input/marker_choice.json`,
+/// beside the other run-level files — single-marker-choice round 1a): the ONE
+/// ranking (or its reason) + the person's choice + what each no-list method
+/// was given. Written ONLY for learn runs whose selection has at least one
+/// no-list method; absent for reuse runs, runs without one, and runs that
+/// never started.
+fn write_marker_choice(
+    dir: &Path,
+    req: &CreateRunRequest,
+    list: &MethodList,
+    prepared: &PreparedRun,
+    plan: Option<&super::marker_rank::MarkerPlan>,
+) -> Result<(), AppError> {
+    if req.mode != super::types::TxrRunMode::Train {
+        return Ok(());
+    }
+    let Some(plan) = plan else {
+        return Ok(());
+    };
+    let mut methods: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for p in &prepared.plans {
+        let Some(m) = list.method(&p.method_id) else {
+            continue;
+        };
+        if !super::marker_rank::is_no_list(m.markers.kind, m.required_markers.as_ref()) {
+            continue;
+        }
+        // The method's markers under the plan; a left-out method gets none.
+        let markers = if plan.choice == super::marker_rank::SingleMarkerChoice::LeaveOut {
+            Vec::new()
+        } else {
+            super::marker_rank::markers_for(m.markers.kind, m.markers.count, plan)
+        };
+        methods.insert(p.method_id.clone(), markers);
+    }
+    if methods.is_empty() {
+        return Ok(());
+    }
+    let (ranking_patients, ranking, offered, top, error) = match &plan.result {
+        Ok(r) => (
+            r.ranking_patients,
+            r.ranking.clone(),
+            r.offered.clone(),
+            r.top.clone(),
+            None,
+        ),
+        Err(e) => {
+            let n = match e {
+                super::marker_rank::RankingError::TooFew { n } => *n,
+                _ => 0,
+            };
+            (n, Vec::new(), Vec::new(), Vec::new(), Some(e.code().to_string()))
+        }
+    };
+    let record = super::marker_rank::MarkerChoiceRecord {
+        rule: plan.choice.rule().to_string(),
+        endpoint: plan.endpoint,
+        decision_day: plan.decision_day,
+        baseline_max_day: plan.baseline_max_day,
+        ranking_patients,
+        ranking,
+        offered,
+        top,
+        error,
+        methods,
+        source: super::marker_rank::source_facts(),
+    };
+    let bytes = serde_json::to_vec_pretty(&record)
+        .map_err(|e| AppError::internal_error(format!("marker choice record serialize: {e}")))?;
+    let path = dir.join("input").join("marker_choice.json");
+    std::fs::write(&path, bytes).map_err(io_app("write marker choice record", path.clone()))
 }
 
 fn file_stem(name: &str, fallback: &str) -> String {
@@ -3282,6 +3438,12 @@ async fn start_run_inner(
     let calibration = load_timing_calibration(&repo).await;
     let estimate = compute_estimate(&list, &req, &prepared, cpus, &calibration);
 
+    // The run's ONE marker plan (single-marker-choice round 1a; audit fix 1):
+    // computed in the prepare pass — before the classification, so the
+    // classified plans agree with it — and reused here. Reuse runs and the
+    // other callers have none (their no-list methods keep today's behaviour).
+    let marker_plan: Option<super::marker_rank::MarkerPlan> = prepared.marker_plan.clone();
+
     // The row is persisted in `preparing` (the first visible state — a 202
     // reader never sees a run that is not there; `creating` is the instant
     // before the row is committed).
@@ -3331,6 +3493,7 @@ async fn start_run_inner(
         }
         write_input_snapshot(&dir, &req.input, canonical_side)?;
         write_run_input_record(&dir, &req, rerun_of)?;
+        write_marker_choice(&dir, &req, &list, &prepared, marker_plan.as_ref())?;
         persist_plans(&repo, run_id, &prepared.plans).await?;
         let counts = repo.method_counts(run_id).await?;
         repo.update_run_counts(run_id, &counts).await?;
@@ -3390,6 +3553,7 @@ async fn start_run_inner(
         methods: Mutex::new(std::collections::HashMap::new()),
         job_ids: Mutex::new(std::collections::HashMap::new()),
         cap_guard: Mutex::new(cap_guard),
+        marker_plan,
     });
     // Pre-create the per-method control channels (a stop racing the spawn of a
     // method task is not lost).
@@ -3632,6 +3796,11 @@ pub struct PreparedRun {
     pub predict_patient_count: Option<u32>,
     pub plans: Vec<MethodPlan>,
     pub markers: usize,
+    /// The run's ONE marker plan (single-marker-choice round 1a, audit fix 1):
+    /// computed ONCE in [`prepare_run_with`] for learn runs — BEFORE the
+    /// classification (the verdicts carry it), and carried to the run start
+    /// (no second computation). `None` on reuse/predict runs.
+    pub marker_plan: Option<super::marker_rank::MarkerPlan>,
 }
 
 /// Build the validation request of the run's tables (the same joins/mapping
@@ -3701,11 +3870,45 @@ fn prepare_run_with(
     assets: &[super::types::TxrModelAsset],
 ) -> Result<PreparedRun, AppError> {
     let canonical = canonicalize_run(list, input, config, run_mode)?;
+    // The run's ONE marker plan (audit fix 1 — the main bug: the classification
+    // below MUST judge the no-list methods by the SAME plan the run will use).
+    // Computed here, ONCE, from the canonical learn side + the same inputs the
+    // plan got at run start before this fix (the endpoint, the decision day,
+    // the baseline maximum and the person's choice); the caller reuses it (no
+    // second computation). Reuse runs carry none — today's behaviour.
+    let marker_plan: Option<super::marker_rank::MarkerPlan> = if run_mode
+        == super::types::TxrRunMode::Train
+    {
+        let train = canonical
+            .train
+            .as_ref()
+            .expect("a train run carries the learn side");
+        Some(super::marker_rank::plan_for(
+            train,
+            config.endpoint,
+            config.decision_day,
+            crate::modules::file_validator::types::DEFAULT_BASELINE_MAX_DAY,
+            config
+                .single_marker
+                .clone()
+                .unwrap_or(super::marker_rank::SingleMarkerChoice::Ranked),
+        ))
+    } else {
+        None
+    };
+    // The inventory the eligibility engine sees carries the plan block (the
+    // same block shape the screens take), so a no-list method is classified
+    // on its PLANNED markers / the plan's refusal — exactly what the run will
+    // do. Without this, a 3-marker learn file's no-list single method was
+    // judged by today's count rule (MARKER_COUNT_UNMET) and never reached the
+    // executor.
+    let mut inventory = canonical.validated.inventory.clone();
+    inventory.marker_plan = marker_plan.as_ref().map(super::marker_rank::MarkerPlan::block);
     let plans = classify(
         run_mode,
         method_ids,
         assets,
-        &canonical.validated.inventory,
+        &inventory,
         config,
         list,
         envmanifest::EnvArch::host(),
@@ -3720,6 +3923,7 @@ fn prepare_run_with(
         // patients" fact; None when the run has no predict file.
         predict_patient_count: canonical.predict_patient_count,
         plans,
+        marker_plan,
     })
 }
 
@@ -3888,6 +4092,139 @@ pub(crate) fn canonicalize_run(
 
 fn validation_error_to_app(e: crate::modules::file_validator::types::ValidationError) -> AppError {
     AppError::new(axum::http::StatusCode::BAD_REQUEST, e.code(), e.to_string())
+}
+
+/// The step-4 ranking answer (the `marker-ranking` route's pure core —
+/// single-marker-choice round 1b): the SAME validate + canonicalise pass a run
+/// create request gets, then the ONE ranking at the request's endpoint and
+/// decision day (the run's `plan_for`), plus what each no-list kind would
+/// receive under the choice. A rejected request is the run create request's
+/// rejection; `error` carries the ranking code + message when there is no
+/// ranking result.
+pub(crate) fn marker_ranking_answer(
+    req: &super::types::MarkerRankingRequest,
+) -> Result<super::types::MarkerRankingResponse, AppError> {
+    // Audit fix 6: the SAME decision-day rule run create applies (the same
+    // error code for NaN/zero/negative), before any validate/canonicalise.
+    req.validate().map_err(request_error_to_app)?;
+    let list = crate::modules::method_list::current();
+    let config = super::types::RunConfig {
+        endpoint: req.endpoint,
+        decision_day: req.decision_day,
+        single_marker: req.single_marker.clone(),
+        ..Default::default()
+    };
+    let canonical = canonicalize_run(
+        &list,
+        &req.input,
+        &config,
+        super::types::TxrRunMode::Train,
+    )?;
+    let train = canonical.train.ok_or_else(|| {
+        AppError::internal_error("marker-ranking: the request tables carry no train side")
+    })?;
+    let choice = req
+        .single_marker
+        .clone()
+        .unwrap_or(super::marker_rank::SingleMarkerChoice::Ranked);
+    let plan = super::marker_rank::plan_for(
+        &train,
+        req.endpoint,
+        req.decision_day,
+        crate::modules::file_validator::types::DEFAULT_BASELINE_MAX_DAY,
+        choice,
+    );
+    let (ranking, offered, top, ranking_patients, error) = match &plan.result {
+        Ok(r) => (
+            r.ranking.clone(),
+            r.offered.clone(),
+            r.top.clone(),
+            r.ranking_patients,
+            None,
+        ),
+        Err(e) => {
+            let n = match e {
+                super::marker_rank::RankingError::TooFew { n } => *n,
+                _ => 0,
+            };
+            (
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                n,
+                Some(e.wire(req.decision_day)),
+            )
+        }
+    };
+    Ok(super::types::MarkerRankingResponse {
+        ranking,
+        offered,
+        top,
+        ranking_patients,
+        error,
+        markers_by_kind: markers_by_kind_for(&list.catalogue, &plan),
+    })
+}
+
+/// [`super::types::MarkersByKind`] under the run's choice: the shared slice
+/// rule over the plan's top/offered lists per no-list kind — single → 1,
+/// any → 5, multi k → k for every k the catalogue's runnable no-list multi
+/// methods declare. `leave_out` and a ranking error give empty lists.
+fn markers_by_kind_for(
+    cat: &crate::modules::method_catalogue::types::Catalogue,
+    plan: &super::marker_rank::MarkerPlan,
+) -> super::types::MarkersByKind {
+    let (top, offered): (&[String], &[String]) = match &plan.result {
+        Ok(r) => (&r.top, &r.offered),
+        Err(_) => (&[], &[]),
+    };
+    let empty: &[String] = &[];
+    let (top, offered) = match &plan.choice {
+        super::marker_rank::SingleMarkerChoice::LeaveOut => (empty, empty),
+        _ => (top, offered),
+    };
+    let choice = &plan.choice;
+    let single = super::marker_rank::markers_slice(
+        crate::modules::method_catalogue::types::MarkerKind::Single,
+        1,
+        choice,
+        top,
+        offered,
+    );
+    let any = super::marker_rank::markers_slice(
+        crate::modules::method_catalogue::types::MarkerKind::Any,
+        0,
+        choice,
+        top,
+        offered,
+    );
+    let mut ks: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for m in &cat.methods {
+        if m.runnable
+            && m.markers.kind == crate::modules::method_catalogue::types::MarkerKind::Multi
+            && m.required_markers.is_none()
+        {
+            ks.insert(m.markers.count);
+        }
+    }
+    let mut multi = std::collections::BTreeMap::new();
+    for k in ks {
+        multi.insert(
+            k,
+            super::marker_rank::markers_slice(
+                crate::modules::method_catalogue::types::MarkerKind::Multi,
+                k,
+                choice,
+                top,
+                offered,
+            ),
+        );
+    }
+    super::types::MarkersByKind {
+        single,
+        any,
+        multi,
+    }
 }
 
 /// The reason's human line: the code + its params (the row carries the typed
@@ -4635,6 +4972,7 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
         },
         sink,
         list: drive.list.clone(),
+        marker_plan: drive.marker_plan.clone(),
     };
     let outcome = drive.executor.execute(ctx).await;
     let failure = outcome.as_ref().err().map(|e| e.to_string());
@@ -4687,6 +5025,7 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
                 trained_on_patients: outcome.model.as_ref().map(|m| m.trained_on_patients),
                 size_bytes: outcome.model.as_ref().map(|m| m.size_bytes),
                 own_auc: outcome.model.as_ref().and_then(|m| m.own_auc),
+                markers_used: outcome.markers_used,
                 ..Default::default()
             };
             if let Err(e) = drive.patch(&method_id, patch).await {
@@ -5707,6 +6046,7 @@ mod tests {
                 size_bytes: 1234,
                 own_auc: Some(0.7),
             }),
+            markers_used: None,
         }
     }
 
@@ -5953,7 +6293,7 @@ mod tests {
     /// the providers' own (one code path with the screens).
     #[test]
     fn starts_from_the_validators_own_marker_count_and_classification() {
-        let req = run_request(
+        let req = cohort_run_request(
             &["landmark-cox-current", "jm-mem-lq", "coxh-score-survival"],
             2,
             true,
@@ -6063,7 +6403,7 @@ mod tests {
         let runtime = Arc::new(RunRuntime::new());
         let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
         let executor = Arc::new(FakeExecutor::new(Duration::from_millis(120)));
-        let req = run_request(
+        let req = cohort_run_request(
             &["landmark-cox-current", "ctdna-tf-four-group", "jm-lme"],
             2,
             true,
@@ -6179,7 +6519,7 @@ mod tests {
         let mut executor = FakeExecutor::new(Duration::ZERO);
         executor.wait_for_cancel = true;
         let executor = Arc::new(executor);
-        let req = run_request(
+        let req = cohort_run_request(
             &["landmark-cox-current", "ctdna-tf-four-group", "jm-lme"],
             2,
             true,
@@ -6224,7 +6564,7 @@ mod tests {
             },
         );
         let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
-        let req = run_request(
+        let req = cohort_run_request(
             &["landmark-cox-current", "ctdna-tf-four-group", "jm-lme"],
             2,
             true,
@@ -6297,7 +6637,7 @@ mod tests {
         let runtime = Arc::new(RunRuntime::new());
         let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
         let executor = Arc::new(FakeExecutor::new(Duration::from_millis(500)));
-        let req = run_request(
+        let req = cohort_run_request(
             &["landmark-cox-current", "ctdna-tf-four-group", "jm-lme"],
             1,
             true,
@@ -6334,7 +6674,7 @@ mod tests {
             },
         );
         let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
-        let req = run_request(&["landmark-cox-current"], 2, true);
+        let req = cohort_run_request(&["landmark-cox-current"], 2, true);
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
             .await
             .expect("create");
@@ -6370,7 +6710,7 @@ mod tests {
             },
         );
         let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
-        let req = run_request(&["landmark-cox-current"], 2, true);
+        let req = cohort_run_request(&["landmark-cox-current"], 2, true);
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
             .await
             .expect("create");
@@ -6404,7 +6744,7 @@ mod tests {
         let runtime = Arc::new(RunRuntime::new());
         let env = Arc::new(FakeEnv::new(Duration::from_secs(5)));
         let executor = Arc::new(FakeExecutor::new(Duration::from_millis(30)));
-        let req = run_request(&["landmark-cox-current"], 1, true);
+        let req = cohort_run_request(&["landmark-cox-current"], 1, true);
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
             .await
             .expect("create");
@@ -6500,6 +6840,7 @@ mod tests {
                 conversions: Default::default(),
                 method_facts: None,
                 decision_day: None,
+                features: Vec::new(),
             }],
             method_list_sequence: None,
         };
@@ -6565,6 +6906,7 @@ mod tests {
                 crate::modules::method_list::builtin().method(method).expect("a catalogue method"),
             )),
             decision_day: None,
+            features: Vec::new(),
         }
     }
 
@@ -7129,6 +7471,7 @@ mod tests {
                 target,
                 sink: RunMethodSink::channel().0,
                 list: crate::modules::method_list::current(),
+                marker_plan: None,
             },
             cancel_tx,
         )
@@ -7858,6 +8201,7 @@ mod tests {
                 conversions: Default::default(),
                 method_facts: None,
                 decision_day: None,
+                features: Vec::new(),
             }],
             method_list_sequence: None,
         }
@@ -8016,6 +8360,141 @@ mod tests {
         let recorded = predictions::read_conversions(&run_dir, "m-1").expect("recorded");
         assert_eq!(recorded.keys().collect::<Vec<_>>(), vec!["progression@238"]);
         assert_ne!(recorded, saved, "the cohort refit, not the saved training map");
+    }
+
+    /// Audit fix 7: a model WITHOUT recorded features (saved before they were
+    /// kept) keeps today's selection on a one-marker predict file — the
+    /// count rule over the file's main markers, for the predict surface and
+    /// the cohort refit alike — never the recorded-features path.
+    #[tokio::test]
+    async fn executor_reuse_without_recorded_features_keeps_todays_selection() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-no-recorded"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let req = cohort_reuse_request(&asset_dir, &digest, method);
+        assert!(
+            req.model_ids[0].features.is_empty(),
+            "the model was saved before features were recorded"
+        );
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train.clone()),
+            Some(predict.clone()),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 2, "the predict-surface call + the cohort refit call");
+        // Today's selection on the one-marker file: every call's params carry
+        // the file's main marker (the count rule), never an empty or
+        // recorded-features set.
+        for c in calls.iter() {
+            assert_eq!(
+                c.params["markers"],
+                serde_json::json!(["14804-9"]),
+                "{c:?}"
+            );
+        }
+    }
+
+    /// Audit fix 2: a model WITH recorded features — "LDH" recorded, the
+    /// predict file measures "ldh" — resolves every recorded feature to the
+    /// predict file's own marker name with the saved-model eligibility's
+    /// matcher (case-insensitive), so eligibility "can run" and the run
+    /// agree: the reuse run runs on the file's spelling instead of refusing
+    /// `BUNDLE_TEST_MARKER_MISSING` with the recorded spelling.
+    #[tokio::test]
+    async fn executor_reuse_resolves_recorded_features_to_the_file_spelling() {
+        fn lower_case_marker(table: &mut crate::modules::file_validator::types::ParsedTable) {
+            for row in &mut table.rows {
+                if let Some(cell) = row.get_mut(2) {
+                    *cell = Some("ldh".to_string());
+                }
+            }
+        }
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-recorded-lower"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let mut req = cohort_reuse_request(&asset_dir, &digest, method);
+        req.model_ids[0].features = vec!["LDH".to_string()];
+        lower_case_marker(&mut req.input.measurements);
+        lower_case_marker(
+            req.input
+                .predict_measurements
+                .as_mut()
+                .expect("the reuse fixture carries a predict table"),
+        );
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train.clone()),
+            Some(predict.clone()),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 2, "the predict-surface call + the cohort refit call");
+        for c in calls.iter() {
+            assert_eq!(
+                c.params["markers"],
+                serde_json::json!(["ldh"]),
+                "the recorded 'LDH' resolved to the file's 'ldh': {c:?}"
+            );
+        }
     }
 
     /// A refusal while building the reuse conversion's cohort bundles is
@@ -9151,7 +9630,11 @@ mod tests {
             .env_for("landmark-cox-current")
             .expect("the run's list has the method for this computer")
             .clone();
-        let req = run_request(&["landmark-cox-current"], 1, false);
+        // The 30-patient cohort fixture (a ≥10 ranking-patient learn file —
+        // the run's plan is a valid ranking, so the no-list method is
+        // classified runnable; the 6-patient run_request fixture would refuse
+        // it under the ranking rule).
+        let req = cohort_run_request(&["landmark-cox-current"], 1, false);
         let prepared = prepare_run_with(
             &list,
             &req.input,
@@ -9175,7 +9658,7 @@ mod tests {
     #[test]
     fn base_and_layer_from_same_snapshot() {
         let list = list_for_host(77);
-        let req = run_request(&["landmark-cox-current"], 1, false);
+        let req = cohort_run_request(&["landmark-cox-current"], 1, false);
         let prepared =
             prepare_run_with(&list, &req.input, &req.config, req.mode, &req.method_ids, &[])
                 .expect("prepares");
@@ -9212,6 +9695,7 @@ mod tests {
             conversions: Default::default(),
             method_facts: None,
             decision_day: None,
+            features: Vec::new(),
         };
         let req = CreateRunRequest {
             mode: TxrRunMode::Reuse,
@@ -9289,6 +9773,7 @@ mod tests {
             conversions: Default::default(),
             method_facts: None,
             decision_day: None,
+            features: Vec::new(),
         };
         let reuse = CreateRunRequest {
             mode: TxrRunMode::Reuse,
@@ -9458,7 +9943,11 @@ mod tests {
             Arc::new(FakeEnv::new(Duration::from_millis(10))),
             executor,
             owner(),
-            run_request(&["landmark-cox-current", "ctdna-tf-four-group"], 1, false),
+            cohort_run_request(
+                &["landmark-cox-current", "ctdna-tf-four-group"],
+                1,
+                false,
+            ),
             None,
             lists.current(),
         )
@@ -9528,5 +10017,554 @@ mod tests {
         assert_eq!(repo.run_method_list_sequence(summary.id).await.expect("read"), Some(58));
         // A row not made by a run start records none.
         assert_eq!(repo.run_method_list_sequence(Uuid::new_v4()).await.expect("read"), None);
+    }
+
+    // ── single-marker-choice round 1a — the run's marker-choice record ──────
+
+    fn marker_plan_fixture(
+        choice: crate::modules::execution_engine::marker_rank::SingleMarkerChoice,
+        error: Option<crate::modules::execution_engine::marker_rank::RankingError>,
+    ) -> crate::modules::execution_engine::marker_rank::MarkerPlan {
+        use crate::modules::execution_engine::marker_rank::{
+            MarkerPlan, MarkerRanking, RankedMarker,
+        };
+        let ranking = MarkerRanking {
+            ranking: vec![
+                RankedMarker { marker: "LDH".to_string(), score: 0.5, n: 12, coverage: 1.0 },
+                RankedMarker { marker: "CEA".to_string(), score: 0.4, n: 12, coverage: 1.0 },
+                RankedMarker { marker: "CA199".to_string(), score: 0.3, n: 12, coverage: 1.0 },
+            ],
+            offered: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
+            top: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
+            ranking_patients: 12,
+        };
+        MarkerPlan {
+            choice,
+            endpoint: crate::modules::execution_engine::types::TxrEndpoint::Pfs,
+            decision_day: 56.0,
+            baseline_max_day: 0.0,
+            result: match error {
+                Some(e) => Err(e),
+                None => Ok(ranking),
+            },
+        }
+    }
+
+    #[test]
+    fn marker_choice_json_writes_the_run_facts_beside_the_run_input() {
+        let _g = rootfs::scoped_data_root(test_data_dir("marker-choice-record"));
+        let list = crate::modules::method_list::builtin();
+        let dir = run_dir_root().join("marker-choice-record");
+        std::fs::create_dir_all(dir.join("input")).unwrap();
+
+        let plan = marker_plan_fixture(
+            crate::modules::execution_engine::marker_rank::SingleMarkerChoice::Ranked,
+            None,
+        );
+        let plans = vec![
+            MethodPlan {
+                method_id: "cox-baseline-delta".to_string(),
+                label: "cox-baseline-delta".to_string(),
+                version: "1.0.1".to_string(),
+                group: "static-risk".to_string(),
+                min_draws: 2,
+                env: None,
+                target: RunTarget::TrainMethod,
+                cannot_run: true,
+                reason: None,
+            },
+            MethodPlan {
+                method_id: "asm-best-change-rule".to_string(),
+                label: "asm-best-change-rule".to_string(),
+                version: "1.0.0".to_string(),
+                group: "static-risk".to_string(),
+                min_draws: 2,
+                env: None,
+                target: RunTarget::TrainMethod,
+                cannot_run: true,
+                reason: None,
+            },
+        ];
+        let prepared = PreparedRun {
+            train: None,
+            predict: None,
+            predict_patients: None,
+            predict_patient_count: None,
+            plans,
+            markers: 3,
+            marker_plan: None,
+        };
+        let req = run_request(&["cox-baseline-delta", "asm-best-change-rule"], 2, true);
+        write_marker_choice(&dir, &req, &list, &prepared, Some(&plan)).expect("write");
+
+        let record: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("input").join("marker_choice.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record["rule"], "ranked");
+        assert_eq!(record["endpoint"], "pfs");
+        assert_eq!(record["decision_day"], 56.0);
+        assert_eq!(record["baseline_max_day"], 0.0);
+        assert_eq!(record["ranking_patients"], 12);
+        assert_eq!(record["error"], serde_json::Value::Null);
+        assert_eq!(record["ranking"].as_array().unwrap().len(), 3);
+        assert_eq!(record["ranking"][0]["marker"], "LDH");
+        assert!((record["ranking"][0]["score"].as_f64().unwrap() - 0.5).abs() < 1e-9);
+        assert_eq!(record["ranking"][0]["n"], 12);
+        assert_eq!(record["offered"], serde_json::json!(["LDH", "CEA", "CA199"]));
+        assert_eq!(record["top"], serde_json::json!(["LDH", "CEA", "CA199"]));
+        // The no-list method's markers; the fixed-list method is absent.
+        assert_eq!(
+            record["methods"],
+            serde_json::json!({"cox-baseline-delta": ["LDH", "CEA", "CA199"]})
+        );
+        // The benchmark-source facts: file, date (data.py has none) and sha256.
+        let sources = record["source"].as_array().unwrap();
+        assert_eq!(sources.len(), 3);
+        assert_eq!(sources[0]["file"], "ranking.py");
+        assert_eq!(sources[0]["date"], "2026-10-20 18:05 -0400");
+        assert_eq!(
+            sources[0]["sha256"],
+            "b5e78188dd8ff363749c70ed9d3060c37a9a92d6b342f3eeac3f5aef3575418f"
+        );
+        assert!(sources[1]["date"].is_string());
+        assert!(sources[2]["date"].is_null(), "data.py's date is not recorded");
+
+        // Chosen: the chosen marker leads and the record says so.
+        let dir2 = run_dir_root().join("marker-choice-record-chosen");
+        std::fs::create_dir_all(dir2.join("input")).unwrap();
+        let plan2 = marker_plan_fixture(
+            crate::modules::execution_engine::marker_rank::SingleMarkerChoice::Chosen {
+                marker: "CA199".to_string(),
+            },
+            None,
+        );
+        write_marker_choice(&dir2, &req, &list, &prepared, Some(&plan2)).expect("write");
+        let record2: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir2.join("input").join("marker_choice.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record2["rule"], "chosen");
+        assert_eq!(
+            record2["methods"],
+            serde_json::json!({"cox-baseline-delta": ["CA199", "LDH", "CEA"]})
+        );
+
+        // A ranking error is recorded with its code, no facts.
+        let dir3 = run_dir_root().join("marker-choice-record-error");
+        std::fs::create_dir_all(dir3.join("input")).unwrap();
+        let plan3 = marker_plan_fixture(
+            crate::modules::execution_engine::marker_rank::SingleMarkerChoice::Ranked,
+            Some(crate::modules::execution_engine::marker_rank::RankingError::TooFew { n: 6 }),
+        );
+        write_marker_choice(&dir3, &req, &list, &prepared, Some(&plan3)).expect("write");
+        let record3: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir3.join("input").join("marker_choice.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record3["error"], "BUNDLE_MARKER_RANKING_TOO_FEW");
+        assert_eq!(record3["ranking_patients"], 6);
+        assert_eq!(record3["ranking"], serde_json::json!([]));
+        assert_eq!(
+            record3["methods"],
+            serde_json::json!({"cox-baseline-delta": []})
+        );
+
+        // LeaveOut: no markers for the no-list method.
+        let dir4 = run_dir_root().join("marker-choice-record-left-out");
+        std::fs::create_dir_all(dir4.join("input")).unwrap();
+        let plan4 = marker_plan_fixture(
+            crate::modules::execution_engine::marker_rank::SingleMarkerChoice::LeaveOut,
+            None,
+        );
+        write_marker_choice(&dir4, &req, &list, &prepared, Some(&plan4)).expect("write");
+        let record4: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir4.join("input").join("marker_choice.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record4["rule"], "leave_out");
+        assert_eq!(record4["methods"], serde_json::json!({"cox-baseline-delta": []}));
+
+        // A run with NO no-list method writes no record.
+        let dir5 = run_dir_root().join("marker-choice-record-none");
+        std::fs::create_dir_all(dir5.join("input")).unwrap();
+        let prepared_fixed = PreparedRun {
+            plans: vec![MethodPlan {
+                method_id: "asm-best-change-rule".to_string(),
+                label: "asm-best-change-rule".to_string(),
+                version: "1.0.0".to_string(),
+                group: "static-risk".to_string(),
+                min_draws: 2,
+                env: None,
+                target: RunTarget::TrainMethod,
+                cannot_run: true,
+                reason: None,
+            }],
+            train: None,
+            predict: None,
+            predict_patients: None,
+            predict_patient_count: None,
+            markers: 3,
+            marker_plan: None,
+        };
+        let req_fixed = run_request(&["asm-best-change-rule"], 2, true);
+        write_marker_choice(&dir5, &req_fixed, &list, &prepared_fixed, Some(&plan)).expect("write");
+        assert!(
+            !dir5.join("input").join("marker_choice.json").exists(),
+            "no no-list method -> no record"
+        );
+
+        // A reuse run writes no record even with no-list methods selected.
+        let mut req_reuse = run_request(&["cox-baseline-delta"], 2, true);
+        req_reuse.mode = TxrRunMode::Reuse;
+        write_marker_choice(&dir5, &req_reuse, &list, &prepared, Some(&plan)).expect("write");
+        assert!(
+            !dir5.join("input").join("marker_choice.json").exists(),
+            "reuse runs are not learn runs"
+        );
+    }
+
+    // ── single-marker-choice round 1b — the step-4 ranking route's core ─────
+
+    /// Round 1b review fix 2: the bundle preflight carries the run's marker
+    /// plan into its settings, exactly like the train executor does — a
+    /// single no-list method on a 3-marker file is refused by the preflight
+    /// WITHOUT the plan (the count rule) and admitted WITH it (the top 1).
+    #[test]
+    fn call_bundle_preflight_carries_the_marker_plan() {
+        use crate::modules::execution_engine::marker_rank::{
+            MarkerPlan, MarkerRanking, RankedMarker, SingleMarkerChoice,
+        };
+        use crate::modules::file_validator::types::{CanonicalBundle, CanonicalPatient, CanonicalValue};
+        let mut patients = Vec::new();
+        let mut values = Vec::new();
+        for i in 0..12 {
+            let id = format!("P{i:02}");
+            patients.push(CanonicalPatient {
+                patient_id: id.clone(),
+                pfs_days: Some(if i % 2 == 0 { 70.0 } else { 90.0 }),
+                pfs_event: Some(if i % 2 == 0 { 1 } else { 0 }),
+                os_days: None,
+                os_event: None,
+                responder: None,
+                response_day: None,
+                covariates: Vec::new(),
+            });
+            for (marker, base) in [("LDH", 100.0), ("CEA", 10.0), ("CA199", 2.0)] {
+                values.push(CanonicalValue {
+                    patient_id: id.clone(),
+                    day: 0.0,
+                    feature: marker.to_string(),
+                    value: Some(base + i as f64),
+                    unit: None,
+                });
+                values.push(CanonicalValue {
+                    patient_id: id.clone(),
+                    day: 28.0,
+                    feature: marker.to_string(),
+                    value: Some(base + 40.0 + i as f64),
+                    unit: None,
+                });
+            }
+        }
+        let bundle = CanonicalBundle {
+            patients,
+            values,
+            features: Vec::new(),
+        };
+        let facts =
+            crate::modules::method_list::builtin().method("landmark-cox-current").expect("facts");
+        let (mut ctx, _cancel) = executor_ctx(
+            &test_data_dir("preflight-marker-plan"),
+            "landmark-cox-current",
+            Some(Arc::new(bundle)),
+            None,
+            None,
+            false,
+            RunTarget::TrainMethod,
+        );
+        let preflight_err = call_bundle_preflight(&ctx, facts).expect("preflight runs");
+        assert!(matches!(
+            preflight_err,
+            Err(bundle::BundleError::MarkerCountUnmet { .. }),
+        ));
+        ctx.marker_plan = Some(MarkerPlan {
+            choice: SingleMarkerChoice::Ranked,
+            endpoint: crate::modules::execution_engine::types::TxrEndpoint::Pfs,
+            decision_day: 56.0,
+            baseline_max_day: 0.0,
+            result: Ok(MarkerRanking {
+                ranking: vec![
+                    RankedMarker { marker: "LDH".to_string(), score: 0.5, n: 12, coverage: 1.0 },
+                    RankedMarker { marker: "CEA".to_string(), score: 0.4, n: 12, coverage: 1.0 },
+                    RankedMarker { marker: "CA199".to_string(), score: 0.3, n: 12, coverage: 1.0 },
+                ],
+                offered: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
+                top: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
+                ranking_patients: 12,
+            }),
+        });
+        let preflight = call_bundle_preflight(&ctx, facts).expect("with the plan");
+        assert_eq!(preflight, Ok(()), "the planned top 1 is admitted");
+    }
+
+    /// A ranking request over a 12-patient, 3-marker long-format fixture
+    /// (LDH/CEA mapped to the vocabulary's ids, CA199 by its own name): every
+    /// patient baselines at day 0 and draws at day 28, with a finite pfs
+    /// time/event after the decision day — the ranking cohorts all count.
+    fn ranking_request(
+        endpoint: crate::modules::execution_engine::types::TxrEndpoint,
+    ) -> crate::modules::execution_engine::types::MarkerRankingRequest {
+        use crate::modules::execution_engine::types::MarkerRankingRequest;
+        let mut p_rows: Vec<Vec<String>> = Vec::new();
+        let mut m_rows: Vec<Vec<String>> = Vec::new();
+        for i in 0..12 {
+            let id = format!("P{i:02}");
+            let event = if i % 2 == 0 { "1" } else { "0" };
+            let pfs = if i % 2 == 0 { "70" } else { "90" };
+            p_rows.push(vec![id.clone(), pfs.to_string(), event.to_string()]);
+            for (marker, base) in [("LDH", "100"), ("CEA", "10"), ("CA199", "2")] {
+                let v: u32 = base.parse::<u32>().unwrap() + i;
+                m_rows.push(vec![
+                    id.clone(),
+                    "0".to_string(),
+                    marker.to_string(),
+                    v.to_string(),
+                ]);
+                m_rows.push(vec![
+                    id.clone(),
+                    "28".to_string(),
+                    marker.to_string(),
+                    (v + 40).to_string(),
+                ]);
+            }
+        }
+        let p_refs: Vec<Vec<&str>> = p_rows.iter().map(|r| r.iter().map(|s| s.as_str()).collect()).collect();
+        let rows_ref: Vec<&[&str]> = p_refs.iter().map(|r| r.as_slice()).collect();
+        let patients = table(&["patient_id", "pfs_days", "pfs_event"], &rows_ref);
+        let m_refs: Vec<Vec<&str>> = m_rows.iter().map(|r| r.iter().map(|s| s.as_str()).collect()).collect();
+        let m_rows_ref: Vec<&[&str]> = m_refs.iter().map(|r| r.as_slice()).collect();
+        let measurements = table(
+            &["patient_id", "day", "marker", "value"],
+            &m_rows_ref,
+        );
+        MarkerRankingRequest {
+            input: crate::modules::execution_engine::types::TxrRunInput {
+                patients: Some(patients),
+                measurements,
+                predict_measurements: None,
+                joins: Vec::new(),
+                mapping: vec![
+                    crate::modules::execution_engine::types::TxrMapping { key: "LDH".to_string(), marker_id: "14804-9".to_string() },
+                    crate::modules::execution_engine::types::TxrMapping { key: "CEA".to_string(), marker_id: "2039-6".to_string() },
+                ],
+                keep_copies: false,
+            },
+            endpoint,
+            decision_day: 56.0,
+            single_marker: None,
+        }
+    }
+
+    #[test]
+    fn marker_ranking_route_core_ranks_a_three_marker_file() {
+        let answer = marker_ranking_answer(&ranking_request(crate::modules::execution_engine::types::TxrEndpoint::Pfs)).expect("answer");
+        assert!(answer.error.is_none(), "{:?}", answer.error);
+        assert_eq!(answer.ranking_patients, 12);
+        assert_eq!(answer.ranking.len(), 3, "every main marker is ranked: {:?}", answer.ranking);
+        assert_eq!(answer.offered.len(), 3, "the 80 % cut offers all three");
+        assert_eq!(answer.top.len(), 3);
+        // The ranking is sorted: score desc, n desc, name asc.
+        for pair in answer.ranking.windows(2) {
+            assert!(pair[0].score >= pair[1].score, "{:?}", answer.ranking);
+        }
+        // The choice's per-kind facts: single → 1, any → top, multi k → top
+        // min(k, 5) for EVERY k the catalogue's no-list multi methods declare.
+        assert_eq!(answer.markers_by_kind.single.len(), 1);
+        assert_eq!(answer.markers_by_kind.any.len(), answer.top.len());
+        assert_eq!(answer.markers_by_kind.single[0], answer.top[0]);
+        for (k, markers) in &answer.markers_by_kind.multi {
+            assert_eq!(markers.len(), (*k as usize).min(answer.top.len()));
+            assert_eq!(markers[0], answer.top[0]);
+            assert_eq!(markers, &answer.top[..markers.len()], "multi k takes the top k");
+        }
+
+        // The person's choice: a chosen marker leads, then the ranking
+        // without it.
+        let mut chosen = ranking_request(crate::modules::execution_engine::types::TxrEndpoint::Pfs);
+        chosen.single_marker = Some(crate::modules::execution_engine::marker_rank::SingleMarkerChoice::Chosen {
+            marker: answer.top[2].clone(),
+        });
+        let answer2 = marker_ranking_answer(&chosen).expect("answer");
+        assert_eq!(answer2.markers_by_kind.single, vec![answer.top[2].clone()]);
+        assert_eq!(answer2.markers_by_kind.any[0], answer.top[2]);
+        assert_eq!(
+            answer2.markers_by_kind.any,
+            vec![answer.top[2].clone()]
+                .into_iter()
+                .chain(answer.top.iter().filter(|m| **m != answer.top[2]).cloned())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn marker_ranking_route_core_reports_the_three_ranking_errors() {
+        // Too few ranking patients: only 4 patients carry the draws.
+        let mut small = ranking_request(crate::modules::execution_engine::types::TxrEndpoint::Pfs);
+        small.input.measurements.rows.truncate(24);
+        let answer = marker_ranking_answer(&small).expect("answer");
+        assert_eq!(
+            answer.error.as_ref().map(|e| e.code.as_str()),
+            Some("MARKER_RANKING_TOO_FEW")
+        );
+        assert_eq!(answer.ranking_patients, 4);
+        assert!(answer.ranking.is_empty() && answer.offered.is_empty());
+
+        // No outcome column for the endpoint (pfs asked, only os present).
+        let mut no_outcome = ranking_request(crate::modules::execution_engine::types::TxrEndpoint::Pfs);
+        no_outcome.input.patients = Some(table(
+            &["patient_id", "os_days", "os_event"],
+            &[&["P00", "140", "0"], &["P01", "150", "0"], &["P02", "160", "0"]],
+        ));
+        let answer = marker_ranking_answer(&no_outcome).expect("answer");
+        assert_eq!(
+            answer.error.as_ref().map(|e| e.code.as_str()),
+            Some("MARKER_RANKING_NO_OUTCOME")
+        );
+        assert!(answer
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("progression or death"));
+    }
+
+    // ── single-marker-choice round 1c — the audit fixes ─────────────────────
+
+    /// Audit fix 1 (the main bug): the run-create / prepare path computes the
+    /// learn run's ONE marker plan BEFORE the classification, attaches the
+    /// same plan block to the inventory the eligibility engine judges, and
+    /// carries THAT plan to the run (no second computation). On a 3-marker
+    /// file a no-list single method is then classified runnable and gets the
+    /// ranked top marker; with `leave_out` it is left out (not run); with a
+    /// ranking error it is cannot-run with the ranking reason.
+    #[test]
+    fn run_create_classifies_the_no_list_methods_by_the_runs_own_plan() {
+        use crate::modules::execution_engine::marker_rank::SingleMarkerChoice;
+        use crate::modules::method_catalogue::types::{MarkerKind, ReasonCode};
+        use crate::modules::execution_engine::types::{RunConfig, TxrRunMode};
+
+        // The 12-patient 3-marker fixture (the ranking route's own): every
+        // patient has a day-0 (baseline) and a day-28 draw and a finite pfs
+        // pair after the decision day → 12 ranking patients, all three main
+        // markers offered.
+        let ranking = ranking_request(crate::modules::execution_engine::types::TxrEndpoint::Pfs);
+        let base_input = ranking.input.clone();
+        let config = RunConfig {
+            at_a_time: 1,
+            decision_day: ranking.decision_day,
+            endpoint: ranking.endpoint,
+            ..Default::default()
+        };
+        let method = "landmark-cox-current";
+
+        // Ranked (the default): the no-list single method is classified
+        // runnable and receives the top-ranked marker — the classification
+        // and the run agree (today's count rule would have refused it).
+        let prepared = prepare_run(
+            &base_input,
+            &config,
+            TxrRunMode::Train,
+            &[method.to_string()],
+            &[],
+        )
+        .expect("the 3-marker file validates + classifies");
+        let plan = prepared
+            .marker_plan
+            .as_ref()
+            .expect("the prepare pass computed the learn run's plan ONCE");
+        let ranking_result = plan.result.as_ref().expect("the fixture ranks");
+        assert_eq!(ranking_result.ranking_patients, 12);
+        assert!(ranking_result.offered.len() == 3, "{ranking_result:?}");
+        let top = ranking_result.top[0].clone();
+        assert_eq!(
+            crate::modules::execution_engine::marker_rank::markers_for(
+                MarkerKind::Single,
+                1,
+                plan
+            ),
+            vec![top.clone()],
+            "the single method runs on the ranked top marker"
+        );
+        assert!(!prepared.plans[0].cannot_run, "{:?}", prepared.plans[0].reason);
+        assert!(prepared.plans[0].env.is_some(), "queued with its environment");
+
+        // LeaveOut: the same method is classified left out (not run) — the
+        // plan's refusal is the row's reason.
+        let mut left_config = config.clone();
+        left_config.single_marker = Some(SingleMarkerChoice::LeaveOut);
+        let prepared = prepare_run(
+            &base_input,
+            &left_config,
+            TxrRunMode::Train,
+            &[method.to_string()],
+            &[],
+        )
+        .expect("classifies");
+        assert!(prepared.plans[0].cannot_run, "left out");
+        assert_eq!(
+            prepared.plans[0].reason.as_ref().map(|r| r.code.as_str()),
+            Some(ReasonCode::MarkersLeftOut.as_str()),
+            "{:?}",
+            prepared.plans[0].reason
+        );
+
+        // A ranking error (4 patients with draws < 10): cannot run with the
+        // ranking reason, exactly like the run would refuse it.
+        let mut small_input = base_input.clone();
+        small_input.measurements.rows.truncate(24);
+        let prepared = prepare_run(
+            &small_input,
+            &config,
+            TxrRunMode::Train,
+            &[method.to_string()],
+            &[],
+        )
+        .expect("classifies");
+        assert!(prepared.plans[0].cannot_run, "no ranking → cannot run");
+        let reason = prepared.plans[0].reason.as_ref().expect("the ranking reason");
+        assert_eq!(
+            reason.code.as_str(),
+            ReasonCode::MarkerRankingUnavailable.as_str(),
+            "{reason:?}"
+        );
+        assert!(
+            reason.detail.contains("MARKER_RANKING_TOO_FEW"),
+            "{reason:?}"
+        );
+    }
+
+    /// Audit fix 6: the step-4 ranking route applies the SAME decision-day
+    /// validation run create applies — the same error code for NaN, zero and
+    /// negative.
+    #[test]
+    fn marker_ranking_route_core_refuses_the_bad_decision_day() {
+        let good = ranking_request(crate::modules::execution_engine::types::TxrEndpoint::Pfs);
+        let base_tables = good.input.clone();
+        let bad_day = |day: f64| {
+            let mut req = crate::modules::execution_engine::types::MarkerRankingRequest {
+                input: base_tables.clone(),
+                endpoint: crate::modules::execution_engine::types::TxrEndpoint::Pfs,
+                decision_day: good.decision_day,
+                single_marker: None,
+            };
+            req.decision_day = day;
+            req
+        };
+        for day in [0.0, -1.0, f64::NAN] {
+            let err = marker_ranking_answer(&bad_day(day)).expect_err("a bad decision day");
+            assert_eq!(err.error_code(), "INVALID_DECISION_DAY", "day={day}");
+            assert_eq!(err.status_code(), 400, "day={day}");
+        }
     }
 }

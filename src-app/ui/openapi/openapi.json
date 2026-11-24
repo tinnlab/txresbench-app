@@ -4192,6 +4192,72 @@
         ]
       }
     },
+    "/api/txr/runs/marker-ranking": {
+      "post": {
+        "tags": [
+          "txr"
+        ],
+        "description": "Rank the checked file's markers on the run endpoint's outcome (the ONE ranking a learn run computes at its decision day): the per-marker score/n/coverage, the offered markers and the top 5, the ranking-patient count, the error (code + message) when there is no ranking result, and what each no-list kind receives under the current choice. The step-4 line and the step-3 select read this; the plan block is copied onto the eligibility requests.",
+        "operationId": "Txr.markerRanking",
+        "requestBody": {
+          "description": "`POST /api/txr/runs/marker-ranking` (single-marker-choice round 1b, the\n step-4 line's call): the SAME parsed tables a run create request carries\n (the validated `patients` + `measurements`, plus the joins/mapping that\n made them the file's markers) and the run's endpoint + decision day + the\n person's choice. The server canonicalises like run create (one code path)\n and ranks the file's markers on the run endpoint's outcome.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkerRankingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The ranking response: the full per-marker ranking (score desc / n desc /\n name asc, coverage fractions), the offered markers and the top 5, the\n ranking-patient count, the error (code + message) when there is no ranking\n result, and what each no-list kind would receive under the current choice\n (the step-3 select's facts). On an error the ranking facts are empty and\n `error` is the reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkerRankingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_BODY / the validator's rejection of the tables"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
     "/api/txr/models/save": {
       "post": {
         "tags": [
@@ -9741,6 +9807,17 @@
               }
             ]
           },
+          "marker_plan": {
+            "description": "The run's marker plan (the step-4 ranking route's result, copied by the\n UI — single-marker-choice round 1b): with it, a no-list method\n (`single` / `multi` k / `any` with no fixed list) is evaluated on its\n PLANNED markers, the plan's refusal (`leave_out` / a ranking error / a\n chosen marker the file lacks) is the verdict's reason, and the\n coverage/draw checks use those markers. Absent = exactly today's\n verdicts (the count rule over the file's markers).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "markers": {
             "type": "array",
             "items": {
@@ -10233,6 +10310,141 @@
           "match_kind"
         ]
       },
+      "MarkerRankingRequest": {
+        "description": "`POST /api/txr/runs/marker-ranking` (single-marker-choice round 1b, the\n step-4 line's call): the SAME parsed tables a run create request carries\n (the validated `patients` + `measurements`, plus the joins/mapping that\n made them the file's markers) and the run's endpoint + decision day + the\n person's choice. The server canonicalises like run create (one code path)\n and ranks the file's markers on the run endpoint's outcome.",
+        "type": "object",
+        "properties": {
+          "decision_day": {
+            "description": "The decision day L.",
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint": {
+            "description": "The run endpoint the ranking is computed on (pfs →\n pfs_time/pfs_event, os → os_time/os_event).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxrEndpoint"
+              }
+            ]
+          },
+          "joins": {
+            "description": "The confirmed joins (one per measurement column group; the validator's\n join semantics — CONS-EE-11). Column ids or index keys. Empty = the\n simple one-table case.",
+            "type": "array",
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TxrJoin"
+            }
+          },
+          "keep_copies": {
+            "description": "K board's \"Copies are kept with this run so it can be repeated\" —\n default true (DEC-16); the history UI's \"Do not keep copies\" sends\n false.",
+            "type": "boolean",
+            "default": true
+          },
+          "mapping": {
+            "description": "The confirmed marker mapping (column key → catalogue marker id).",
+            "type": "array",
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TxrMapping"
+            }
+          },
+          "measurements": {
+            "description": "The uploaded measurements table (train and predict in one file, or the\n train table when a separate predict file is given).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ParsedTable"
+              }
+            ]
+          },
+          "patients": {
+            "description": "Training patients (nullable in reuse mode, where the predict table is\n the run's only input).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParsedTable"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "predict_measurements": {
+            "description": "The separate predict-patients file (path 3: reuse on NEW patients).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParsedTable"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "single_marker": {
+            "description": "The person's step-3 choice (absent = `ranked`).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SingleMarkerChoice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "measurements",
+          "endpoint",
+          "decision_day"
+        ]
+      },
+      "MarkerRankingResponse": {
+        "description": "The ranking response: the full per-marker ranking (score desc / n desc /\n name asc, coverage fractions), the offered markers and the top 5, the\n ranking-patient count, the error (code + message) when there is no ranking\n result, and what each no-list kind would receive under the current choice\n (the step-3 select's facts). On an error the ranking facts are empty and\n `error` is the reason.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "markers_by_kind": {
+            "$ref": "#/components/schemas/MarkersByKind"
+          },
+          "offered": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ranking": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RankedMarker"
+            }
+          },
+          "ranking_patients": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ranking",
+          "offered",
+          "top",
+          "ranking_patients",
+          "markers_by_kind"
+        ]
+      },
       "MarkerSummary": {
         "description": "One marker column's inspect summary (name → value-row count).",
         "type": "object",
@@ -10283,6 +10495,38 @@
         "required": [
           "markers",
           "groups"
+        ]
+      },
+      "MarkersByKind": {
+        "description": "What each no-list method kind would receive under the current choice\n (single → 1, any → the top 5, multi k → the top k for every k the\n catalogue's no-list multi methods declare). The choice's `leave_out` /\n an error leave the lists empty.",
+        "type": "object",
+        "properties": {
+          "any": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "multi": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "single": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "single",
+          "any",
+          "multi"
         ]
       },
       "MatchKind": {
@@ -11891,7 +12135,9 @@
               "MARKER_COUNT_UNMET",
               "TREATMENT_NOT_MATCHED",
               "OUTCOME_NOT_MATCHED",
-              "MODEL_REQUIREMENTS_UNRECORDED"
+              "MODEL_REQUIREMENTS_UNRECORDED",
+              "MARKER_RANKING_UNAVAILABLE",
+              "MARKER_NOT_IN_FILE"
             ]
           },
           {
@@ -11903,6 +12149,16 @@
             "description": "The provider's filter reasons (the store's saved models never\n receive method filters, but the wire language is the provider's — the\n 1:1 mapper below keeps the two vocabularies drift-proof).",
             "type": "string",
             "const": "DISEASE_NOT_MATCHED"
+          },
+          {
+            "description": "A recorded FEATURE of a no-fixed-list model is absent from the file\n (single-marker-choice round 1b): the reuse run uses the model's\n recorded markers, so the file must carry it — the verdict refuses with\n \"needs the marker {X} it was trained on, which your file does not\n have\" / \"Use a file that has {X}.\". Params: `marker` (the feature\n name).",
+            "type": "string",
+            "const": "MODEL_FEATURE_MISSING"
+          },
+          {
+            "description": "The provider's marker-plan codes (a saved model's eligibility request\n carries the catalogue's `InventoryEligibilityRequest`, so the wire\n language must cover the catalogue's codes 1:1 — mapped by\n [`ModelReasonCode::from_catalogue`]).",
+            "type": "string",
+            "const": "MARKERS_LEFT_OUT"
           }
         ]
       },
@@ -12554,6 +12810,85 @@
         },
         "required": [
           "required_permissions"
+        ]
+      },
+      "PlanBlock": {
+        "description": "The wire view of a plan — the `marker_plan` block the eligibility /\n preview requests carry (the UI copies it from the ranking route's result):\n the choice + the route's `top` / `offered` markers + the error (code and\n message) when there is no ranking result.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "description": "The ranking error (code + message), when there is no ranking result.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "marker": {
+            "description": "The chosen marker (present exactly for `mode: \"chosen\"`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "description": "`ranked` | `chosen` | `leave_out` (the [`SingleMarkerChoice`] mode tag).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlanMode"
+              }
+            ]
+          },
+          "offered": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "top": {
+            "description": "The route result's offered markers (the ranking would give them).",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "PlanError": {
+        "description": "One ranking error on the wire (the route's `error` and the plan block's):\n the ReasonCode-convention code without the `BUNDLE_` prefix\n (`MARKER_RANKING_TOO_FEW`, `MARKER_RANKING_NO_COVERAGE`,\n `MARKER_RANKING_NO_OUTCOME`) + the human message the refusal lines render.",
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "PlanMode": {
+        "description": "The [`PlanBlock`] mode (the wire spelling, snake_case).",
+        "type": "string",
+        "enum": [
+          "ranked",
+          "chosen",
+          "leave_out"
         ]
       },
       "PongStatus": {
@@ -13331,6 +13666,8 @@
               "MARKER_COUNT_UNMET",
               "TREATMENT_NOT_MATCHED",
               "OUTCOME_NOT_MATCHED",
+              "MARKER_RANKING_UNAVAILABLE",
+              "MARKER_NOT_IN_FILE",
               "ASSET_NOT_AVAILABLE"
             ]
           },
@@ -13343,6 +13680,11 @@
             "description": "The provider's filter reasons (pretrained entries never receive\n method filters, but the wire language is the provider's — the 1:1\n mapper below keeps the two vocabularies drift-proof).",
             "type": "string",
             "const": "DISEASE_NOT_MATCHED"
+          },
+          {
+            "description": "The provider's marker-plan codes (a pretrained entry's eligibility\n request carries the catalogue's `InventoryEligibilityRequest`, so the\n wire language covers the catalogue's codes 1:1).",
+            "type": "string",
+            "const": "MARKERS_LEFT_OUT"
           }
         ]
       },
@@ -13595,6 +13937,17 @@
             "format": "uint32",
             "minimum": 0
           },
+          "inventory": {
+            "description": "The validated file inventory (single-marker-choice round 1b): with it\n (and the `marker_plan`), the preview's marker verdicts are the\n inventory path's — the marker count on the planned markers, the\n plan's refusal — without any draw coverage. Absent = exactly today.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InventoryEligibilityRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "last_draw_day": {
             "description": "The last draw day the schedule reaches (28|42|56|84).",
             "type": [
@@ -13609,6 +13962,17 @@
             "additionalProperties": {
               "type": "boolean"
             }
+          },
+          "marker_plan": {
+            "description": "The run's marker plan (copied from the ranking route's result; used\n with the `inventory` block). Absent = today's count rule.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "method_group": {
             "description": "What the filters' run should predict (`response-call |\n response-probability | static-risk | dynamic-risk` — the\n [`MethodGroup`] wire spelling of the method rows' `group`). Absent =\n any method group.",
@@ -13724,6 +14088,35 @@
           "providers"
         ]
       },
+      "RankedMarker": {
+        "description": "One ranked marker (ranking.py's `(feature, score, n)` row plus the app's\n coverage fraction, pilot.py:197).",
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "description": "`n / ranking_patients` (pilot.py:197).",
+            "type": "number",
+            "format": "double"
+          },
+          "marker": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "marker",
+          "score",
+          "n",
+          "coverage"
+        ]
+      },
       "Reason": {
         "description": "One structured reason of a method verdict — code + per-code params (the\n display strings are built from these by the consumer; the params keys are\n per-code and rendered by the consumer's copy).",
         "type": "object",
@@ -13748,7 +14141,7 @@
         ]
       },
       "ReasonCode": {
-        "description": "The eligibility reason-code vocabulary — the FIXED, structured set of 18\n codes a method verdict can carry. Display text is the consumer's; a renderer\n switches on the code, so the set is closed and documented here (PROV-MC-5's\n acceptance: every emitted code is one of these — consumers can never meet an\n undocumented code).",
+        "description": "The eligibility reason-code vocabulary — the FIXED, structured set of 21\n codes a method verdict can carry. Display text is the consumer's; a renderer\n switches on the code, so the set is closed and documented here (PROV-MC-5's\n acceptance: every emitted code is one of these — consumers can never meet an\n undocumented code).",
         "oneOf": [
           {
             "description": "A required standard-id marker is absent from the inventory.",
@@ -13839,6 +14232,21 @@
             "description": "The method's group differs from the filters' answered group (the\n filter-answer filter; a HARD reason). Params: `predicts` (the method's\n group), `answer` (the answered group).",
             "type": "string",
             "const": "OUTCOME_NOT_MATCHED"
+          },
+          {
+            "description": "The person chose to leave the no-list methods out (the step-3 choice\n `leave_out`): a method that picks its markers from the file is not\n run at all. Params: none.",
+            "type": "string",
+            "const": "MARKERS_LEFT_OUT"
+          },
+          {
+            "description": "The file's markers cannot be ranked for the run (fewer than 10 ranking\n patients / no 80 % coverage / no outcome column), so a no-list method\n cannot run on this file. Params: `code` (the ranking code,\n `MARKER_RANKING_TOO_FEW` / `MARKER_RANKING_NO_COVERAGE` /\n `MARKER_RANKING_NO_OUTCOME`) and `message` (the ranking error's text).",
+            "type": "string",
+            "const": "MARKER_RANKING_UNAVAILABLE"
+          },
+          {
+            "description": "The chosen marker is not one of the file's main markers (absent, or a\n detection companion) — the run engine refuses the selection\n (`BUNDLE_MARKER_NOT_IN_FILE`), so the verdict says so. Params:\n `marker` (the chosen name).",
+            "type": "string",
+            "const": "MARKER_NOT_IN_FILE"
           }
         ]
       },
@@ -14026,6 +14434,13 @@
           "env": {
             "$ref": "#/components/schemas/TxrMethodEnv"
           },
+          "features": {
+            "description": "The marker set the model was trained on (the row's recorded `features`\n — the engine element's `features`; single-marker-choice round 1b: a\n reuse run uses these markers, not the count rule). Empty on a model\n saved before they were kept.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "host_dir": {
             "type": "string"
           },
@@ -14176,6 +14591,17 @@
           "save_models": {
             "type": "boolean",
             "default": false
+          },
+          "single_marker": {
+            "description": "How the methods that pick their markers from the file choose them\n (single-marker-choice round 1a): absent = `ranked` (the benchmark's\n rule). Additive wire field — an older client's request deserializes as\n today.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SingleMarkerChoice"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -14544,6 +14970,54 @@
           "keep_training_files",
           "model_count",
           "total_size_bytes"
+        ]
+      },
+      "SingleMarkerChoice": {
+        "description": "The person's choice of how the no-list methods get their markers\n (step 3 of the app's study wizard; the runner knows only the ranked rule).\n Wire form: serde `mode` tag with snake_case values (`{\"mode\": \"ranked\"}`,\n `{\"mode\": \"chosen\", \"marker\": \"…\"}`, `{\"mode\": \"leave_out\"}`). Absent on\n `RunConfig` = `Ranked`.",
+        "oneOf": [
+          {
+            "description": "The ranked markers (the runner's rule, the default).",
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "ranked"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          {
+            "description": "The user's marker leads; the rest follow the offered ranking without\n it (the app's own addition — the benchmark's `primary_marker` override\n moves the chosen marker to the front of the ranking).",
+            "type": "object",
+            "properties": {
+              "marker": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "const": "chosen"
+              }
+            },
+            "required": [
+              "mode",
+              "marker"
+            ]
+          },
+          {
+            "description": "No-list methods are not run.",
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "leave_out"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          }
         ]
       },
       "Software": {
@@ -16126,6 +16600,13 @@
           "env": {
             "$ref": "#/components/schemas/TxrMethodEnv"
           },
+          "features": {
+            "description": "The marker set the model was trained on (the recorded params\n `features` — single-marker-choice round 1b): a reuse run uses THESE\n markers, not the count rule; a predict file without one is refused\n (`BUNDLE_TEST_MARKER_MISSING`). Absent/empty on a model saved before\n they were kept: the count rule stays.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "host_dir": {
             "type": "string"
           },
@@ -17017,6 +17498,16 @@
           "label": {
             "description": "The catalogue id (the board's monospace method name).",
             "type": "string"
+          },
+          "markers_used": {
+            "description": "The markers the run's marker rule gave a no-list method of a learn run\n (marker_choice round 1a; nullable JSON list — `None` for fixed-list\n methods, reuse runs and older rows).",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "method_id": {
             "type": "string"

@@ -781,6 +781,7 @@ async fn stage_replay_run(
         cpus: None,
         save_models: false,
         label_day: None,
+        single_marker: None,
     };
     let input_summary = demo_input_summary(req, &run_config)?;
     let dir = orchestrator::run_dir_root().join(orchestrator::run_dir_name(now, run_id));
@@ -1962,6 +1963,7 @@ async fn seed_one_run(
         cpus: None,
         save_models: false,
         label_day: None,
+        single_marker: None,
     };
     let req = CreateRunRequest {
         mode: TxrRunMode::Train,

@@ -389,6 +389,7 @@ mod tests {
             conversions: Default::default(),
             method_facts: None,
             decision_day: None,
+            features: Vec::new(),
         }
     }
 

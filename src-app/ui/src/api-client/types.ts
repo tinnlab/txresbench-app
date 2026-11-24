@@ -1074,6 +1074,16 @@ export interface InventoryEligibilityRequest {
    *  `UNKNOWN_TREATMENT_CLASS`), never a silent "any".
    */
   filters?: MethodFilters
+  /**
+   * The run's marker plan (the step-4 ranking route's result, copied by the
+   *  UI — single-marker-choice round 1b): with it, a no-list method
+   *  (`single` / `multi` k / `any` with no fixed list) is evaluated on its
+   *  PLANNED markers, the plan's refusal (`leave_out` / a ranking error / a
+   *  chosen marker the file lacks) is the verdict's reason, and the
+   *  coverage/draw checks use those markers. Absent = exactly today's
+   *  verdicts (the count rule over the file's markers).
+   */
+  marker_plan?: PlanBlock
   markers: InventoryMarker[]
   /**
    * The outcome-column facts of the file, when the consumer knows them
@@ -1295,6 +1305,69 @@ export interface MarkerMatch {
   unit_family: UnitFamily
 }
 
+/**
+ * `POST /api/txr/runs/marker-ranking` (single-marker-choice round 1b, the
+ *  step-4 line's call): the SAME parsed tables a run create request carries
+ *  (the validated `patients` + `measurements`, plus the joins/mapping that
+ *  made them the file's markers) and the run's endpoint + decision day + the
+ *  person's choice. The server canonicalises like run create (one code path)
+ *  and ranks the file's markers on the run endpoint's outcome.
+ */
+export interface MarkerRankingRequest {
+  /** The decision day L. */
+  decision_day: number
+  /**
+   * The run endpoint the ranking is computed on (pfs →
+   *  pfs_time/pfs_event, os → os_time/os_event).
+   */
+  endpoint: TxrEndpoint
+  /**
+   * The confirmed joins (one per measurement column group; the validator's
+   *  join semantics — CONS-EE-11). Column ids or index keys. Empty = the
+   *  simple one-table case.
+   */
+  joins?: TxrJoin[]
+  /**
+   * K board's "Copies are kept with this run so it can be repeated" —
+   *  default true (DEC-16); the history UI's "Do not keep copies" sends
+   *  false.
+   */
+  keep_copies?: boolean
+  /** The confirmed marker mapping (column key → catalogue marker id). */
+  mapping?: TxrMapping[]
+  /**
+   * The uploaded measurements table (train and predict in one file, or the
+   *  train table when a separate predict file is given).
+   */
+  measurements: ParsedTable
+  /**
+   * Training patients (nullable in reuse mode, where the predict table is
+   *  the run's only input).
+   */
+  patients?: ParsedTable
+  /** The separate predict-patients file (path 3: reuse on NEW patients). */
+  predict_measurements?: ParsedTable
+  /** The person's step-3 choice (absent = `ranked`). */
+  single_marker?: SingleMarkerChoice
+}
+
+/**
+ * The ranking response: the full per-marker ranking (score desc / n desc /
+ *  name asc, coverage fractions), the offered markers and the top 5, the
+ *  ranking-patient count, the error (code + message) when there is no ranking
+ *  result, and what each no-list kind would receive under the current choice
+ *  (the step-3 select's facts). On an error the ranking facts are empty and
+ *  `error` is the reason.
+ */
+export interface MarkerRankingResponse {
+  error?: PlanError
+  markers_by_kind: MarkersByKind
+  offered: string[]
+  ranking: RankedMarker[]
+  ranking_patients: number
+  top: string[]
+}
+
 /** One marker column's inspect summary (name → value-row count). */
 export interface MarkerSummary {
   name: string
@@ -1314,6 +1387,18 @@ export type MarkerSystem = 'LOINC' | 'HGNC' | 'UNIPROT' | 'HMDB' | 'MIRBASE' | '
 export interface MarkerVocabularyResponse {
   groups: MarkerGroup[]
   markers: VocabularyMarker[]
+}
+
+/**
+ * What each no-list method kind would receive under the current choice
+ *  (single → 1, any → the top 5, multi k → the top k for every k the
+ *  catalogue's no-list multi methods declare). The choice's `leave_out` /
+ *  an error leave the lists empty.
+ */
+export interface MarkersByKind {
+  any: string[]
+  multi: any
+  single: string[]
 }
 
 /**
@@ -1977,7 +2062,7 @@ export interface ModelReason {
  *  is exhaustive: a new provider code fails to compile here instead of
  *  silently passing through.
  */
-export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'MODEL_REQUIREMENTS_UNRECORDED' | 'RUNNER_UNAVAILABLE' | 'DISEASE_NOT_MATCHED'
+export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'MODEL_REQUIREMENTS_UNRECORDED' | 'MARKER_RANKING_UNAVAILABLE' | 'MARKER_NOT_IN_FILE' | 'RUNNER_UNAVAILABLE' | 'DISEASE_NOT_MATCHED' | 'MODEL_FEATURE_MISSING' | 'MARKERS_LEFT_OUT'
 
 /**
  * The save response (201): the set (created or grown), the saved rows and the
@@ -2257,6 +2342,38 @@ export interface PermissionError {
 export interface PermissionErrorDetails {
   required_permissions: PermissionDetail[]
 }
+
+/**
+ * The wire view of a plan — the `marker_plan` block the eligibility /
+ *  preview requests carry (the UI copies it from the ranking route's result):
+ *  the choice + the route's `top` / `offered` markers + the error (code and
+ *  message) when there is no ranking result.
+ */
+export interface PlanBlock {
+  /** The ranking error (code + message), when there is no ranking result. */
+  error?: PlanError
+  /** The chosen marker (present exactly for `mode: "chosen"`). */
+  marker?: string
+  /** `ranked` | `chosen` | `leave_out` (the [`SingleMarkerChoice`] mode tag). */
+  mode: PlanMode
+  offered?: string[]
+  /** The route result's offered markers (the ranking would give them). */
+  top?: string[]
+}
+
+/**
+ * One ranking error on the wire (the route's `error` and the plan block's):
+ *  the ReasonCode-convention code without the `BUNDLE_` prefix
+ *  (`MARKER_RANKING_TOO_FEW`, `MARKER_RANKING_NO_COVERAGE`,
+ *  `MARKER_RANKING_NO_OUTCOME`) + the human message the refusal lines render.
+ */
+export interface PlanError {
+  code: string
+  message: string
+}
+
+/** The [`PlanBlock`] mode (the wire spelling, snake_case). */
+export type PlanMode = 'ranked' | 'chosen' | 'leave_out'
 
 /** `pong.status` — CONTRACT.md's `"processing"|"unknown"`. */
 export type PongStatus = 'processing' | 'unknown'
@@ -2574,7 +2691,7 @@ export interface PretrainedReason {
  *  verdict). The `from_catalogue` mapper is exhaustive: a new provider code
  *  fails to compile here instead of silently passing through.
  */
-export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'ASSET_NOT_AVAILABLE' | 'RUNNER_UNAVAILABLE' | 'DISEASE_NOT_MATCHED'
+export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'MARKER_RANKING_UNAVAILABLE' | 'MARKER_NOT_IN_FILE' | 'ASSET_NOT_AVAILABLE' | 'RUNNER_UNAVAILABLE' | 'DISEASE_NOT_MATCHED' | 'MARKERS_LEFT_OUT'
 
 /**
  * The refresh response: the origin actually in use + the catalogue facts of
@@ -2685,10 +2802,22 @@ export interface PreviewEligibilityRequest {
    *  not applied).
    */
   draws_during_treatment?: number
+  /**
+   * The validated file inventory (single-marker-choice round 1b): with it
+   *  (and the `marker_plan`), the preview's marker verdicts are the
+   *  inventory path's — the marker count on the planned markers, the
+   *  plan's refusal — without any draw coverage. Absent = exactly today.
+   */
+  inventory?: InventoryEligibilityRequest
   /** The last draw day the schedule reaches (28|42|56|84). */
   last_draw_day?: number
   /** group id → checked. Absent groups count as unchecked. */
   marker_groups: any
+  /**
+   * The run's marker plan (copied from the ranking route's result; used
+   *  with the `inventory` block). Absent = today's count rule.
+   */
+  marker_plan?: PlanBlock
   /**
    * What the filters' run should predict (`response-call |
    *  response-probability | static-risk | dynamic-risk` — the
@@ -2740,6 +2869,18 @@ export interface PublicProvidersResponse {
 }
 
 /**
+ * One ranked marker (ranking.py's `(feature, score, n)` row plus the app's
+ *  coverage fraction, pilot.py:197).
+ */
+export interface RankedMarker {
+  /** `n / ranking_patients` (pilot.py:197). */
+  coverage: number
+  marker: string
+  n: number
+  score: number
+}
+
+/**
  * One structured reason of a method verdict — code + per-code params (the
  *  display strings are built from these by the consumer; the params keys are
  *  per-code and rendered by the consumer's copy).
@@ -2752,13 +2893,13 @@ export interface Reason {
 }
 
 /**
- * The eligibility reason-code vocabulary — the FIXED, structured set of 18
+ * The eligibility reason-code vocabulary — the FIXED, structured set of 21
  *  codes a method verdict can carry. Display text is the consumer's; a renderer
  *  switches on the code, so the set is closed and documented here (PROV-MC-5's
  *  acceptance: every emitted code is one of these — consumers can never meet an
  *  undocumented code).
  */
-export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'RUNNER_UNAVAILABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'DISEASE_NOT_MATCHED' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED'
+export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'RUNNER_UNAVAILABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'DISEASE_NOT_MATCHED' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'MARKERS_LEFT_OUT' | 'MARKER_RANKING_UNAVAILABLE' | 'MARKER_NOT_IN_FILE'
 
 export interface RefreshTokenRequest {
   /**
@@ -2860,6 +3001,13 @@ export interface ResolvedAsset {
    */
   decision_day?: number
   env: TxrMethodEnv
+  /**
+   * The marker set the model was trained on (the row's recorded `features`
+   *  — the engine element's `features`; single-marker-choice round 1b: a
+   *  reuse run uses these markers, not the count rule). Empty on a model
+   *  saved before they were kept.
+   */
+  features?: string[]
   host_dir: string
   /**
    * The run-shaping facts the model was trained with (the engine
@@ -2927,6 +3075,13 @@ export interface RunConfig {
   label_day?: number
   look_ahead_day?: number
   save_models?: boolean
+  /**
+   * How the methods that pick their markers from the file choose them
+   *  (single-marker-choice round 1a): absent = `ranked` (the benchmark's
+   *  rule). Additive wire field — an older client's request deserializes as
+   *  today.
+   */
+  single_marker?: SingleMarkerChoice
 }
 
 /** Why the sandbox is (or isn't) available, in machine-readable form. */
@@ -3085,6 +3240,22 @@ export interface SetSummary {
   total_size_bytes: number
   /** `<data_root>/models/training/<set_id>` (null when not kept). */
   training_dir?: string
+}
+
+/**
+ * The person's choice of how the no-list methods get their markers
+ *  (step 3 of the app's study wizard; the runner knows only the ranked rule).
+ *  Wire form: serde `mode` tag with snake_case values (`{"mode": "ranked"}`,
+ *  `{"mode": "chosen", "marker": "…"}`, `{"mode": "leave_out"}`). Absent on
+ *  `RunConfig` = `Ranked`.
+ */
+export type SingleMarkerChoice = {
+  mode: 'ranked'
+} | {
+  marker: string
+  mode: 'chosen'
+} | {
+  mode: 'leave_out'
 }
 
 /** A method's software declaration (`software{language, packages}`). */
@@ -3789,6 +3960,14 @@ export interface TxrModelAsset {
    */
   decision_day?: number
   env: TxrMethodEnv
+  /**
+   * The marker set the model was trained on (the recorded params
+   *  `features` — single-marker-choice round 1b): a reuse run uses THESE
+   *  markers, not the count rule; a predict file without one is refused
+   *  (`BUNDLE_TEST_MARKER_MISSING`). Absent/empty on a model saved before
+   *  they were kept: the count rule stays.
+   */
+  features?: string[]
   host_dir: string
   /**
    * The run-shaping catalogue facts the model was trained with. A reuse
@@ -4107,6 +4286,12 @@ export interface TxrRunMethod {
   group_label: string
   /** The catalogue id (the board's monospace method name). */
   label: string
+  /**
+   * The markers the run's marker rule gave a no-list method of a learn run
+   *  (marker_choice round 1a; nullable JSON list — `None` for fixed-list
+   *  methods, reuse runs and older rows).
+   */
+  markers_used?: string[]
   method_id: string
   phase?: TxrPhase
   prob_source?: TxrProbSource
@@ -4610,6 +4795,7 @@ export type ApiEndpointParameters = {
   'Txr.getRun': { id: string }
   'Txr.listRunLogs': { id: string; after_seq?: number; limit?: number; method_id?: string }
   'Txr.listRuns': { limit?: number; offset?: number }
+  'Txr.markerRanking': MarkerRankingRequest
   'Txr.rerunRun': { id: string }
   'Txr.setAtATime': { id: string } & TxrAtATimeRequest
   'Txr.skipMethod': { id: string; method_id: string }
@@ -4748,6 +4934,7 @@ export type ApiEndpointResponses = {
   'Txr.getRun': TxrRunDetail
   'Txr.listRunLogs': TxrRunLogsResponse
   'Txr.listRuns': TxrRunListResponse
+  'Txr.markerRanking': MarkerRankingResponse
   'Txr.rerunRun': TxrRunSummary
   'Txr.setAtATime': TxrRunSummary
   'Txr.skipMethod': any

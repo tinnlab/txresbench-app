@@ -1,0 +1,64 @@
+{
+  "ranking": [
+    {
+      "marker": "A",
+      "score": 0.5,
+      "n": 12,
+      "coverage": 1.0
+    },
+    {
+      "marker": "B",
+      "score": 0.375,
+      "n": 12,
+      "coverage": 1.0
+    },
+    {
+      "marker": "F",
+      "score": 0.375,
+      "n": 12,
+      "coverage": 1.0
+    },
+    {
+      "marker": "C",
+      "score": 0.25,
+      "n": 12,
+      "coverage": 1.0
+    },
+    {
+      "marker": "D",
+      "score": 0.125,
+      "n": 12,
+      "coverage": 1.0
+    },
+    {
+      "marker": "G",
+      "score": 0.125,
+      "n": 12,
+      "coverage": 1.0
+    },
+    {
+      "marker": "E",
+      "score": 0.0,
+      "n": 12,
+      "coverage": 1.0
+    }
+  ],
+  "offered": [
+    "A",
+    "B",
+    "F",
+    "C",
+    "D",
+    "G",
+    "E"
+  ],
+  "top": [
+    "A",
+    "B",
+    "F",
+    "C",
+    "D"
+  ],
+  "ranking_patients": 12,
+  "error": null
+}

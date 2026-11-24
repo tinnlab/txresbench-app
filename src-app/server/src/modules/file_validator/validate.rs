@@ -783,6 +783,7 @@ fn build_inventory(resolved: &ResolvedRequest) -> InventoryEligibilityRequest {
         None
     };
     InventoryEligibilityRequest {
+        marker_plan: None,
         patients: patients_list.len() as u32,
         decision_day: resolved.parameters.decision_day,
         baseline_max_day: resolved.parameters.baseline_max_day,

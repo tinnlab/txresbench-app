@@ -164,6 +164,7 @@ impl SeedRun {
                 cpus: Some(4),
                 save_models: true,
                 label_day: None,
+                single_marker: None,
             },
             files: TxrRunFileNames {
                 patients: Some("patients.csv".to_string()),
@@ -478,6 +479,7 @@ pub fn config_pfs() -> RunConfig {
         cpus: Some(4),
         save_models: true,
         label_day: None,
+        single_marker: None,
     }
 }
 

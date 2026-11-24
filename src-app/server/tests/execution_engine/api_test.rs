@@ -271,6 +271,43 @@ async fn embedded_data_serves_the_surface_without_a_benchmark_tree() {
     assert!(facts.group_label.as_str().len() > 0);
 }
 
+/// Single-marker-choice round 1c (audit fix 6): the step-4 marker-ranking
+/// route applies the SAME decision-day validation run create applies — a
+/// zero/negative day answers 400 `INVALID_DECISION_DAY` — and the
+/// validate/canonicalise/rank work runs on the blocking pool (a valid request
+/// still answers 200; the ranking runs on the same tables a run would).
+#[tokio::test]
+async fn marker_ranking_route_refuses_the_bad_decision_day() {
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+
+    let body = |decision_day: f64| {
+        json!({
+            "patients": super::cohort_patients_table(),
+            "measurements": super::cohort_measurements_table(),
+            "predict_measurements": null,
+            "joins": [],
+            "mapping": [],
+            "keep_copies": true,
+            "endpoint": "pfs",
+            "decision_day": decision_day,
+        })
+    };
+    for day in [0.0, -1.0] {
+        let resp = server
+            .client
+            .post(server.api_url("/txr/runs/marker-ranking"))
+            .bearer_auth(&token)
+            .json(&body(day))
+            .send()
+            .await
+            .expect("marker-ranking");
+        assert_eq!(resp.status().as_u16(), 400, "day={day}");
+        let err: Value = resp.json().await.expect("error json");
+        assert_eq!(error_code(&err), "INVALID_DECISION_DAY", "day={day}");
+    }
+}
+
 /// TEST-EE-05's boot half: the loader refusal the boot path converts into its
 /// named boxed error — a mangled manifest can never be embedded at runtime,
 /// so the refusal + the boot wrapper's named-code contract are pinned here
@@ -944,6 +981,7 @@ async fn a_reuse_run_at_a_different_decision_day_is_400_on_the_create_route() {
         conversions: Default::default(),
         method_facts: None,
         decision_day: Some(28.0),
+        features: vec![],
     };
     let mut body = cohort_run_body(&[], 1, false);
     body["mode"] = json!("reuse");

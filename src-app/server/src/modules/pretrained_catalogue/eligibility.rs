@@ -773,6 +773,7 @@ mod tests {
         outcomes: Option<FileOutcomes>,
     ) -> InventoryEligibilityRequest {
         InventoryEligibilityRequest {
+            marker_plan: None,
             patients,
             decision_day,
             baseline_max_day: 0.0,

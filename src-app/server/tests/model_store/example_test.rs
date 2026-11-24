@@ -154,6 +154,7 @@ impl MethodExecutor for ModelFakeExecutor {
                 coverage: None,
                 task: None,
                 model: None,
+                markers_used: None,
             });
         }
         tokio::time::sleep(self.delay).await;
@@ -210,6 +211,7 @@ impl MethodExecutor for ModelFakeExecutor {
                 size_bytes: 64,
                 own_auc: Some(0.61),
             }),
+            markers_used: None,
         })
     }
 }

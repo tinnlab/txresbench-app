@@ -77,13 +77,17 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
-use crate::modules::execution_engine::types::RunConfig;
+use crate::modules::execution_engine::marker_rank::{self, MarkerPlan};
+use crate::modules::execution_engine::types::{RunConfig, TxrEndpoint};
 use crate::modules::file_validator::rules::companion_base;
 use crate::modules::file_validator::types::{CanonCell, CanonicalBundle, CanonicalFeature, CanonicalPatient, CanonicalValue};
-use crate::modules::method_catalogue::eligibility::is_companion;
+use crate::modules::method_catalogue::eligibility::{
+    is_companion, marker_matching_surface, recorded_feature_matches,
+};
 use crate::modules::method_catalogue::types::{
     FileOutcomes, MarkerKind, MethodMarkers, ReasonCode, RequiredMarker, RequiredMarkers,
 };
+use crate::modules::method_list::MethodList;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Contract 2.0 constants (the package's `core/include/txresbench/*.hpp`)
@@ -153,6 +157,13 @@ pub struct BundleSettings {
     pub seed: u32,
     /// The per-method CPU count (`params.threads`, DEC-12).
     pub threads: u32,
+    /// The run's ONE marker plan (single-marker-choice round 1a): the ranking
+    /// result (or its error) + the person's choice, computed once at run start
+    /// for LEARN runs and consumed by [`method_marker_set_with_plan`] for the
+    /// no-list methods' marker sets. `None` (reuse/predict paths, other
+    /// callers, tests) = exactly today's behaviour: a no-list method gets the
+    /// file's main markers.
+    pub marker_plan: Option<MarkerPlan>,
 }
 
 impl BundleSettings {
@@ -170,6 +181,7 @@ impl BundleSettings {
             label_day: config.label_day,
             seed: 1,
             threads,
+            marker_plan: None,
         }
     }
 }
@@ -279,7 +291,7 @@ impl MarkerSelection {
 /// orchestrator maps each onto the run/method row's reason — a method whose
 /// bundle cannot be built is a failure with the named code, never a silent
 /// run with an empty train set.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BundleError {
     /// No training patient has a baseline draw, a draw during treatment by
     /// the landmark AND an outcome to learn (the package's "no training
@@ -319,6 +331,24 @@ pub enum BundleError {
     /// was trained on (the contract's "predict gets markers the model was
     /// not trained on, or lacks one it was").
     TestMarkerMissing { marker: String },
+    /// The run has no ranking result: fewer than 10 patients have a draw
+    /// before and during treatment and a known outcome by the decision day
+    /// (`marker_rank::RankingError::TooFew` — a no-list method cannot run).
+    MarkerRankingTooFew { day: f64 },
+    /// The run has no ranking result: no marker is measured by the decision
+    /// day in at least 8 in 10 of the ranking patients
+    /// (`marker_rank::RankingError::NoCoverage`).
+    MarkerRankingNoCoverage { day: f64 },
+    /// The run has no ranking result: the file has no usable time/event
+    /// column for the run endpoint (`marker_rank::RankingError::NoOutcome`).
+    MarkerRankingNoOutcome { endpoint: TxrEndpoint },
+    /// The person chose to leave the no-list methods out
+    /// (`SingleMarkerChoice::LeaveOut`).
+    MarkersLeftOut,
+    /// The chosen marker is not one of the file's main markers (absent, or a
+    /// companion name) — the selection must never hold a marker the file
+    /// lacks.
+    MarkerNotInFile { marker: String },
 }
 
 impl BundleError {
@@ -335,6 +365,11 @@ impl BundleError {
             BundleError::NoMainMarker => "BUNDLE_NO_MAIN_MARKER",
             BundleError::MarkerCountUnmet { .. } => "BUNDLE_MARKER_COUNT_UNMET",
             BundleError::TestMarkerMissing { .. } => "BUNDLE_TEST_MARKER_MISSING",
+            BundleError::MarkerRankingTooFew { .. } => "BUNDLE_MARKER_RANKING_TOO_FEW",
+            BundleError::MarkerRankingNoCoverage { .. } => "BUNDLE_MARKER_RANKING_NO_COVERAGE",
+            BundleError::MarkerRankingNoOutcome { .. } => "BUNDLE_MARKER_RANKING_NO_OUTCOME",
+            BundleError::MarkersLeftOut => "BUNDLE_MARKERS_LEFT_OUT",
+            BundleError::MarkerNotInFile { .. } => "BUNDLE_MARKER_NOT_IN_FILE",
         }
     }
 }
@@ -396,8 +431,51 @@ impl fmt::Display for BundleError {
                 "{}: the predict table carries no row for marker `{marker}`, but the train side was built on it",
                 self.code()
             ),
+            BundleError::MarkerRankingTooFew { day } => write!(
+                f,
+                "{}: Fewer than 10 patients have a draw before and during treatment and a known outcome by day {}, so the markers cannot be ranked.",
+                self.code(),
+                fmt_day(*day)
+            ),
+            BundleError::MarkerRankingNoCoverage { day } => write!(
+                f,
+                "{}: No marker has a value by day {} for at least 8 in 10 of these patients.",
+                self.code(),
+                fmt_day(*day)
+            ),
+            BundleError::MarkerRankingNoOutcome { endpoint } => {
+                // The outcome word is the UI's own endpoint word (`SETTING_ENDPOINT_WORD`
+                // in `txrrun/lib/settings.ts`), lower-case: the UI says
+                // "Progression or death" for pfs and "Death" for os, which is not
+                // the draft's "progression"/"survival", so the UI's words are used.
+                let word = match endpoint {
+                    TxrEndpoint::Pfs => "progression or death",
+                    TxrEndpoint::Os => "death",
+                };
+                write!(
+                    f,
+                    "{}: The file has no {word} times, so the markers cannot be ranked.",
+                    self.code()
+                )
+            }
+            BundleError::MarkersLeftOut => write!(
+                f,
+                "{}: This method picks its markers from your file, and you chose to leave these methods out.",
+                self.code()
+            ),
+            BundleError::MarkerNotInFile { marker } => write!(
+                f,
+                "{}: the marker you chose, `{marker}`, is not one of this file's markers.",
+                self.code()
+            ),
         }
     }
+}
+
+/// Print a day the way the app prints days elsewhere (`num_cell`): integer
+/// when whole ("56"), decimal otherwise ("238.5").
+fn fmt_day(day: f64) -> String {
+    super::marker_rank::print_day(day)
 }
 
 impl std::error::Error for BundleError {}
@@ -636,6 +714,23 @@ pub fn method_marker_set(
     declared: &MethodMarkers,
     required: Option<&RequiredMarkers>,
 ) -> Result<MarkerSelection, BundleError> {
+    method_marker_set_with_plan(bundle, declared, required, None)
+}
+
+/// [`method_marker_set`] with the run's marker plan (single-marker-choice
+/// round 1a): a no-list method of a learn run gets its markers from the
+/// ranking — `single` → the top 1, `multi` k → the top `min(k, 5)`, `any` →
+/// the top 5 — or from the person's choice (the chosen marker leads, then the
+/// offered ranking without it); no ranking result → the run's `BUNDLE_MARKER_*`
+/// refusal; `LeaveOut` → `BUNDLE_MARKERS_LEFT_OUT`. With `None` (reuse /
+/// predict paths, other callers, tests) the behaviour is exactly
+/// [`method_marker_set`]'s today.
+pub fn method_marker_set_with_plan(
+    bundle: &CanonicalBundle,
+    declared: &MethodMarkers,
+    required: Option<&RequiredMarkers>,
+    plan: Option<&MarkerPlan>,
+) -> Result<MarkerSelection, BundleError> {
     let file_mains = main_markers(bundle);
     let main_features: Vec<&CanonicalFeature> = bundle
         .features
@@ -643,30 +738,62 @@ pub fn method_marker_set(
         .filter(|f| !f.is_detection_companion)
         .collect();
 
-    let selected = match required {
-        // The fixed list: resolve it in the file, deduplicated (two entries
-        // may hit one file marker — the eligibility engine's pointer-identity
-        // dedup semantics).
-        Some(req) if declared.kind != MarkerKind::Any => {
-            let mut matched: Vec<String> = Vec::new();
-            for r in &req.markers {
-                if r.id.trim().is_empty() {
-                    continue;
+    let selected: Vec<String> = if marker_rank::is_no_list(declared.kind, required) {
+        match plan {
+            // No plan (reuse/predict paths, other callers, tests): today's
+            // rule — the no-list method gets the file's main markers.
+            None => file_mains.clone(),
+            Some(plan) => {
+                // A chosen marker must be one of the file's main markers —
+                // never a selection holding a marker the file lacks (an
+                // absent or companion name is refused, naming the marker).
+                if let marker_rank::SingleMarkerChoice::Chosen { marker } = &plan.choice {
+                    if !file_mains.contains(marker) {
+                        return Err(BundleError::MarkerNotInFile { marker: marker.clone() });
+                    }
                 }
-                if let Some(f) = main_features
-                    .iter()
-                    .find(|f| required_marker_matches(r, f))
-                {
-                    let name = f.feature.clone();
-                    if !matched.contains(&name) {
-                        matched.push(name);
+                match plan.choice {
+                    marker_rank::SingleMarkerChoice::LeaveOut => {
+                        return Err(BundleError::MarkersLeftOut);
+                    }
+                    // Ranked needs the ranking; Chosen needs none for a single
+                    // method (the chosen marker alone).
+                    marker_rank::SingleMarkerChoice::Ranked => match &plan.result {
+                        Err(e) => return Err(ranking_bundle_error(e, plan.decision_day)),
+                        Ok(_) => marker_rank::markers_for(declared.kind, declared.count, plan),
+                    },
+                    marker_rank::SingleMarkerChoice::Chosen { .. } => {
+                        marker_rank::markers_for(declared.kind, declared.count, plan)
                     }
                 }
             }
-            matched.sort();
-            matched
         }
-        _ => file_mains.clone(),
+    } else {
+        match required {
+            // The fixed list: resolve it in the file, deduplicated (two entries
+            // may hit one file marker — the eligibility engine's pointer-identity
+            // dedup semantics).
+            Some(req) if declared.kind != MarkerKind::Any => {
+                let mut matched: Vec<String> = Vec::new();
+                for r in &req.markers {
+                    if r.id.trim().is_empty() {
+                        continue;
+                    }
+                    if let Some(f) = main_features
+                        .iter()
+                        .find(|f| required_marker_matches(r, f))
+                    {
+                        let name = f.feature.clone();
+                        if !matched.contains(&name) {
+                            matched.push(name);
+                        }
+                    }
+                }
+                matched.sort();
+                matched
+            }
+            _ => file_mains.clone(),
+        }
     };
 
     match declared.kind {
@@ -687,6 +814,81 @@ pub fn method_marker_set(
     }
 
     Ok(MarkerSelection::with_mains(selected, bundle))
+}
+
+/// The selection from a saved model's RECORDED feature names (reuse — PLAN.md
+/// section 5): the main markers are the recorded features resolved in the
+/// predict bundle's OWN names (audit fix 2 — the SAME matcher the saved-model
+/// eligibility uses, [`recorded_feature_matches`] over
+/// [`marker_matching_surface`]: case-insensitive name equality, standard-id
+/// text, the vocabulary name/alias surface — the bundle carries the mapping's
+/// display name and every standard id, so a recorded display name or secondary
+/// id resolves here too, round 1d), NOT the count rule — the model was
+/// trained on exactly these. A recorded feature the bundle does not carry is
+/// kept as recorded and refused by the bundle steps
+/// (`BUNDLE_TEST_MARKER_MISSING`, the eligibility's
+/// `MODEL_FEATURE_MISSING` refusal — the run never silently drops a feature
+/// the model was trained on); an empty list (a model saved before features
+/// were kept) keeps the caller's count rule.
+pub fn selection_for_features(
+    list: &MethodList,
+    features: &[String],
+    bundle: &CanonicalBundle,
+) -> MarkerSelection {
+    let mut mains: Vec<String> = Vec::new();
+    for recorded in features {
+        if is_companion(recorded) {
+            continue;
+        }
+        let resolved = bundle
+            .features
+            .iter()
+            .find(|f| recorded_resolves_in(list, f, recorded))
+            .map(|f| f.feature.clone())
+            .unwrap_or_else(|| recorded.clone());
+        if !mains.contains(&resolved) {
+            mains.push(resolved);
+        }
+    }
+    MarkerSelection::with_mains(mains, bundle)
+}
+
+/// Whether a recorded feature resolves in ONE bundle feature, with the SAME
+/// inputs as the saved-model eligibility's inventory matcher
+/// ([`model_store::eligibility::feature_matches`]): the ONE shared helper
+/// ([`recorded_feature_matches`] + [`marker_matching_surface`]) builds the
+/// name/id set from the canonical feature's OWN name, its mapping's display
+/// name and EVERY standard id (the facts `canonical_bundle` carries from the
+/// same resolved mapping the inventory is built from, round 1d) — a model
+/// recorded under a display name or a secondary standard id the eligibility
+/// resolves resolves here too.
+fn recorded_resolves_in(list: &MethodList, f: &CanonicalFeature, recorded: &str) -> bool {
+    let (names, ids) = marker_matching_surface(
+        list.marker_vocabulary(),
+        &f.feature,
+        f.display_name.as_deref().unwrap_or(f.feature.as_str()),
+        &f.standard_ids,
+    );
+    recorded_feature_matches(recorded, &names, &ids)
+}
+
+/// The run-level refusal of a no-list method whose ranking has no result (the
+/// method fails with it; the others run).
+fn ranking_bundle_error(
+    error: &marker_rank::RankingError,
+    decision_day: f64,
+) -> BundleError {
+    match error {
+        marker_rank::RankingError::TooFew { .. } => BundleError::MarkerRankingTooFew {
+            day: decision_day,
+        },
+        marker_rank::RankingError::NoCoverage => BundleError::MarkerRankingNoCoverage {
+            day: decision_day,
+        },
+        marker_rank::RankingError::NoOutcome { endpoint } => {
+            BundleError::MarkerRankingNoOutcome { endpoint: *endpoint }
+        }
+    }
 }
 
 /// The bundle restricted to a marker set: values + features of the selected
@@ -1431,7 +1633,7 @@ pub fn test_bundle_with_markers(
 mod tests {
     use super::*;
     use crate::modules::file_validator::types::{CanonicalBundle, CanonicalFeature};
-    use crate::modules::method_catalogue::types::MatchMode;
+    use crate::modules::method_catalogue::types::{MatchMode, StandardId};
 
     // ── the synthetic fixture (TEST-EE-22: ids S0000.., markers M1/M2) ──────
 
@@ -1581,24 +1783,32 @@ mod tests {
                     feature: "M1".to_string(),
                     unit: None,
                     marker_id: None,
+                    display_name: None,
+                    standard_ids: Vec::new(),
                     is_detection_companion: false,
                 },
                 CanonicalFeature {
                     feature: "M2".to_string(),
                     unit: None,
                     marker_id: None,
+                    display_name: None,
+                    standard_ids: Vec::new(),
                     is_detection_companion: false,
                 },
                 CanonicalFeature {
                     feature: "M1__detected".to_string(),
                     unit: None,
                     marker_id: None,
+                    display_name: None,
+                    standard_ids: Vec::new(),
                     is_detection_companion: true,
                 },
                 CanonicalFeature {
                     feature: "M1__lod".to_string(),
                     unit: None,
                     marker_id: None,
+                    display_name: None,
+                    standard_ids: Vec::new(),
                     is_detection_companion: true,
                 },
             ],
@@ -1614,6 +1824,7 @@ mod tests {
             label_day: None,
             seed: 1,
             threads: 4,
+            marker_plan: None,
         }
     }
 
@@ -2085,6 +2296,7 @@ mod tests {
                 label_day: Some(84.0),
                 seed: 1,
                 threads: 3,
+                marker_plan: None,
             }
         );
         // The endpoint does not shape the bundle (the contract learns every
@@ -2169,6 +2381,8 @@ mod tests {
                 feature: name.to_string(),
                 unit: None,
                 marker_id: id.map(|s| s.to_string()),
+                display_name: None,
+                standard_ids: Vec::new(),
                 is_detection_companion: *companion,
             })
             .collect()
@@ -2446,6 +2660,403 @@ mod tests {
             msg.contains("takes exactly one marker, but 3 were passed (CA199, CEA, LDH)"),
             "{msg}"
         );
+    }
+
+    // ── single-marker-choice round 1a — the run's marker plan ────────────────
+
+    /// The plan T's ranking: offered/top [LDH, CEA, CA199] with n and scores.
+    fn ranked_plan() -> crate::modules::execution_engine::marker_rank::MarkerPlan {
+        use crate::modules::execution_engine::marker_rank::{
+            MarkerPlan, MarkerRanking, RankedMarker, SingleMarkerChoice,
+        };
+        let ranking = MarkerRanking {
+            ranking: vec![
+                RankedMarker { marker: "LDH".to_string(), score: 0.5, n: 12, coverage: 1.0 },
+                RankedMarker { marker: "CEA".to_string(), score: 0.4, n: 12, coverage: 1.0 },
+                RankedMarker { marker: "CA199".to_string(), score: 0.3, n: 12, coverage: 1.0 },
+            ],
+            offered: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
+            top: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
+            ranking_patients: 12,
+        };
+        MarkerPlan {
+            choice: SingleMarkerChoice::Ranked,
+            endpoint: TxrEndpoint::Pfs,
+            decision_day: 56.0,
+            baseline_max_day: 0.0,
+            result: Ok(ranking),
+        }
+    }
+
+    #[test]
+    fn plan_ranked_gives_no_list_methods_the_ranked_markers() {
+        use crate::modules::execution_engine::marker_rank::{SingleMarkerChoice, RankingError};
+        let b = item4_fixture();
+        let plan = ranked_plan();
+
+        // A single no-list method on a 3-marker file now RUNS: the top 1.
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Single, 1),
+            None,
+            Some(&plan),
+        )
+        .expect("single gets the top 1");
+        assert_eq!(sel.mains, vec!["LDH"]);
+
+        // multi k slices the top min(k, 5).
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Multi, 2),
+            None,
+            Some(&plan),
+        )
+        .expect("multi 2 gets the top 2");
+        assert_eq!(sel.mains, vec!["LDH", "CEA"]);
+
+        // multi k with fewer offered than k: the plan gives what it has and
+        // today's count refusal stays.
+        assert_eq!(
+            method_marker_set_with_plan(
+                &b,
+                &declared(MarkerKind::Multi, 4),
+                None,
+                Some(&plan),
+            ),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 4,
+                names: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()]
+            })
+        );
+
+        // any -> the top 5 (here the 3 offered).
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Any, 0),
+            None,
+            Some(&plan),
+        )
+        .expect("any gets the top");
+        assert_eq!(sel.mains, vec!["LDH", "CEA", "CA199"]);
+
+        // A fixed-list method is unchanged by the plan.
+        let req = Some(required(&[("LDH", "LOINC", "14804-9")]));
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Single, 1),
+            req.as_ref(),
+            Some(&plan),
+        )
+        .expect("fixed list unchanged");
+        assert_eq!(sel.mains, vec!["LDH"]);
+
+        // No plan = today's behaviour (a single method on 3 markers refused).
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Single, 1), None, None),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 1,
+                names: vec!["CA199".to_string(), "CEA".to_string(), "LDH".to_string()]
+            })
+        );
+
+        // Ranking errors become the method's refusals.
+        let mut too_few = ranked_plan();
+        too_few.result = Err(RankingError::TooFew { n: 4 });
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Single, 1), None, Some(&too_few)),
+            Err(BundleError::MarkerRankingTooFew { day: 56.0 })
+        );
+        let mut no_cov = ranked_plan();
+        no_cov.result = Err(RankingError::NoCoverage);
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Any, 0), None, Some(&no_cov)),
+            Err(BundleError::MarkerRankingNoCoverage { day: 56.0 })
+        );
+        let mut no_outcome = ranked_plan();
+        no_outcome.result = Err(RankingError::NoOutcome { endpoint: TxrEndpoint::Pfs });
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Single, 1), None, Some(&no_outcome)),
+            Err(BundleError::MarkerRankingNoOutcome { endpoint: TxrEndpoint::Pfs })
+        );
+
+        // LeaveOut refuses the no-list methods, never the fixed-list ones.
+        let mut left_out = ranked_plan();
+        left_out.choice = SingleMarkerChoice::LeaveOut;
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Any, 0), None, Some(&left_out)),
+            Err(BundleError::MarkersLeftOut)
+        );
+        assert_eq!(
+            method_marker_set_with_plan(
+                &b,
+                &declared(MarkerKind::Single, 1),
+                req.as_ref(),
+                Some(&left_out),
+            ),
+            Ok(method_marker_set(&b, &declared(MarkerKind::Single, 1), req.as_ref()).unwrap())
+        );
+    }
+
+    #[test]
+    fn plan_chosen_leads_and_single_needs_no_ranking() {
+        use crate::modules::execution_engine::marker_rank::{RankingError, SingleMarkerChoice};
+        let b = item4_fixture();
+        let mut plan = ranked_plan();
+        plan.choice = SingleMarkerChoice::Chosen { marker: "CA199".to_string() };
+
+        // single gets the chosen marker alone (no ranking needed).
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Single, 1),
+            None,
+            Some(&plan),
+        )
+        .expect("chosen single");
+        assert_eq!(sel.mains, vec!["CA199"]);
+
+        // multi: the chosen marker leads, then the ranking without it.
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Multi, 2),
+            None,
+            Some(&plan),
+        )
+        .expect("chosen multi");
+        assert_eq!(sel.mains, vec!["CA199", "LDH"]);
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Any, 0),
+            None,
+            Some(&plan),
+        )
+        .expect("chosen any");
+        assert_eq!(sel.mains, vec!["CA199", "LDH", "CEA"]);
+
+        // No ranking: single and any still run on the chosen marker; multi 2
+        // gets only it and the count check decides (a refusal).
+        let mut no_rank = plan.clone();
+        no_rank.result = Err(RankingError::TooFew { n: 3 });
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Single, 1),
+            None,
+            Some(&no_rank),
+        )
+        .expect("chosen single with no ranking");
+        assert_eq!(sel.mains, vec!["CA199"]);
+        let sel = method_marker_set_with_plan(
+            &b,
+            &declared(MarkerKind::Any, 0),
+            None,
+            Some(&no_rank),
+        )
+        .expect("chosen any with no ranking");
+        assert_eq!(sel.mains, vec!["CA199"]);
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Multi, 2), None, Some(&no_rank)),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 2,
+                names: vec!["CA199".to_string()]
+            })
+        );
+    }
+
+    /// Round 1b review fix 3: a `Chosen` marker that is NOT one of the file's
+    /// main markers (absent, or a companion name) refuses the no-list methods
+    /// naming the marker — never a selection holding a marker the file lacks.
+    /// Fixed-list methods are untouched by the plan.
+    #[test]
+    fn plan_chosen_marker_not_in_file_is_refused_naming_it() {
+        use crate::modules::execution_engine::marker_rank::SingleMarkerChoice;
+        let b = item4_fixture();
+        let req = Some(required(&[("LDH", "LOINC", "14804-9")]));
+
+        let mut absent = ranked_plan();
+        absent.choice = SingleMarkerChoice::Chosen { marker: "NOPE".to_string() };
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Single, 1), None, Some(&absent)),
+            Err(BundleError::MarkerNotInFile { marker: "NOPE".to_string() })
+        );
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Any, 0), None, Some(&absent)),
+            Err(BundleError::MarkerNotInFile { marker: "NOPE".to_string() })
+        );
+
+        // A companion name is refused the same way.
+        let mut companion = ranked_plan();
+        companion.choice = SingleMarkerChoice::Chosen { marker: "CEA__detected".to_string() };
+        assert_eq!(
+            method_marker_set_with_plan(&b, &declared(MarkerKind::Single, 1), None, Some(&companion)),
+            Err(BundleError::MarkerNotInFile {
+                marker: "CEA__detected".to_string()
+            })
+        );
+
+        // A fixed-list method is never refused by the plan's chosen marker
+        // (the plan only shapes the no-list methods).
+        assert_eq!(
+            method_marker_set_with_plan(
+                &b,
+                &declared(MarkerKind::Single, 1),
+                req.as_ref(),
+                Some(&absent),
+            ),
+            Ok(method_marker_set(&b, &declared(MarkerKind::Single, 1), req.as_ref()).unwrap())
+        );
+    }
+
+    /// Audit fix 5: `panel` is NOT in scope — a panel WITHOUT a fixed list
+    /// keeps today's behaviour under a plan (the file's main markers + the
+    /// count rule), never the plan's ranked markers.
+    #[test]
+    fn plan_leaves_a_no_list_panel_on_todays_count_rule() {
+        let b = item4_fixture();
+        let plan = ranked_plan();
+        // The three-marker file + the panel's count 2: today's count rule
+        // refuses it (BUNDLE_MARKER_COUNT_UNMET with the file's markers),
+        // with or without the plan.
+        assert_eq!(
+            method_marker_set_with_plan(
+                &b,
+                &declared(MarkerKind::Panel, 2),
+                None,
+                Some(&plan),
+            ),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 2,
+                names: vec!["CA199".to_string(), "CEA".to_string(), "LDH".to_string()]
+            })
+        );
+        // With a matching count the panel runs on the file's main markers —
+        // never the plan's ranked top.
+        assert_eq!(
+            method_marker_set_with_plan(
+                &b,
+                &declared(MarkerKind::Panel, 3),
+                None,
+                Some(&plan),
+            )
+            .expect("the count fits"),
+            method_marker_set(&b, &declared(MarkerKind::Panel, 3), None)
+                .expect("today's rule")
+        );
+    }
+
+    /// Round 1b (PLAN.md section 5): the reuse selection from a saved model's
+    /// RECORDED features — the model's own marker set, never the count rule.
+    /// `test_bundle_with_markers` refuses a predict file without one
+    /// (`BUNDLE_TEST_MARKER_MISSING`); a model with no recorded features
+    /// keeps today's count rule ([`method_marker_set`]). Audit fix 2: each
+    /// recorded feature is resolved to the predict file's OWN name with the
+    /// saved-model eligibility's matcher (case-insensitive / id / alias) —
+    /// "LDH" recorded resolves to the file's "ldh".
+    #[test]
+    fn reuse_selection_uses_the_recorded_features() {
+        let predict = item4_predict_fixture(true);
+        let settings = settings();
+        let list = crate::modules::method_list::current();
+
+        // The recorded marker (CEA) leads: the test bundle builds on the
+        // multi-marker predict file (today's count rule would refuse it).
+        let sel = selection_for_features(&list, &["CEA".to_string()], &predict);
+        assert_eq!(sel.mains, vec!["CEA"]);
+        test_bundle_with_markers(None, &predict, &settings, 2, &sel)
+            .expect("the recorded marker is there");
+
+        // Audit fix 2: "LDH" recorded, "ldh" in the file — the recorded name
+        // resolves to the file's own spelling (case-insensitive), so the
+        // selection holds the file's marker and the run agrees with
+        // eligibility's "can run".
+        let mut lower = predict.clone();
+        for v in &mut lower.values {
+            v.feature = v.feature.to_ascii_lowercase();
+        }
+        for f in &mut lower.features {
+            f.feature = f.feature.to_ascii_lowercase();
+        }
+        let sel = selection_for_features(&list, &["LDH".to_string()], &lower);
+        assert_eq!(sel.mains, vec!["ldh"], "the recorded name resolves to the file's spelling");
+        let test = test_bundle_with_markers(None, &lower, &settings, 2, &sel)
+            .expect("the resolved file marker is there");
+        assert_eq!(test.scored, vec!["N0000", "N0002"]);
+
+        // A predict file WITHOUT a recorded feature is refused with the
+        // existing BUNDLE_TEST_MARKER_MISSING (never silently dropped).
+        let sel = selection_for_features(&list, &["NOPE".to_string()], &predict);
+        assert_eq!(
+            test_bundle_with_markers(None, &predict, &settings, 2, &sel),
+            Err(BundleError::TestMarkerMissing { marker: "NOPE".to_string() })
+        );
+
+        // An old model (no recorded features) keeps today's count rule: a
+        // single no-list method on the multi-marker predict file is refused.
+        assert_eq!(
+            method_marker_set(&predict, &declared(MarkerKind::Single, 1), None),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 1,
+                names: vec!["CA199".to_string(), "CEA".to_string(), "LDH".to_string()]
+            })
+        );
+    }
+
+    /// Round 1d: the reuse selection resolves a recorded feature with the SAME
+    /// marker surface the saved-model eligibility builds from its inventory
+    /// marker — the canonical feature carries the mapping's display name and
+    /// EVERY standard id (the facts `canonical_bundle` takes from the same
+    /// resolved mapping the inventory's `display_name`/`standard_ids` are
+    /// built from), not just `marker_id`. A model recorded under the marker's
+    /// display name, or under a SECONDARY standard id (one the single
+    /// `marker_id` is not), resolves to the file's own name here — the
+    /// pre-1d matcher consulted only the single `marker_id`'s vocabulary
+    /// entry, so a recorded secondary standard id did not resolve.
+    #[test]
+    fn reuse_recorded_display_name_and_secondary_id_resolve() {
+        let list = crate::modules::method_list::current();
+        let bundle = CanonicalBundle {
+            patients: Vec::new(),
+            values: Vec::new(),
+            features: vec![CanonicalFeature {
+                feature: "CEA_serum".to_string(),
+                unit: None,
+                marker_id: Some("2039-6".to_string()),
+                display_name: Some("carcinoembryonic antigen (CEA, ng/mL)".to_string()),
+                standard_ids: vec![
+                    StandardId {
+                        system: "LOINC".to_string(),
+                        id: "2039-6".to_string(),
+                    },
+                    StandardId {
+                        system: "HGNC".to_string(),
+                        id: "CEA".to_string(),
+                    },
+                ],
+                is_detection_companion: false,
+            }],
+        };
+        // Recorded DISPLAY name → the file's own marker name (the run side's
+        // resolution, matching eligibility's display-name match).
+        let sel = selection_for_features(
+            &list,
+            &["carcinoembryonic antigen (CEA, ng/mL)".to_string()],
+            &bundle,
+        );
+        assert_eq!(sel.mains, vec!["CEA_serum"]);
+        // Recorded SECONDARY standard id (HGNC CEA — not the marker_id) →
+        // `parse_standard_ids` hits the marker's standard_ids.
+        let sel = selection_for_features(&list, &["HGNC: CEA".to_string()], &bundle);
+        assert_eq!(sel.mains, vec!["CEA_serum"]);
+        // The primary standard-id text still resolves too (the pre-1d rule).
+        let sel = selection_for_features(&list, &["LOINC 2039-6 CEA".to_string()], &bundle);
+        assert_eq!(sel.mains, vec!["CEA_serum"]);
+
+        // A display name the CURRENT vocabulary does not carry (an inventory /
+        // bundle display_name from the SAME mapping the inventory was built
+        // from, not a re-derivation from today's list) resolves through the
+        // bundle-carried fact — the matcher trusts the marker's own facts.
+        let mut foreign_display = bundle.clone();
+        foreign_display.features[0].display_name = Some("Serum CEA level".to_string());
+        let sel = selection_for_features(&list, &["Serum CEA level".to_string()], &foreign_display);
+        assert_eq!(sel.mains, vec!["CEA_serum"]);
     }
 
     #[test]
