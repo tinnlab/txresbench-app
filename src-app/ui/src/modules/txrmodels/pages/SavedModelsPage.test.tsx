@@ -54,7 +54,7 @@ import '@/core/actions/builtin/stepActions'
 import '@/core/actions/builtin/appActions'
 import '@/core/actions/builtin/modelRunActions'
 import '@/core/actions/builtin/modelSetActions'
-import { runAction } from '@/core/actions/defineAction'
+import { getActionRegistry, runAction } from '@/core/actions/defineAction'
 import { createActionContext } from '@/core/actions/ctx'
 import { RouterBridge } from '@/core/actions/navigateBridge'
 import { instancesOfType } from '@/core/actions/instanceRegistry'
@@ -596,6 +596,30 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     await settle(0)
     expect(api.deleteSet).toHaveBeenCalledWith({ id: 'set-b', keep_files: false })
     expect(api.listModels.mock.calls.length).toBe(2)
+  })
+
+  it('a failed delete-open is never swallowed: the page\u2019s fixed line shows in the action-error place', async () => {
+    renderPage()
+    await settle(0)
+    // Make the OPEN itself fail (the action rejects) — the section action
+    // path must surface the fixed line, never `.catch(() => undefined)`.
+    const entry = getActionRegistry().get('models.deleteSet')
+    expect(entry).toBeDefined()
+    const spy = vi.spyOn(entry as NonNullable<typeof entry>, 'run').mockImplementation(() => {
+      throw new Error('the transport said something else')
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-section-action-set-b-delete'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-action-error').textContent).toBe(
+      'The set could not be deleted.',
+    )
+    // Nothing was opened (no confirm to click) and nothing was deleted.
+    expect(screen.queryByTestId('txr-models-set-delete-set-b')).toBeNull()
+    expect(api.deleteSet).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 
   it('opens the Details dialog from the row action: the ModelDetail facts + the version/digest warnings', async () => {

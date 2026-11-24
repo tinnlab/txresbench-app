@@ -76,6 +76,7 @@ import { useModelInventory } from '../data/useModelInventory'
 import { useModelSets } from '../data/useModelSets'
 import { downloadModelExport, modelExportLabel, setExportLabel, SET_EXPORT_FAILED_LINE } from '../lib/export'
 import {
+  SET_DELETE_FAILED_LINE,
   subscribeDeleteSetRequest,
   subscribeModelSetsChanged,
 } from '../lib/setActions'
@@ -478,13 +479,18 @@ export function ModelsPage() {
   // The registered `models.deleteSet` action only OPENS the confirm dialog
   // (it never deletes): the pending-request channel is the seam, and this
   // page is one of the two hosts (with the saved-models page) that listen.
+  // The listener reports back whether IT opened the dialog (true only when
+  // the set resolved to a real section and the dialog was shown; false when
+  // the set is unknown or the reads are still empty) — the action rejects
+  // when no host handled the request.
   useEffect(
     () =>
       subscribeDeleteSetRequest(setId => {
         const set = resolveSet(setId)
-        if (set === null) return
+        if (set === null) return false
         setActionError(null)
         setSetDialog({ kind: 'delete', set })
+        return true
       }),
     [resolveSet],
   )
@@ -570,24 +576,29 @@ export function ModelsPage() {
 
   /** Set Delete — the registered `models.deleteSet` action OPENS the
    *  confirm dialog through the pending-request channel (it never deletes;
-   *  the dialog's confirm is the one delete). */
+   *  the dialog's confirm is the one delete). A refusal to open it is the
+   *  page's FIXED line — never the transport's/action's own words. */
   const openSetDelete = useCallback((setId: string): void => {
     setActionError(null)
-    void runAction('models.deleteSet', { setId }).catch((error: unknown) => {
-      setActionError(error instanceof Error ? error.message : 'The set could not be deleted.')
+    void runAction('models.deleteSet', { setId }).catch(() => {
+      setActionError(SET_DELETE_FAILED_LINE)
     })
   }, [])
 
   /** The set delete succeeded: re-read both reads, and clear a `?set=`
    *  focus that names the deleted set (a dead-view URL is a stale view —
-   *  the honest page is the unfiltered inventory). */
+   *  the honest page is the unfiltered inventory). ONLY the `set` param is
+   *  cleared: the other params (a search, another screen's query) survive
+   *  the deletion — the URL is not a scratchpad to wipe. */
   const onSetDeleted = useCallback((): void => {
     refresh()
     const deletedId = setDialog?.kind === 'delete' ? setDialog.set.id : null
     if (setId !== null && deletedId !== null && deletedId === setId) {
-      setSearchParams({})
+      const next = new URLSearchParams(searchParams)
+      next.delete('set')
+      setSearchParams(next)
     }
-  }, [refresh, setDialog, setId, setSearchParams])
+  }, [refresh, setDialog, setId, searchParams, setSearchParams])
 
   /** Import — the picked container to `POST /api/txr/models/import`
    *  (multipart, the `file` part — CONS-UM-9; `set_id` rides when the
@@ -778,6 +789,8 @@ export function ModelsPage() {
                     blocks both, ITEM-7). */}
                 {!isDemo && !section.unsetted ? (
                   <div
+                    role="group"
+                    aria-label={`Actions for ${section.title}`}
                     data-testid={`txr-models-set-actions-${section.key}`}
                     style={SECTION_ACTIONS}
                   >

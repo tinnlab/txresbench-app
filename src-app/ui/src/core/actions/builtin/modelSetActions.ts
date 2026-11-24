@@ -28,7 +28,10 @@ import { downloadSetExport, SET_EXPORT_FAILED_LINE } from '@/modules/txrmodels/l
 //   to); the person confirms in `TxrDeleteSetDialog`, whose confirm is the
 //   one caller of `deleteSetById` (`keep_files: false`, DEC-14 — the same
 //   on the wire for every caller). An AI can never delete a set without a
-//   person confirming in the dialog.
+//   person confirming in the dialog. The channel answers whether the
+//   request was HANDLED (a host actually opened the dialog): when no host
+//   could (nothing mounted, or the set unknown / no data yet), the action
+//   REJECTS — never a success report for a dialog nobody showed.
 //
 // `permission`: the /models route carries no route permission, so this uses
 // the permission the registered navigation action (`app.navigate`,
@@ -91,6 +94,12 @@ defineAction({
   title: 'Delete a model set',
   permission: Permissions.McpUse,
   mutating: true,
+  // Destructive intent (the set and its model files go): the command
+  // palette interposes its own confirmation before invoking this, on top
+  // of the app's delete confirm dialog the action opens — the flag is
+  // advisory for the AI path, the backend permission model is the real
+  // boundary (defineAction.ts's `dangerous` contract).
+  dangerous: true,
   group: 'Models',
   description:
     'Open the delete confirmation for a set of saved models (by its id). The set is NOT deleted by this action: the confirmation dialog opens and the person confirms there (the files go with the models, the results already made are kept).',
@@ -100,7 +109,15 @@ defineAction({
     setId: z.string().min(1).describe('The set id (from the model sets list).'),
   }),
   run: ({ setId }) => {
-    requestDeleteSet(setId)
+    // The channel answers whether any mounted host OPENED the dialog for
+    // this set. Nothing opened (no host mounted, or the set is unknown to
+    // it) means the action must NOT report a confirmation that nobody
+    // showed — it rejects with the one line instead (it never deletes).
+    if (!requestDeleteSet(setId)) {
+      throw new Error(
+        'The delete confirmation could not be opened: open the Models page first.',
+      )
+    }
     return { setId, status: 'confirming' }
   },
 })

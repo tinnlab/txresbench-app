@@ -60,6 +60,7 @@ import { useTxrModelsStore } from '../stores/TxrModels.store'
 import { ModelsPage } from './ModelsPage'
 import '@/core/actions/builtin/stepActions'
 import '@/core/actions/builtin/modelSetActions'
+import { getActionRegistry } from '@/core/actions/defineAction'
 import { RouterBridge } from '@/core/actions/navigateBridge'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
@@ -670,6 +671,14 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
         'Delete set',
       )
     }
+    // The a11y wrap: each section's three buttons live in ONE labelled
+    // group (screen readers announce the set the actions act on).
+    const setAGroup = screen.getByRole('group', { name: 'Actions for CRC cohort, day 60' })
+    expect(within(setAGroup).getByTestId('txr-models-set-rename-btn-set-a')).toBeTruthy()
+    expect(within(setAGroup).getByTestId('txr-models-set-export-btn-set-a')).toBeTruthy()
+    expect(within(setAGroup).getByTestId('txr-models-set-delete-btn-set-a')).toBeTruthy()
+    const setBGroup = screen.getByRole('group', { name: 'Actions for Lung pilot, day 35' })
+    expect(within(setBGroup).getByTestId('txr-models-set-delete-btn-set-b')).toBeTruthy()
     // "Not in a set" (the unsetted rows' section) has none of them.
     const none = screen.getByTestId('txr-models-j-section-__none__')
     expect(within(none).queryByTestId('txr-models-set-rename-btn-__none__')).toBeNull()
@@ -760,6 +769,51 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(screen.getByTestId('txr-models-set-delete-set-a-body').textContent).toBe(
       'This removes the set and its models\u2019 files. Results already made with them are kept in History.',
     )
+  })
+
+  it('onSetDeleted clears only ?set= and keeps the other params (a dead focus, not a wiped URL)', async () => {
+    renderPage('/models?set=set-a&src=history')
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-delete-btn-set-a'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-delete-set-a-confirm'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    // The deletion of the focused set clears ONLY the set param: the other
+    // param survives the URL update (a wiped URL would lose it).
+    expect(screen.getByTestId('route-location').textContent).toBe('/models?src=history')
+    expect(screen.queryByTestId('txr-models-j-set-focus')).toBeNull()
+    // The unfiltered re-read after the focus-clear (the inventory is read
+    // a third time, the sets read once more).
+    expect(api.listModels.mock.calls.length).toBe(3)
+    expect(api.listSets.mock.calls.length).toBe(2)
+  })
+
+  it('a failed delete-open shows the one fixed line, never the action\u2019s own message', async () => {
+    renderPage()
+    await settle(0)
+    // Make the OPEN itself fail (the action rejects) — the button path must
+    // answer with the page's fixed line, not the raw error text.
+    const entry = getActionRegistry().get('models.deleteSet')
+    expect(entry).toBeDefined()
+    const spy = vi.spyOn(entry as NonNullable<typeof entry>, 'run').mockImplementation(() => {
+      throw new Error('the transport said something else')
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-delete-btn-set-a'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-models-j-action-error').textContent).toBe(
+      'The set could not be deleted.',
+    )
+    // Nothing was opened and nothing was deleted.
+    expect(screen.queryByTestId('txr-models-set-delete-set-a')).toBeNull()
+    expect(api.deleteSet).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 
   it('Export set saves the attachment under the sanitised set name (.txr)', async () => {

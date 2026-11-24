@@ -37,8 +37,17 @@
  *   subscribes and opens its own `TxrDeleteSetDialog` for that id. The
  *   actual `DELETE` still happens only in the dialog's confirm — the
  *   action never deletes, `?keep_files=false` never leaves the dialog.
+ *   `requestDeleteSet` answers whether the request was HANDLED (a
+ *   listener opened the dialog): each listener returns `true` only when it
+ *   actually opened the dialog, `false` when the set is unknown to it or
+ *   it has no data yet — so the action can REJECT (never report a
+ *   confirm "opened" that no one opened).
  */
 import { ApiClient } from '@/api-client'
+
+/** The one failure line for the delete-OPEN path (the pages' action error —
+ *  never the engine's own words). */
+export const SET_DELETE_FAILED_LINE = 'The set could not be deleted.'
 
 /** Rename one set (the ONE `PATCH` call the dialog and the action share). */
 export function renameSetById(setId: string, name: string): Promise<unknown> {
@@ -71,7 +80,10 @@ export function notifyModelSetsChanged(): void {
 
 // ── the pending-delete channel (an action opening a confirm dialog) ──────────
 
-type DeleteRequestListener = (setId: string) => void
+/** A listener answers whether IT handled the request (opened the dialog):
+ *  `true` only when it opened it; `false` when the set is unknown to it or
+ *  it has no data yet (the request must then fail, not report success). */
+type DeleteRequestListener = (setId: string) => boolean
 
 const deleteRequestListeners = new Set<DeleteRequestListener>()
 
@@ -84,7 +96,14 @@ export function subscribeDeleteSetRequest(listener: DeleteRequestListener): () =
 }
 
 /** Publish the request (the registered `models.deleteSet` action's one job:
- *  open the confirm dialog — it never deletes). */
-export function requestDeleteSet(setId: string): void {
-  for (const listener of deleteRequestListeners) listener(setId)
+ *  open the confirm dialog — it never deletes). Returns `true` when some
+ *  listener HANDLED it (opened the dialog for that set) — the first handler
+ *  wins (only one host can be showing the confirm at a time); `false` when
+ *  every listener declined (the set is unknown to the mounted pages, or no
+ *  page has data yet), so the caller can reject instead of lying. */
+export function requestDeleteSet(setId: string): boolean {
+  for (const listener of deleteRequestListeners) {
+    if (listener(setId)) return true
+  }
+  return false
 }

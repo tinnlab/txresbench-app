@@ -104,7 +104,11 @@ import {
   savedChipPredicate,
   type TxrModelSortable,
 } from '../lib/filters'
-import { subscribeDeleteSetRequest, subscribeModelSetsChanged } from '../lib/setActions'
+import {
+  SET_DELETE_FAILED_LINE,
+  subscribeDeleteSetRequest,
+  subscribeModelSetsChanged,
+} from '../lib/setActions'
 import { totalSecondsForSelection } from '../lib/total'
 import { RESEARCH_NOTICE, formatCheckedAgainstLine, formatSavedTotals } from '../lib/format'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
@@ -471,6 +475,9 @@ export function SavedModelsPage() {
 
   // ── The section actions (rename + delete, both then refresh) ─────────────
   const [sectionAction, setSectionAction] = useState<SectionActionState>(NO_SECTION_ACTION)
+  // The section-action failure line (the delete-open path's fixed line — the
+  // page-top Alert beside the run one; never the transport's own words).
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const onSectionAction = useCallback(
     (sectionKey: string, actionId: string): void => {
@@ -483,8 +490,13 @@ export function SavedModelsPage() {
       if (actionId === 'delete') {
         // ONE path: the registered `models.deleteSet` action opens the
         // confirm dialog (through the pending-request channel we subscribe
-        // to below; the action never deletes — the person confirms).
-        void runAction('models.deleteSet', { setId: set.id }).catch(() => undefined)
+        // to below; the action never deletes — the person confirms). A
+        // refusal to open it (the set vanished since the list rendered, or
+        // no host could open it) is NEVER swallowed: the page's fixed line.
+        setActionError(null)
+        void runAction('models.deleteSet', { setId: set.id }).catch(() => {
+          setActionError(SET_DELETE_FAILED_LINE)
+        })
       }
     },
     [saved.sets],
@@ -499,13 +511,18 @@ export function SavedModelsPage() {
   // The registered `models.deleteSet` action's dialog opening (the same
   // channel the Models page listens to): a delete request names the set,
   // this page confirms it with its own wording (Card 3 keeps its labels and
-  // confirm text — the dialog is opened with no new props).
+  // confirm text — the dialog is opened with no new props). The listener
+  // reports back whether IT opened the dialog (true only when the set was
+  // found in the loaded saved slice; false when unknown or not loaded yet)
+  // — the action rejects when no host handled the request.
   useEffect(
     () =>
       subscribeDeleteSetRequest(setId => {
         const set = saved.sets.find(candidate => candidate.id === setId)
-        if (set === undefined) return
+        if (set === undefined) return false
+        setActionError(null)
         setSectionAction({ kind: 'delete', set: { id: set.id, name: set.name } })
+        return true
       }),
     [saved.sets],
   )
@@ -743,6 +760,9 @@ export function SavedModelsPage() {
       ) : null}
       {run.runError !== null ? (
         <Alert tone="error" data-testid="txr-models-i-run-error" title={run.runError} />
+      ) : null}
+      {actionError !== null ? (
+        <Alert tone="error" data-testid="txr-models-i-action-error" title={actionError} />
       ) : null}
     </div>
   )

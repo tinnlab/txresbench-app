@@ -11,7 +11,10 @@
  *   button path uses) — the set's name is resolved from the provider first;
  * - `models.deleteSet` OPENS the delete confirm dialog for the set and does
  *   NOT call the API: the person confirms in the dialog, and only then is
- *   `deleteSet` called (with `keep_files: false`, DEC-14).
+ *   `deleteSet` called (with `keep_files: false`, DEC-14). When NO mounted
+ *   page could open the dialog (no host, or the set unknown / no data yet)
+ *   the action REJECTS with the one line — never a success report for a
+ *   confirm nobody showed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -178,11 +181,14 @@ describe('models.exportSet', () => {
 })
 
 describe('models.deleteSet', () => {
-  it('is registered: McpUse, mutating, both surfaces', () => {
+  it('is registered: McpUse, mutating, dangerous, both surfaces', () => {
     const meta = getActionMeta('models.deleteSet')
     expect(meta).toBeDefined()
     expect(meta?.permission).toBe(Permissions.McpUse)
     expect(meta?.mutating).toBe(true)
+    // Destructive intent: the palette interposes its own confirmation
+    // before invoking this action (`ActionMeta.dangerous`).
+    expect(meta?.dangerous).toBe(true)
     expect(meta?.kind).toBe('global')
   })
 
@@ -202,5 +208,25 @@ describe('models.deleteSet', () => {
     })
     await settle()
     expect(api.deleteSet).toHaveBeenCalledWith({ id: 'set-a', keep_files: false })
+  })
+
+  it('rejects when NO mounted page could open the dialog (it never reports a confirm nobody showed)', async () => {
+    // Nothing is rendered: the request channel has no listener at all.
+    await expect(runAction('models.deleteSet', { setId: 'set-a' })).rejects.toThrow(
+      'The delete confirmation could not be opened: open the Models page first.',
+    )
+    expect(api.deleteSet).not.toHaveBeenCalled()
+  })
+
+  it('rejects when the mounted page cannot resolve the set (the listener declines)', async () => {
+    renderPage()
+    await settle()
+    // The page is mounted but this id is in no section/set: its listener
+    // answers false — the action must reject rather than report success.
+    await expect(runAction('models.deleteSet', { setId: 'no-such-set' })).rejects.toThrow(
+      'The delete confirmation could not be opened: open the Models page first.',
+    )
+    expect(screen.queryByTestId('txr-models-set-delete-no-such-set')).toBeNull()
+    expect(api.deleteSet).not.toHaveBeenCalled()
   })
 })
