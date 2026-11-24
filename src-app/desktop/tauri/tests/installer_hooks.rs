@@ -533,12 +533,17 @@ fn only_the_apps_own_distro_is_removed() {
     for banned in ["--uninstall", "--shutdown", "--distribution ", " -d ", "Ubuntu"] {
         assert!(!HOOKS.contains(banned), "{banned}");
     }
+    // One wsl.exe call, with the distro's name as the whole argument list; the
+    // only other mention is the DetailPrint that reports the exit code (the
+    // log says what happened, it never claims success).
     let unreg: Vec<String> = code_lines(HOOKS).into_iter().filter(|l| l.contains("--unregister")).collect();
-    assert_eq!(unreg.len(), 1, "{unreg:?}");
     assert_eq!(
-        unreg[0],
-        r#"nsExec::Exec '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'"#,
-        "the only wsl.exe argument list"
+        unreg,
+        [
+            r#"nsExec::Exec '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'"#.to_string(),
+            r#"DetailPrint "TxResBench's WSL distro: wsl --unregister exited with $TxrWslUnregExit.""#.to_string(),
+        ],
+        "one wsl.exe call, and the log line"
     );
     let needle = "--install";
     let mut seen = 0;

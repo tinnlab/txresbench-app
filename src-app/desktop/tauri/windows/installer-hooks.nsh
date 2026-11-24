@@ -188,6 +188,7 @@ Var TxrWslUnregExit       ; the exit code of `wsl --unregister` ("error" when it
     ; Find the Lxss subkey whose DistributionName is exactly the app's distro
     ; (EnumRegKey + ReadRegStr, no reg.exe). Only when one exists is anything
     ; done: the app's distro is the one a TxResBench entry names.
+    ; HKCU\Software is not redirected for a 32-bit process (Registry Keys Affected by WOW64), so this 32-bit uninstaller reads the same Lxss key WSL writes.
     StrCpy $TxrWslUnregFound ""
     StrCpy $TxrWslUnregIndex 0
     ${Do}
@@ -218,7 +219,7 @@ Var TxrWslUnregExit       ; the exit code of `wsl --unregister` ("error" when it
         ClearErrors
         RMDir "$TxrWslUnregBasePath"
       ${EndIf}
-      DetailPrint "TxResBench's WSL distro was unregistered (wsl.exe exit code $TxrWslUnregExit)."
+      DetailPrint "TxResBench's WSL distro: wsl --unregister exited with $TxrWslUnregExit."
     ${EndIf}
   ${EndIf}
 !macroend
