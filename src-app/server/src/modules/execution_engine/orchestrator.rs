@@ -3768,11 +3768,27 @@ async fn recompute_run_estimate(
         return;
     }
     let calibration = load_timing_calibration(repo).await;
+    // The estimate follows the run's own mode (crosschecked-chances): a train
+    // run's numbers carry the cross-check factor for methods that learn; a
+    // reuse run is today's numbers. A run whose mode row cannot be read
+    // keeps the pre-mode estimate (a display fact — never a run error).
+    let estimate_mode = row
+        .mode()
+        .ok()
+        .map(|m| match m {
+            super::types::TxrRunMode::Train => {
+                crate::modules::method_catalogue::types::EstimateMode::Train
+            }
+            super::types::TxrRunMode::Reuse => {
+                crate::modules::method_catalogue::types::EstimateMode::Reuse
+            }
+        });
     let req = EstimateRequest {
         method_ids,
         patients,
         cpus: Some(cpus),
         at_a_time: at_a_time.max(1),
+        mode: estimate_mode,
     };
     // The run's own list while its drive is live (the same list its plans
     // came from); the current list for a run whose drive is gone.
@@ -4099,6 +4115,13 @@ fn compute_estimate(
         super::types::TxrRunMode::Reuse => prepared.predict.as_ref()?.patients.len() as u32,
     };
     let at_a_time = req.config.at_a_time.max(1);
+    // The estimate's mode follows the run's own mode (crosschecked-chances):
+    // a train run's numbers carry the cross-check factor for methods that
+    // learn; a reuse mode is today's numbers.
+    let estimate_mode = match req.mode {
+        super::types::TxrRunMode::Train => Some(crate::modules::method_catalogue::types::EstimateMode::Train),
+        super::types::TxrRunMode::Reuse => Some(crate::modules::method_catalogue::types::EstimateMode::Reuse),
+    };
     let resp = match estimate::estimate_for_runtime_calibrated(
         &list.catalogue,
         &list.images,
@@ -4107,6 +4130,7 @@ fn compute_estimate(
             patients,
             cpus: Some(cpus),
             at_a_time,
+            mode: estimate_mode,
         },
         calibration,
     ) {
@@ -5429,13 +5453,27 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
             // run measures the predict half alone (no fit) and is excluded;
             // a record write failure is a warn, never a method failure (the
             // calibration is a display fact).
+            //
+            // crosschecked-chances: the flag marks whether this run's
+            // measured seconds INCLUDE the cross-check folds — yes for a
+            // train-mode "fitted" method (the executor cross-fits every
+            // learning method), no for a fixed-rule method (its run cost did
+            // not change). The estimate's train-mode median for a method
+            // that learns reads this flag, so a pre-cross-check sample (flag
+            // 0, written before it existed) never mixes into it.
             if outcome.state == TxrMethodState::Finished && prepared.train.is_some() {
                 if let Some(ms) = outcome.duration_ms {
+                    let crosschecked = drive
+                        .list
+                        .catalogue
+                        .method(&method_id)
+                        .is_some_and(|m| m.fitted);
                     let sample = crate::modules::method_catalogue::calibration::TimingSample {
                         method_id: method_id.clone(),
                         measured_ms: ms,
                         patients: prepared.train.as_ref().map(|t| t.patients.len() as u32).unwrap_or(0),
                         cpus: drive.cpus,
+                        crosschecked,
                     };
                     if let Err(e) = drive.repo.record_timing_sample(&sample, drive.run_id).await {
                         tracing::warn!(%method_id, error = %e, "execution engine: timing sample record failed");
@@ -7173,10 +7211,18 @@ mod tests {
         // finished train-mode method's duration + the run's patient count and
         // CPU count land in `txr_timing_samples` (a reuse run never records:
         // it predicts alone and would skew the per-fold base).
+        //
+        // crosschecked-chances: the sample also carries the flag — a
+        // LEARNING method (`fitted`) measured a run whose seconds include the
+        // cross-check folds, a fixed-rule method measured the unchanged
+        // one-call cost.
         let _g = rootfs::scoped_data_root(test_data_dir("timing-sample"));
         let pool = merged_pool().await;
         let runtime = Arc::new(RunRuntime::new());
-        let env = Arc::new(FakeEnv::new(Duration::from_secs(5)));
+        // Two methods at one lane: a per-method 5 s env "download" would
+        // total ~10 s — over `wait_terminal`'s 10 s budget. The test is
+        // about the RECORD, not the download delay.
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(20)));
         let executor = Arc::new(FakeExecutor::new(Duration::from_millis(30)));
         let req = cohort_run_request(&["landmark-cox-current"], 1, true);
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
@@ -7185,12 +7231,14 @@ mod tests {
         let repo = TxrRepository::new(pool.clone());
         let _ = wait_terminal(&repo, summary.id).await;
         let samples = repo.timing_samples().await.expect("samples read");
-        assert_eq!(samples.len(), 1, "one finished method = one sample: {samples:?}");
-        let s = &samples[0];
-        assert_eq!(s.method_id, "landmark-cox-current");
-        assert!(s.measured_ms > 0, "the run was measured: {}", s.measured_ms);
-        assert!(s.patients > 0);
-        assert!(s.cpus >= 1);
+        assert_eq!(samples.len(), 2, "one sample per finished method: {samples:?}");
+        let learnt = samples.iter().find(|s| s.method_id == "landmark-cox-current").expect("learner");
+        assert!(learnt.measured_ms > 0, "the run was measured: {}", learnt.measured_ms);
+        assert!(learnt.patients > 0);
+        assert!(learnt.cpus >= 1);
+        assert!(learnt.crosschecked, "a fitted method's run included the folds");
+        let fixed = samples.iter().find(|s| s.method_id == "ctdna-tf-four-group").expect("fixed-rule");
+        assert!(!fixed.crosschecked, "a fixed-rule method's cost never changed");
     }
 
     #[tokio::test]

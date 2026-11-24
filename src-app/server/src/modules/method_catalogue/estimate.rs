@@ -24,6 +24,22 @@
 //! exactly the plan's "≥ 1 benchmarked unit ⇒ measured" (244 measured / 115
 //! estimate, zero entries where quality and the unit count disagree).
 //!
+//! ## The cross-check factor (crosschecked-chances)
+//!
+//! The request's optional `mode` is the ONE input the run kind adds (absent =
+//! today's numbers, old callers unchanged): a LEARNING run (mode `train`)
+//! cross-checks its chances — a method that learns is fitted three more times
+//! (one fit + predict per fold, each on ~2/3 of the cohort), so its estimate
+//! is about 3× a single fit+predict — [`calibration::CROSSCHECK_TIME_FACTOR`]
+//! applied to the generated (unmeasured) base. The factor is applied ONCE,
+//! here, to the method's seconds; the eligibility rows use the SAME
+//! mode-aware base ([`calibration::calibrated_estimate_seconds_for_mode`]), so
+//! the bottom bar, the row times and the "Fast only" preset can never disagree.
+//! The engine's create-time/lane-change estimates follow the run's own mode
+//! ([`crate::modules::execution_engine::orchestrator`]'s `compute_estimate` /
+//! `recompute_run_estimate`). A measured (calibrated) value is NEVER factored
+//! again — the seconds the app measured already include the folds that ran.
+//!
 //! ## The schedule total
 //!
 //! `schedule_seconds` = the makespan of a greedy longest-processing-time
@@ -200,13 +216,23 @@ pub fn estimate_for_calibrated(
         .iter()
         .map(|m| MethodEstimate {
             id: m.id.clone(),
-            estimated_seconds: calibration::calibrated_estimate_seconds_for(
+            // The mode-aware base selection: train mode applies the
+            // cross-check factor to the UNCALIBRATED estimate of a method
+            // that learns, and a measured value is used as-is (its folds
+            // are already in the seconds) — see
+            // [`calibration::CROSSCHECK_TIME_FACTOR`].
+            estimated_seconds: calibration::calibrated_estimate_seconds_for_mode(
                 m,
                 req.patients,
                 cpus,
                 calibration,
+                req.mode,
             ),
-            estimate_quality: calibration::calibrated_estimate_quality_for(m, calibration),
+            estimate_quality: calibration::calibrated_estimate_quality_for_mode(
+                m,
+                calibration,
+                req.mode,
+            ),
         })
         .collect();
     let seconds: Vec<f64> = per_method.iter().map(|m| m.estimated_seconds).collect();
@@ -432,6 +458,7 @@ mod tests {
             patients,
             cpus,
             at_a_time,
+            mode: None,
         }
     }
 
@@ -581,6 +608,67 @@ mod tests {
         assert_eq!(r.methods[0].estimated_seconds, 0.0);
         assert_eq!(r.total_seconds, 0.0);
         assert_eq!(r.schedule_seconds, 0.0);
+    }
+
+    #[test]
+    fn train_mode_triples_only_uncalibrated_learning_methods() {
+        use crate::modules::method_catalogue::types::EstimateMode;
+        // crosschecked-chances: on a learning run a method that learns is
+        // fitted 3 more times (about 3x), a fixed-rule method and reuse mode
+        // keep today's numbers, and an absent mode is exactly today's.
+        // Flip the fitted flag on the learner fixture (method_json defaults
+        // to fitted: false — the loader facts come from the JSON).
+        let mut learner = method_json("fx-learner", 30.0, "measured", 1);
+        learner["fitted"] = serde_json::json!(true);
+
+        let cat = catalogue_with(serde_json::json!([learner, method_json("fx-rule", 30.0, "measured", 1)]));
+        let train = |ids: &[&str]| {
+            let mut r = req(ids, 150, Some(4), 3);
+            r.mode = Some(EstimateMode::Train);
+            estimate_for(&cat, &r).unwrap()
+        };
+        // A learner estimated at 30 s becomes 90 s — over the UI's
+        // "Fast only" one-minute ceiling, so it drops out of Fast on a
+        // learning run (60 s is the filter's constant, not this module's).
+        let r = train(&["fx-learner"]);
+        assert_eq!(r.methods[0].estimated_seconds, 90.0);
+        assert_eq!(r.total_seconds, 90.0);
+        // The fixed-rule method keeps its 30 s in train mode.
+        let r = train(&["fx-rule"]);
+        assert_eq!(r.methods[0].estimated_seconds, 30.0);
+        // Absent mode (old callers) and reuse mode: today's numbers.
+        for mode in [None, Some(EstimateMode::Reuse)] {
+            let mut r = req(&["fx-learner"], 150, Some(4), 3);
+            r.mode = mode;
+            let r = estimate_for(&cat, &r).unwrap();
+            assert_eq!(r.methods[0].estimated_seconds, 30.0, "mode {mode:?}");
+        }
+        // A measured (cross-checked) learner is used as-is, never factored
+        // on top: the calibrated seconds already include the folds.
+        let measured = crate::modules::method_catalogue::calibration::TimingCalibration::from_samples(
+            &[crate::modules::method_catalogue::calibration::TimingSample {
+                method_id: "fx-learner".to_string(),
+                measured_ms: 90_000,
+                patients: 150,
+                cpus: 4,
+                crosschecked: true,
+            }],
+        );
+        let mut r = req(&["fx-learner"], 150, Some(4), 3);
+        r.mode = Some(EstimateMode::Train);
+        let r = estimate_for_calibrated(&cat, &r, &measured).unwrap();
+        assert_eq!(r.methods[0].estimated_seconds, 90.0, "measured = the real total");
+        assert_eq!(
+            r.methods[0].estimate_quality,
+            crate::modules::method_catalogue::types::TimingQuality::Measured
+        );
+        // Deterministic: the same train request yields the same response.
+        let again = {
+            let mut r = req(&["fx-learner"], 150, Some(4), 3);
+            r.mode = Some(EstimateMode::Train);
+            estimate_for(&cat, &r).unwrap()
+        };
+        assert_eq!(r.methods[0].estimated_seconds, again.methods[0].estimated_seconds);
     }
 
     #[test]

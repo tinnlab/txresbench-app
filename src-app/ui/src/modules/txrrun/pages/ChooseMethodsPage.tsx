@@ -859,6 +859,10 @@ export function ChooseMethodsPage() {
             // match the run; omitted while the ranking is still loading (a
             // stale plan for the OLD endpoint/day is never used).
             ...(markerPlan !== undefined ? { marker_plan: markerPlan } : {}),
+            // The rows' times and the "Fast only" preset are for the LEARNING
+            // run this screen builds (the create path posts mode 'train') —
+            // the server applies the cross-check factor once, here.
+            mode: 'train' as const,
           },
     [inventory, settings.decision_day, covariates, settings.covariates, methodFilters, markerPlan],
   )
@@ -952,6 +956,11 @@ export function ChooseMethodsPage() {
     patients: inventory?.patients ?? 0,
     cpus: settings.cpus ?? undefined,
     atATime: settings.at_a_time,
+    // This screen only builds LEARNING runs (the create path below posts
+    // mode 'train'): the estimate carries the cross-check time factor for
+    // methods that learn, so the bar, the row times and the "Fast only"
+    // preset agree with what the run will actually spend.
+    mode: 'train',
   })
 
   const createRun = useCallback(

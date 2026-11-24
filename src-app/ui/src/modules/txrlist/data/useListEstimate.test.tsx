@@ -95,6 +95,8 @@ describe('useListEstimate (TEST-UL-7)', () => {
       // run's own count (CM-7 — no client-side 4-CPU default).
       cpus: undefined,
       at_a_time: 3,
+      // No mode option → absent (today's numbers exactly, old callers).
+      mode: undefined,
     })
     expect(result.current.totalSeconds).toBe(120)
     expect(result.current.scheduleSeconds).toBe(840)
@@ -112,7 +114,65 @@ describe('useListEstimate (TEST-UL-7)', () => {
       patients: 38,
       cpus: 2,
       at_a_time: 1,
+      mode: undefined,
     })
+  })
+
+  it('passes the mode in the estimate body (the learning run sends "train")', async () => {
+    renderHook(() => useListEstimate(['a'], { patients: 38, atATime: 2, mode: 'train' }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    expect(api.estimate).toHaveBeenCalledWith({
+      method_ids: ['a'],
+      patients: 38,
+      cpus: undefined,
+      at_a_time: 2,
+      mode: 'train',
+    })
+    // A reuse run requests its own mode.
+    api.estimate.mockClear()
+    renderHook(() => useListEstimate(['b'], { patients: 38, atATime: 2, mode: 'reuse' }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    expect(api.estimate).toHaveBeenCalledWith(
+      expect.objectContaining({ method_ids: ['b'], mode: 'reuse' }),
+    )
+  })
+
+  it('the cache key includes the mode: a changed mode re-estimates the same set', async () => {
+    const { result, rerender } = renderHook(
+      ({ mode }) => useListEstimate(['a'], { patients: 151, atATime: 3, mode }),
+      { initialProps: { mode: undefined as undefined | 'train' | 'reuse' } },
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    expect(api.estimate).toHaveBeenCalledTimes(1)
+    expect(result.current.scheduleSeconds).toBe(840)
+
+    // Same selection + same arguments, but the run kind changed: the cached
+    // absent-mode answer is NOT the train-mode answer.
+    rerender({ mode: 'train' })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    expect(api.estimate).toHaveBeenCalledTimes(2)
+    expect(api.estimate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ method_ids: ['a'], mode: 'train' }),
+    )
+    expect(result.current.loading).toBe(false)
+    // And back to absent mode: the absent-mode entry in the cache (a
+    // different key — never the train-mode one) restores the totals with no
+    // request, so the two modes never share an estimate.
+    rerender({ mode: undefined })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    expect(api.estimate).toHaveBeenCalledTimes(2)
+    expect(result.current.scheduleSeconds).toBe(840)
+    expect(result.current.loading).toBe(false)
   })
 
   it('reports loading while in flight and keeps the previous totals (the "…" slot)', async () => {

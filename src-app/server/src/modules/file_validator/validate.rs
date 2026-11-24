@@ -793,6 +793,9 @@ fn build_inventory(resolved: &ResolvedRequest) -> InventoryEligibilityRequest {
         // The validator does not see the method filters (they belong to the
         // screens' filters form); the consumer adds the `filters` block on top.
         filters: None,
+        // Nor the run kind (the screens post the mode with the rest of the
+        // inventory); absent = today's estimate numbers.
+        mode: None,
     }
 }
 

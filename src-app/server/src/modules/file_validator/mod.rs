@@ -205,6 +205,7 @@ mod tests {
             covariates: Vec::new(),
             outcomes: None,
             filters: None,
+            mode: None,
         };
         assert_eq!(inv.patients, 0);
         // The provider's unit family is the app's one vocabulary (no duplicate

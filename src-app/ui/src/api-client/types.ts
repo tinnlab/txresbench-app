@@ -668,6 +668,14 @@ export interface EnvRef {
 }
 
 /**
+ * The run kind an estimate concerns — the only input the cross-check time
+ *  factor depends on. `train` is a learning run (the method is fitted on the
+ *  uploaded cohort and the shown chances are cross-checked); `reuse` is a
+ *  saved-model predict (no fit, no cross-check).
+ */
+export type EstimateMode = 'train' | 'reuse'
+
+/**
  * The estimate request: which methods, on how many patients, on how many
  *  CPUs, running `at_a_time` lanes.
  */
@@ -683,6 +691,15 @@ export interface EstimateRequest {
    */
   cpus?: number
   method_ids: string[]
+  /**
+   * The run kind the numbers are estimated for: `train` (a learning run —
+   *  a method that learns is also cross-fitted, see
+   *  [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model
+   *  predict). Absent (or `null`) is exactly today's estimate — no
+   *  cross-check factor and the full calibration snapshot — so existing
+   *  callers keep their numbers.
+   */
+  mode?: EstimateMode
   patients: number
 }
 
@@ -1085,6 +1102,13 @@ export interface InventoryEligibilityRequest {
    */
   marker_plan?: PlanBlock
   markers: InventoryMarker[]
+  /**
+   * The run kind the rows' `estimated_seconds` are for (see
+   *  [`EstimateRequest::mode`]): `train` on the method-chosen screen (a
+   *  learning run — a row for a method that learns carries the cross-check
+   *  time factor), `reuse` or absent = today's numbers exactly.
+   */
+  mode?: EstimateMode
   /**
    * The outcome-column facts of the file, when the consumer knows them
    *  (absence skips the outcome-availability checks — a request without them

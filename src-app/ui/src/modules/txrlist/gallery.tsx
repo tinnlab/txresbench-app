@@ -116,6 +116,10 @@ function EStoryView() {
   const estimate = useListEstimate([...selected], {
     patients: TXRLIST_INVENTORY.patients,
     atATime,
+    // The E story is the learning-run screen (the same page the real flow
+    // uses, which always creates a train run): the estimate and the rows
+    // carry the cross-check time factor.
+    mode: 'train',
   })
 
   return (

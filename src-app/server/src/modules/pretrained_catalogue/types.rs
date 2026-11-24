@@ -1153,6 +1153,7 @@ mod tests {
                 has_survival_day: true,
             }),
             filters: None,
+            mode: None,
         };
 
         // The provider's own union wraps THE SAME value (imported type): the

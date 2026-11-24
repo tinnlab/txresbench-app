@@ -784,6 +784,9 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       patients: 18,
       cpus: undefined,
       at_a_time: 3,
+      // This screen only builds learning runs, so the estimate carries the
+      // cross-check time factor (the server's one source of truth).
+      mode: 'train',
     })
     expect(screen.getByTestId('txr-run-bar-time').textContent).toContain(
       'under 1 min (3 at a time)',
@@ -1327,6 +1330,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(firstCall.inventory.covariates).toEqual([
       { key: 'age', display_name: 'age', standard_ids: [], unit_family: 'none' },
     ])
+    expect(firstCall.inventory.mode).toBe('train')
 
     // A decision-day change recomputes: the inventory key changed, so the
     // adapter refetches and the re-check line is visible while in flight.
@@ -1351,6 +1355,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
     expect(lastCall.inventory.decision_day).toBe(28)
     expect(lastCall.inventory.covariates.length).toBe(1)
+    expect(lastCall.inventory.mode).toBe('train')
   })
 
   it('a persisted unknown disease is never sent on E — the filters block is sanitized by the vocabulary (5a3)', async () => {

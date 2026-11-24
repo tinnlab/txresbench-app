@@ -8942,6 +8942,21 @@
           "digest"
         ]
       },
+      "EstimateMode": {
+        "description": "The run kind an estimate concerns — the only input the cross-check time\n factor depends on. `train` is a learning run (the method is fitted on the\n uploaded cohort and the shown chances are cross-checked); `reuse` is a\n saved-model predict (no fit, no cross-check).",
+        "oneOf": [
+          {
+            "description": "A learning run: a method that learns from the cohort is also fitted\n three more times to check its chances, so its estimate carries\n [`calibration::CROSSCHECK_TIME_FACTOR`] when the app has not measured it.",
+            "type": "string",
+            "const": "train"
+          },
+          {
+            "description": "A saved-model reuse run: the model predicts with no fit — the\n estimate is the pre-cross-check numbers, exactly as before.",
+            "type": "string",
+            "const": "reuse"
+          }
+        ]
+      },
       "EstimateRequest": {
         "description": "The estimate request: which methods, on how many patients, on how many\n CPUs, running `at_a_time` lanes.",
         "type": "object",
@@ -8968,6 +8983,17 @@
             "items": {
               "type": "string"
             }
+          },
+          "mode": {
+            "description": "The run kind the numbers are estimated for: `train` (a learning run —\n a method that learns is also cross-fitted, see\n [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model\n predict). Absent (or `null`) is exactly today's estimate — no\n cross-check factor and the full calibration snapshot — so existing\n callers keep their numbers.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EstimateMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "patients": {
             "type": "integer",
@@ -9823,6 +9849,17 @@
             "items": {
               "$ref": "#/components/schemas/InventoryMarker"
             }
+          },
+          "mode": {
+            "description": "The run kind the rows' `estimated_seconds` are for (see\n [`EstimateRequest::mode`]): `train` on the method-chosen screen (a\n learning run — a row for a method that learns carries the cross-check\n time factor), `reuse` or absent = today's numbers exactly.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EstimateMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "outcomes": {
             "description": "The outcome-column facts of the file, when the consumer knows them\n (absence skips the outcome-availability checks — a request without them\n is not misclassified by the engine).",
