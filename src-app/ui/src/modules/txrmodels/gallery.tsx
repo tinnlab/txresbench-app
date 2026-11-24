@@ -1,8 +1,9 @@
 /**
  * txrmodels dev-gallery surfaces (ITEM-10; PROV-UI-MODELS-6) — the module's
- * nine seeded stories, one per board state, all fed by the mock cassette
- * over the synthetic `fixtures.ts` (INV-4: every value is fixture data;
- * the boards' example facts never enter code or data).
+ * seeded stories, one per board state (the plan's nine) plus the ITEM-5 /
+ * one-table / part-2 / shell-route state stories, all fed by the mock
+ * cassette over the synthetic `fixtures.ts` (INV-4: every value is fixture
+ * data; the boards' example facts never enter code or data).
  *
  * Stories mount the REAL pages under the gallery's MemoryRouter (the
  * `txrresults` precedent), so `useParams`/`useNavigate`/`useSearchParams`
@@ -331,22 +332,20 @@ function seedIStory(): void {
   })
 }
 
-/** The J story's seed: the server-filtered inventory answer (the J fixture
- *  rows with the board's imported row; the shared `Models.listModels`
- *  cassette is the I story's family, so this story's re-answer is
- *  scoped by the request's `q`/`set_id` — a search view serves the
- *  honest subset). */
+/** The J story's seed: the inventory answer (the J fixture rows with the
+ *  board's imported row; the shared `Models.listModels` cassette is the I
+ *  story's family, so this story re-answers it). Part 2: the page loads the
+ *  FULL list (the search is client-side — no `q` on the wire), so the seed
+ *  is the unfiltered J payload; the `?set=` focus filter stays (the URL
+ *  view still sends `set_id`). */
 function seedJStory(): void {
   extendCassette({
     'Models.listModels': (ctx: MockRequestContext) => {
-      const query = ctx.query
-      const q = (query.q ?? '').toLowerCase()
-      const setId = query.set_id ?? null
-      const models = TXRMODELS_J_RESPONSE.models.filter(model => {
-        if (setId !== null && model.set_id !== setId) return false
-        if (q.length === 0) return true
-        return `${model.name} ${model.method_id}`.toLowerCase().includes(q)
-      })
+      const setId = ctx.query.set_id ?? null
+      const models =
+        setId === null
+          ? TXRMODELS_J_RESPONSE.models
+          : TXRMODELS_J_RESPONSE.models.filter(model => model.set_id === setId)
       return { models, total: models.length, models_dir: TXRMODELS_J_RESPONSE.models_dir }
     },
   })
@@ -466,15 +465,67 @@ function IStoryView() {
  *  controls wrap (ITEM-5, RES-16 — the measured 1002 px page scrollWidth
  *  is the defect this story guards). The `expanded` frame is the ONE-table
  *  state where a set is already open (the module-level store, toggled by
- *  the same helper the chevron calls). */
-function JStoryView({ narrow = false, expanded = false }: { narrow?: boolean; expanded?: boolean }) {
+ *  the same helper the chevron calls); the `search` / `sortSet` frames are
+ *  part 2's states — the search text and the sort are the PAGE's own
+ *  component state, so the story drives the real input/button once after
+ *  mount (`JStateDriver`, dev-only chrome; the page never changes for it). */
+function JStoryView({
+  narrow = false,
+  expanded = false,
+  search,
+  sortName = false,
+}: {
+  narrow?: boolean
+  expanded?: boolean
+  search?: string
+  sortName?: boolean
+}) {
   return (
     <section style={{ width: narrow ? 390 : '100%', maxWidth: '100%', minWidth: 0 }}>
       <SeedGate seed={expanded ? seedJStoryExpanded : seedJStory}>
         <ModelsPage />
+        <JStateDriver search={search} sortName={sortName} />
       </SeedGate>
     </section>
   )
+}
+
+/** The part-2 J story state drivers: after the page mounts, SEARCHES the
+ *  real box (the native-setter pattern — React's controlled input ignores
+ *  a plain `value` assignment; the bubbles `input` event carries it) or
+ *  clicks the real Name sort header. The search input exists at mount (the
+ *  page header), the sort button only after the table lands — the sort
+ *  driver polls until it appears (dev-only chrome; the page never changes
+ *  for it). */
+function JStateDriver({ search, sortName }: { search?: string; sortName?: boolean }) {
+  const done = useRef(false)
+  useEffect(() => {
+    if (done.current) return
+    done.current = true
+    if (search !== undefined) {
+      const input = document.querySelector<HTMLInputElement>(
+        '[data-testid="txr-models-j-search"]',
+      )
+      if (input !== null) {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+        setter?.call(input, search)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+    }
+  }, [search])
+  useEffect(() => {
+    if (!sortName) return
+    const timer = setInterval(() => {
+      const button = document.querySelector<HTMLButtonElement>(
+        '[data-testid="txr-models-sort-name"]',
+      )
+      if (button === null) return
+      clearInterval(timer)
+      button.click()
+    }, 50)
+    return () => clearInterval(timer)
+  }, [sortName])
+  return null
 }
 
 /**
@@ -722,7 +773,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-models-j',
       title: 'Your models (screen J)',
-      note: 'The ONE-table inventory over the server-filtered read: a set row per set (newest first — chevron disclosure, the name with its run-source facts line under it, the "N models" Model column, the Made date, the Rename/Export/Delete set actions), CLOSED by default, the no-set imported row as a plain top-level row with an empty Set entry, the board columns, the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the Open-a-model-file button, the footnotes (web mode — no open-folder button).',
+      note: 'The ONE-table inventory over the full read (sort/search are the page\'s now, not the server\'s): a set row ("folder") per set — Made newest first by default with folders on top (the set rows first, the no-set imported row as a plain top-level row after them, never mixed in); chevron disclosure, the folder glyph, the name with the "(N)" count beside it (the screen-reader-only "N models" text), the run-source facts line under the name, the Made date, the Rename/Export/Delete set actions — CLOSED by default; the board columns (Name | Method | Predicts | Decision day | Trained on | Made), the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the sortable Name and Made headers (buttons inside the aria-sort th), the ONE Search sets and models box (client-side), the Open-a-model-file button, the footnotes (web mode — no open-folder button).',
       path: '/models',
       initialPath: '/models',
       component: lazy(() => Promise.resolve({ default: JStoryView })),
@@ -731,7 +782,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-models-j-expanded',
       title: 'Your models — one set expanded (screen J)',
-      note: 'The one-table round\'s expanded state: set-a is already OPEN (the module-level store the chevron writes), so its two model rows sit indented below the set row, the other set stays closed, and the no-set imported row remains a plain top-level row — the table\'s rows scroll inside the window-filling box.',
+      note: 'The one-table round\'s expanded state: set-a is already OPEN (the module-level store the chevron writes), so its two model rows sit indented below the folder row, the other set stays closed, and the no-set imported row remains a plain top-level row after every set — the table\'s rows scroll inside the window-filling box.',
       path: '/models',
       initialPath: '/models',
       component: lazy(() => Promise.resolve({ default: () => <JStoryView expanded /> })),
@@ -740,12 +791,30 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-models-j-narrow-390',
       title: 'Your models at 390 px (screen J)',
-      note: 'The board\'s mobile width: the eight-column one-table stacks as labelled cards inside the same window-filling box (a set row is a card: name + facts on top, actions wrapped; empty entries carry no card), the search box takes the row and the Open-a-model-file button stays inside the viewport — no horizontal page overflow (ITEM-5, RES-16).',
+      note: 'The board\'s mobile width: the seven-column one-table stacks as labelled cards inside the same window-filling box (a folder row is a card: name + count + facts on top, actions wrapped below; empty entries carry no card — the merged Name column labels a model row "Name"), the search box takes the row and the Open-a-model-file button stays inside the viewport — no horizontal page overflow (ITEM-5, RES-16).',
       path: '/models',
       initialPath: '/models',
       component: lazy(() =>
         Promise.resolve({ default: () => <JStoryView narrow /> }),
       ),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-models-j-search',
+      title: 'Your models — client-side search (screen J)',
+      note: 'Part 2\'s search state: the ONE box holds "cox" — a MODEL match on both sets (fm-11, fm-12, fm-15) — so the folder rows are FORCED expanded with only the matches (the store was never written: the chevrons flip back to closed when the search clears) and the Name cell reads the "(1 of 7 models match)" / "(2 of 3 models match)" counts.',
+      path: '/models',
+      initialPath: '/models',
+      component: lazy(() => Promise.resolve({ default: () => <JStoryView search="cox" /> })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-models-j-sort-name',
+      title: 'Your models — sorted by Name A→Z (screen J)',
+      note: 'Part 2\'s sort state: the Name header is the active sort (aria-sort=ascending, the direction arrow beside the word), the sets are A→Z (CRC cohort before Lung pilot), and the no-set imported row stays AFTER every set — sorted on its own block by its own name in both directions.',
+      path: '/models',
+      initialPath: '/models',
+      component: lazy(() => Promise.resolve({ default: () => <JStoryView sortName /> })),
       fullHeight: true,
     },
     {

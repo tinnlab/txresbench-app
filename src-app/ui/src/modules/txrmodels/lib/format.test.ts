@@ -42,6 +42,7 @@ import {
   formatSetFacts,
   formatSetMade,
   formatSetModelCount,
+  formatSetModelMatchText,
   formatTrainingDataWarning,
   formatTrainedOn,
 } from './format'
@@ -304,6 +305,15 @@ describe('formatSetModelCount / formatSetMade — the J set row columns (TEST-MO
     expect(formatSetMade(null)).toBe(UNRECORDED)
     expect(formatSetMade(undefined)).toBe(UNRECORDED)
     expect(formatSetMade('not-a-date')).toBe(UNRECORDED)
+  })
+
+  it('spells the partial-search match count as the one "{m} of {n} models match" string', () => {
+    // The brief's example: the set's Model column under a partial search —
+    // never a `matches` agreement, never a singular `model` form.
+    expect(formatSetModelMatchText(2, 3)).toBe('2 of 3 models match')
+    expect(formatSetModelMatchText(1, 7)).toBe('1 of 7 models match')
+    expect(formatSetModelMatchText(3, 3)).toBe('3 of 3 models match')
+    expect(formatSetModelMatchText(1, 1)).toBe('1 of 1 models match')
   })
 })
 

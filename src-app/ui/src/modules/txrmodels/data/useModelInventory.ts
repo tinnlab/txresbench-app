@@ -51,8 +51,10 @@ function errorMessage(err: unknown): string {
 }
 
 export interface UseModelInventoryOptions {
-  /** The search-input text (the hook owns the debounce to the server `q`). */
-  query: string
+  /** The search-input text (the hook owns the debounce to the server `q`);
+   *  omitted = the unfiltered read (the J page's client-side search sends
+   *  no `q` at all — the part-2 search lives in the page). */
+  query?: string
   /** The `?set=` focus (DEC-19); null = the unfiltered inventory. */
   setId: string | null
 }
@@ -72,7 +74,7 @@ export interface UseModelInventoryResult {
 export function useModelInventory(
   options: UseModelInventoryOptions,
 ): UseModelInventoryResult {
-  const { query: rawQuery, setId } = options
+  const { query: rawQuery = '', setId } = options
 
   // The debounced query: the raw text is staged, the settled copy is the
   // wire value. Seeded with the mount value, so the first read fires

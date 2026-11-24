@@ -752,24 +752,25 @@ html.txr-shell-mode-shell #root {
     font-weight: 600;
     color: var(--txr-muted);
   }
-  /* ONE-TABLE: a cell with no content carries no card — a model row's empty
-   * Set cell (the set stamps the row above it) and a set row's empty
-   * Method / Predicts / Decision day / Trained on cells stay out of the
-   * stacked layout (the `:empty` true-empty cells are rendered without any
-   * child node). */
+  /* ONE-TABLE: a cell with no content carries no card — a folder row's
+   * empty Method / Predicts / Decision day / Trained on cells stay out of
+   * the stacked layout (the `:empty` true-empty cells are rendered without
+   * any child node). */
   .txr-models-j-table > tbody > tr th:empty,
   .txr-models-j-table > tbody > tr td:empty {
     display: none;
   }
-  /* ONE-TABLE: a SET row is a card — the name + facts line on top, the
-   * actions wrapped (the row's own header words read; never a "Set:"
+  /* ONE-TABLE: a SET row is a card — the name + count + facts line on top,
+   * the actions wrapped (the row's own header words read; never a "Set:"
    * label), and an in-set model's desktop indent is dropped (the cards
    * stack flat). */
   .txr-models-j-table > tbody > tr.txr-models-j-set-row th::before,
   .txr-models-j-table > tbody > tr.txr-models-j-set-row td::before {
     content: none;
   }
-  .txr-models-j-table > tbody > tr th[data-label='Model'] {
+  /* brief 7 — the merged Name column: the cards stack flush (the in-set
+   * model's desktop indent is dropped, as below). */
+  .txr-models-j-table > tbody > tr th[data-label='Name'] {
     padding-left: 14px !important;
   }
 }

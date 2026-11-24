@@ -333,6 +333,18 @@ export function formatSetModelCount(count: number): string {
 }
 
 /**
+ * The set row's Model-column count during a PARTIAL client-side search
+ * (part 2 — the brief's "@matchCount of @total models match"): the matches
+ * over the set's total, the SAME total the plain "3 models" entry spells,
+ * always in the one plan string "{m} of {n} models match" (never a
+ * `matches` agreement, never a singular `model` form — "1 of 7 models
+ * match", "2 of 3 models match", "1 of 1 models match").
+ */
+export function formatSetModelMatchText(matchCount: number, total: number): string {
+  return `${matchCount} of ${total} models match`
+}
+
+/**
  * The set row's Made-column entry (ONE-TABLE round — the set's made date
  * moved from the facts line's "made <date>" part into this column):
  * "21 Oct 2026" through the same en-GB day-month-year formatter; a missing

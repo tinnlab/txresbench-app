@@ -309,20 +309,49 @@ function sectionSubtitle(set: SetSummary, models: ModelSummary[]): string {
  * descriptors built from the inventory models × the sets read:
  *
  * - a SET row per set the inventory knows (the group header row: the set
- *   name, its record's facts, the Model-column count, the Made date, the set
+ *   name, its record's facts, the Name-cell count, the Made date, the set
  *   actions) with the set's listed models; the model rows FOLLOW the set
- *   row only when the set is expanded (`expanded`) or focused (`?set=` —
- *   the focus view shows exactly that one set, always expanded);
+ *   row only when the set is expanded (`expanded`), focused (`?set=` — the
+ *   focus view shows exactly that one set, always expanded) or the
+ *   client-side search FORCED it (a model match — see below);
  * - a MODEL row for every listed model of an expanded set (`inSet: true` —
- *   the page indents it in the Model column) and, at the TOP level, the
+ *   the page indents it in the Name column) and, at the TOP level, the
  *   models with no set (`inSet: false`) — there is no "Not in a set"
  *   section any more, and no `MODEL_SET_NONE_KEY`: an unsetted model is a
- *   plain row with an empty Set entry.
+ *   plain top-level row (never indented, never empty in Name). Inside a set
+ *   the model rows follow the CURRENT sort (the Made direction under the
+ *   Made sort, the Name direction under the Name sort — brief 7).
  *
- * Ordering: known sets by `created_at` desc (newest first), then the
- * sets-read-not-answered fallback groups (newest row first), then the
- * top-level no-set model rows. A group with no listed model is omitted
- * (the server-side `q`/`?set=` filters leave only the matching groups).
+ * ORDERING (brief 7 — FOLDER-STYLE: the sort owns the row order, never
+ * the component; the SET rows come ALWAYS FIRST, then the top-level
+ * no-set models, in EVERY sort and direction — "folders on top"):
+ *
+ * - `sort.by === 'made'`: the set rows by the set's made date (the
+ *   fallback group's newest model `created_at` while the sets read has not
+ *   answered), newest first at birth — OLDEST first when the Made
+ *   direction flips; then the top-level no-set models by their own
+ *   `created_at`, in the SAME direction; each block is sorted on its own;
+ *   a model row inside an expanded set follows the direction too (newest
+ *   first / oldest first); an unparseable instant sorts LAST in both
+ *   directions;
+ * - `sort.by === 'name'`: the set rows by set name, then the top-level
+ *   no-set models by model name — each block case-insensitive
+ *   `localeCompare`, A→Z / Z→A, on its own; the models inside a set follow
+ *   the SAME name direction.
+ *
+ * SEARCH (part 2 — the page loads the full model list and filters here over
+ * the sets read; `options.search` is the raw input text, trimmed):
+ *
+ * - a SET-NAME match (case-insensitive substring of the set row's name)
+ *   shows the set row with ALL its models and keeps the set's own expand
+ *   state (`match: 'all'` — the set-name match WINS over model matches);
+ * - a MODEL match (the model's name or method id) shows the model; when it
+ *   is in a set, that set row is shown EXPANDED with ONLY the matching
+ *   models (`match: 'partial'`, `matchCount` = the matches) — the forced
+ *   expansion is a view-only arm, never written to the `expanded` store;
+ * - a matching no-set model is a plain top-level row; nothing matches →
+ *   the empty list (the page spells the no-match line); no search text →
+ *   every row, expansion as the store says.
  *
  * The `sets` contract is the old builder's: `null` means the sets read has
  * NOT answered yet (or failed) — the grouping degrades to the rows' own
@@ -335,7 +364,7 @@ function sectionSubtitle(set: SetSummary, models: ModelSummary[]): string {
  * The `expanded` set is the module-level expansion store's snapshot (the
  * sets are CLOSED by default); the `focusSetId` is the `?set=` param — the
  * focus view overrides both expansion and the no-set rows (only that set's
- * rows exist while focused).
+ * rows exist while focused, and the search still applies inside it).
  */
 export type ModelTableRow =
   | {
@@ -348,33 +377,60 @@ export type ModelTableRow =
       /** The set's record (the facts source); null for a fallback group. */
       set: SetSummary | null
       /** The models listed under this set, in the inventory list's order
-       *  (the server's `q`/`?set=` filters are already applied). */
+       *  (a search narrows this to the matches — see `match`). */
       models: ModelSummary[]
-      /** The count the set row's Model column spells: the set's
-       *  `model_count` (the engine's fact — the old facts line's count —
-       *  never the listed count) when the record is known, else the listed
-       *  count. */
+      /** The count the set row's Name cell spells (the `(3)` visible count
+       *  with its "3 models" sr text): the set's `model_count` (the
+       *  engine's fact — the old facts line's count — never the listed
+       *  count) when the record is known, else the listed count. */
       modelCount: number
-      /** The number of LISTED (post-filter) models — the match-count the
-       *  plan's descriptor names; the part-2 client-side search's future
-       *  surface (a collapsed set with matches stays collapsed in this
-       *  commit, so the page does not spell it yet). */
+      /** The number of LISTED models under the search filter: the full
+       *  listed count for a set-name match / no search, the matches'
+       *  count for a partial model match. */
       matchCount: number
+      /** The client-side search's verdict on this set: `'all'` (the set
+       *  NAME matched — every listed model is shown, the set keeps its
+       *  own expand state), `'partial'` (only some listed models match —
+       *  the row is FORCED expanded with just the matches), `null` (no
+       *  search text, or the search missed this set and it is not shown). */
+      match: 'all' | 'partial' | null
     }
   | {
       kind: 'model'
       model: ModelSummary
       /** True when the row belongs to the set row above it (indented in
-       *  the Model column); false for a no-set top-level row. */
+       *  the Name column); false for a no-set top-level row. */
       inSet: boolean
     }
 
-/** The builder's view options (the expansion state + the `?set=` focus). */
+/** The one table's sort (part 2 — two sortable column headers, `Name` and
+ *  `Made`; the ordering is the BUILDER's, never the component's). */
+export interface ModelTableSort {
+  /** `'made'` = the made dates (the set rows block first — folders on
+   *  top — then the top-level no-set models block, each on its own);
+   *  `'name'` = the names (the set rows by set name, then the no-set
+   *  models by model name, both case-insensitive). */
+  by: 'name' | 'made'
+  /** ascending (`A→Z` / oldest first) or descending (`Z→A` / newest
+   *  first). */
+  direction: 'asc' | 'desc'
+}
+
+/** The birth sort: Made, newest first. */
+export const MODEL_TABLE_DEFAULT_SORT: ModelTableSort = { by: 'made', direction: 'desc' }
+
+/** The builder's view options (the expansion state + the `?set=` focus +
+ *  the part-2 client-side search and sort). */
 export interface ModelTableOptions {
   /** The expanded set ids (the module-level store's snapshot). */
   expanded: ReadonlySet<string>
   /** The `?set=` focus: only that set's rows, always expanded. */
   focusSetId: string | null
+  /** The search-box text (trimmed in the builder; `''` = no search). */
+  search: string
+  /** The column sort (the page owns the state — `MODEL_TABLE_DEFAULT_SORT`
+   *  at birth). */
+  sort: ModelTableSort
 }
 
 export function buildModelTableRows(
@@ -436,15 +492,72 @@ export function buildModelTableRows(
     })
   }
 
-  // The view: the focus keeps ONLY the focused set (always expanded); the
-  // unfocused view drops empty groups (the server filters) and shows every
-  // other group with its set row, followed by the no-set top-level rows.
+  const query = options.search.trim().toLowerCase()
+  const searching = query.length > 0
   const focus = options.focusSetId
-  const visible =
-    focus === null ? groups.filter(group => group.models.length > 0) : groups.filter(group => group.key === focus)
+
+  /** One group the table will show, with the search filter applied: which
+   *  of its models are listed, whether the search matched the group BY
+   *  NAME (all models, own expand state) or by its MODELS (only the
+   *  matches, forced expanded), and whether the model rows are forced into
+   *  the view. */
+  interface Shown {
+    group: Group
+    models: ModelSummary[]
+    match: 'all' | 'partial' | null
+    forced: boolean
+  }
+  const shownGroups: Shown[] = []
+  const shownUnsetted: ModelSummary[] = []
+
+  for (const group of groups) {
+    // The `?set=` focus keeps only the focused group (never the no-set
+    // rows); the unfocused view drops empty groups.
+    if (focus !== null && group.key !== focus) continue
+    if (searching) {
+      // A set-name match WINS over its model matches: all models show and
+      // the set keeps its own expand state; a model-only match FORCES the
+      // view expanded with just the matches (the store is untouched).
+      const nameMatch = group.name.toLowerCase().includes(query)
+      const matches = group.models.filter(model => modelMatches(model, query))
+      if (nameMatch) {
+        shownGroups.push({ group, models: group.models, match: 'all', forced: false })
+      } else if (matches.length > 0) {
+        shownGroups.push({ group, models: matches, match: 'partial', forced: true })
+      }
+      continue
+    }
+    if (group.models.length > 0 || focus !== null) {
+      shownGroups.push({ group, models: group.models, match: null, forced: false })
+    }
+  }
+  // The top-level no-set rows belong to the UNFOCUSED inventory only (the
+  // `?set=` focus is one set's view — part 1's byte; the search applies
+  // inside it, never reaching out to the no-set rows).
+  if (focus === null) {
+    if (searching) {
+      for (const model of unsetted) {
+        if (modelMatches(model, query)) shownUnsetted.push(model)
+      }
+    } else {
+      shownUnsetted.push(...unsetted)
+    }
+  }
+
+  /** A shown group's model rows follow the CURRENT sort (brief 7): the
+   *  Made direction (newest first at birth, OLDEST first when the Made
+   *  direction flips) under the Made sort, the same Name direction
+   *  (A→Z / Z→A, case-insensitive) under the Name sort. */
+  const groupModels = (shown: Shown): ModelSummary[] => {
+    if (shown.models.length <= 1) return shown.models
+    return sortByMade(options.sort)
+      ? modelMadeOrder(shown.models, options.sort.direction)
+      : modelNameOrder(shown.models, options.sort.direction)
+  }
 
   const rows: ModelTableRow[] = []
-  for (const group of visible) {
+  const emitGroup = (shown: Shown): void => {
+    const group = shown.group
     rows.push({
       kind: 'set',
       key: group.key,
@@ -452,16 +565,123 @@ export function buildModelTableRows(
       set: group.set,
       models: group.models,
       modelCount: group.modelCount,
-      matchCount: group.matchCount,
+      matchCount: shown.match === 'partial' ? shown.models.length : group.matchCount,
+      match: shown.match,
     })
-    if (focus !== null || options.expanded.has(group.key)) {
-      for (const model of group.models) rows.push({ kind: 'model', model, inSet: true })
+    if (focus !== null || shown.forced || options.expanded.has(group.key)) {
+      for (const model of groupModels(shown)) rows.push({ kind: 'model', model, inSet: true })
     }
   }
-  if (focus === null) {
-    for (const model of unsetted) rows.push({ kind: 'model', model, inSet: false })
+
+  if (sortByMade(options.sort)) {
+    // Made, folders on top: the set rows first (by the set's made date —
+    // the fallback group's newest listed model), then the top-level
+    // no-set models (by their own created_at) — each block sorted on its
+    // own, in the SAME direction (newest first at birth, oldest first
+    // when the Made direction flips).
+    const groupsByMade = shownGroups
+      .slice()
+      .sort((a, b) =>
+        compareMade(
+          { instant: groupMadeInstant(a.group) },
+          { instant: groupMadeInstant(b.group) },
+          options.sort.direction,
+        ),
+      )
+    for (const shown of groupsByMade) emitGroup(shown)
+    const looseByMade = shownUnsetted
+      .slice()
+      .sort((a, b) =>
+        compareMade(
+          { instant: dateInstant(a.created_at) },
+          { instant: dateInstant(b.created_at) },
+          options.sort.direction,
+        ),
+      )
+    for (const model of looseByMade) {
+      rows.push({ kind: 'model', model, inSet: false })
+    }
+  } else {
+    // Name, folders on top: the set rows by set name (A→Z / Z→A,
+    // case-insensitive), then the top-level no-set models by model name in
+    // the same direction — each block sorted on its own.
+    const byName = shownGroups
+      .slice()
+      .sort((a, b) => compareNames(a.group.name, b.group.name, options.sort.direction))
+    for (const shown of byName) emitGroup(shown)
+    const looseByName = shownUnsetted
+      .slice()
+      .sort((a, b) => compareNames(a.name, b.name, options.sort.direction))
+    for (const model of looseByName) {
+      rows.push({ kind: 'model', model, inSet: false })
+    }
   }
   return rows
+}
+
+/** True when the sort is the `made` column's (the date-block arm vs the
+ *  name-block arm). */
+function sortByMade(sort: ModelTableSort): boolean {
+  return sort.by === 'made'
+}
+
+/** The made instant a set row counts in the `made` sort: the set's own
+ *  `created_at`; a fallback group (the sets read not answered) counts by
+ *  its newest listed model — the same fact the fallback ordering used. */
+function groupMadeInstant(group: { set: SetSummary | null; models: ModelSummary[] }): number {
+  if (group.set !== null) return dateInstant(group.set.created_at)
+  return newestInstant(group.models)
+}
+
+/** A model row's search verdict: the model's display name or its method id
+ *  holds the query (case-insensitive substring), the search's whole rule. */
+function modelMatches(model: ModelSummary, substring: string): boolean {
+  return (
+    model.name.toLowerCase().includes(substring) ||
+    model.method_id.toLowerCase().includes(substring)
+  )
+}
+
+/** The made-order comparator (both directions): an unparseable instant
+ *  (`-Infinity` — `dateInstant`'s unknown-date marker) sorts LAST, never
+ *  first, so a NaN comparison can never place an unknown date arbitrarily. */
+function compareMade(
+  a: { instant: number },
+  b: { instant: number },
+  direction: 'asc' | 'desc',
+): number {
+  if (a.instant === -Infinity && b.instant === -Infinity) return 0
+  if (a.instant === -Infinity) return 1
+  if (b.instant === -Infinity) return -1
+  return direction === 'asc' ? a.instant - b.instant : b.instant - a.instant
+}
+
+/** The name comparator (both directions): case-insensitive
+ *  `localeCompare` (the brief's rule), ascending or descending. */
+function compareNames(a: string, b: string, direction: 'asc' | 'desc'): number {
+  const c = a.localeCompare(b, undefined, { sensitivity: 'base' })
+  return direction === 'asc' ? c : -c
+}
+
+/** The models in the Name direction (case-insensitive `localeCompare` —
+ *  the row order inside an expanded set under the Name sort, and the
+ *  top-level no-set models' order). */
+function modelNameOrder(models: ModelSummary[], direction: 'asc' | 'desc'): ModelSummary[] {
+  return models.slice().sort((a, b) => compareNames(a.name, b.name, direction))
+}
+
+/** The models in the Made direction (an unparseable instant LAST in both
+ *  directions — `dateInstant`'s -Infinity marker, never a NaN placement):
+ *  the row order inside an expanded set under the Made sort. */
+function modelMadeOrder(models: ModelSummary[], direction: 'asc' | 'desc'): ModelSummary[] {
+  return models.slice().sort((a, b) => {
+    const ta = dateInstant(a.created_at)
+    const tb = dateInstant(b.created_at)
+    if (ta === -Infinity && tb === -Infinity) return 0
+    if (ta === -Infinity) return 1
+    if (tb === -Infinity) return -1
+    return direction === 'asc' ? ta - tb : tb - ta
+  })
 }
 
 /** The instant a date string names; an unparseable string is -Infinity —

@@ -8,27 +8,42 @@
  *
  * THE PAGE (the ITEM-1 chrome is the frame this item fills in):
  *
- * - the header: the board title + the permanent subtitle + the search
- *   input ("Search models" — the SERVER-side `q` filter, debounced 250 ms
- *   in the data hook; a substring on name / method id) + "Open a model
+ * - the header: the board title + the permanent subtitle + the ONE
+ *   search box ("Search sets and models" — the part-2 CLIENT-side search:
+ *   this page loads the full model list, no `q` on the wire, no debounce,
+ *   and filters in the page over the sets read: a set-name match shows
+ *   the whole set, a model name/method-id match shows the model with its
+ *   set row expanded to just the matches — "2 of 3 models match" — and
+ *   clearing restores each set's own expand state; `useModelInventory`'s
+ *   `q` stays for its other callers) + the two SORTABLE headers, `Name`
+ *   and `Made` (buttons inside the `<th aria-sort>`; the state lives in
+ *   the page: Made newest first at birth, clicking toggles, clicking the
+ *   other column switches to it, Name starts A→Z; the ordering is the
+ *   pure `buildModelTableRows`'s, never the component's) + "Open a model
  *   file" (the multipart import: a file picker hands the picked container
  *   to `POST /api/txr/models/import` — CONS-UM-9 — with `set_id` when the
  *   set-focus view is active, then the list refreshes; a FAILURE surfaces
  *   inline: the page's steady "The model file could not be opened." line,
  *   except the server's 409 SET_NAME_TAKEN, which names the remedy);
  * - the ONE table (the one-table round — the user's "one table with set
- *   rows"): columns Set | Model | Method | Predicts | Decision day |
- *   Trained on | Made | Actions. A SET row is the group header: the
- *   chevron disclosure (module-level expansion store, CLOSED by default),
- *   the set name with its facts line UNDER it (from the run/file, training
- *   files kept), the Model column's "{N} models" count, the set's Made date,
- *   and the set actions (Rename set · Export set… · Delete set — the same
- *   handlers/dialogs as the old section headers). A MODEL row is the same
- *   board row as before (same columns, same sublines, same per-model actions
- *   and testids), with an empty Set entry and the Model entry indented when
- *   the row sits under a set. Models with no set are plain top-level rows
- *   (empty Set entry, no indentation) — the "Not in a set" section heading
- *   and its facts line are gone;
+ *   rows"; brief 7's FOLDER-STYLE layout: the Set and Model columns
+ *   merged into the one Name column): columns Name | Method | Predicts |
+ *   Decision day | Trained on | Made | Actions. A SET row is the folder:
+ *   the chevron disclosure (module-level expansion store, CLOSED by
+ *   default), the folder glyph (the project's icon set — lucide's
+ *   `Folder`, aria-hidden, never an emoji), the set name with the "(N)"
+ *   count beside it (the visible "(N)" is aria-hidden; the
+ *   screen-reader-only "N models" text is the one read — never both), the
+ *   facts line UNDER the name (from the run/file, training files kept),
+ *   the set's Made date, and the set actions (Rename set · Export set… ·
+ *   Delete set — the same handlers/dialogs as the old section headers);
+ *   the other entries are empty. While a search forces the set open with
+ *   only the matches, the count reads "(2 of 3 models match)" in place of
+ *   "(3)". A MODEL row is the same board row as before (same columns,
+ *   same sublines, same per-model actions and testids), with the Name
+ *   entry indented when the row sits under a set. Models with no set are
+ *   plain top-level rows (never indented, nothing is ever empty in Name)
+ *   — the "Not in a set" section heading and its facts line are gone;
  * - the window-filling box (the user's addendum): the table lives in the
  *   ONE box that takes the space left below the header + search row and
  *   above the footnotes (the page's flex spine), its height and width
@@ -44,17 +59,25 @@
  *   the footer (brief 4b F2); in FLOW mode (phone) the spine is the
  *   window height minus the 56 px shell header (brief 4b F3) so the box
  *   stays the scrollport there too. Phone width: the same box, the same
- *   data label card layout (a set row is a card: name + facts on top,
- *   actions wrapped); expanding a set reveals it inside the box
+ *   data label card layout (a folder row is a card: name + count + facts
+ *   on top, actions wrapped below; a loose model row is a card as before);
+ *   expanding a set reveals it inside the box
  *   (`scrollIntoView({ block: 'nearest' })` — the last model row first,
- *   F8);
+ *   F8), and a typed search reveals its FIRST match the same way (part 2
+ *   — the match's 44 px `scroll-margin-top` keeps it clear of the sticky
+ *   thead). Sort is a desktop-table feature; the phone cards keep the
+ *   default newest-first order (the sortable headers are hidden with the
+ *   thead there — no phone control, no second order);
  * - the `?set=` focus (DEC-19): READ from the URL — the provider's
  *   `set_id` filter — with the "Showing the set '<name>' · Show all"
  *   affordance that clears the param (screen K's set links target
  *   `modelsPath(setId)`). The focus view shows ONLY that set row, always
  *   expanded (the banner and Show all are unchanged), and its chevron is
  *   inert (`disabled`, still aria-expanded=true — the focus is the URL's,
- *   not a togglable view-state, brief 4b F7);
+ *   not a togglable view-state, brief 4b F7). The focus keeps working with
+ *   part 2's sort and search: the sort orders the focused set's rows, and
+ *   a search still filters inside it (a no-hit search in the focus view is
+ *   the honest no-match line);
  * - the footnotes: "Models are kept so you can use them for new
  *   patients." (qa-fixes4 ITEM-1, results-r3 R3-results-2: the board's
  *   "Models are stored in <path>" line + its "Open the folder" are gone —
@@ -75,7 +98,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, ArrowDown, ArrowUp, Folder } from 'lucide-react'
 import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
@@ -101,9 +124,15 @@ import {
   formatSetFacts,
   formatSetMade,
   formatSetModelCount,
+  formatSetModelMatchText,
   formatTrainedOn,
 } from '../lib/format'
-import { buildModelTableRows, type ModelTableRow } from '../lib/rows'
+import {
+  buildModelTableRows,
+  MODEL_TABLE_DEFAULT_SORT,
+  type ModelTableRow,
+  type ModelTableSort,
+} from '../lib/rows'
 import { isSetExpanded, toggleSetExpanded, expandedSetSnapshot } from '../lib/setExpansion'
 import { TxrDeleteModelDialog } from '../components/TxrDeleteModelDialog'
 import { TxrDeleteSetDialog } from '../components/TxrDeleteSetDialog'
@@ -219,6 +248,24 @@ const HEAD_LOOK: CSSProperties = {
 
 const HEAD_RIGHT: CSSProperties = { ...HEAD_LOOK, textAlign: 'right' }
 
+/** A sortable header's trigger: the header label IS the button (the
+ *  sortable look must not change the column's words — the active column's
+ *  th carries `aria-sort`, the button carries an arrow glyph). */
+const SORT_BUTTON: CSSProperties = {
+  padding: 0,
+  margin: -2,
+  fontSize: 'inherit',
+  fontWeight: 600,
+  color: 'inherit',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+}
+
+/** The active sort column's direction arrow (brand — the one hint the
+ *  sighted user has; `aria-sort` is the assistive truth). */
+const SORT_ARROW: CSSProperties = { color: 'var(--txr-brand)' }
+
 /** The board's screen-reader-only "Actions" header (a real column, a hidden label). */
 const VISUALLY_HIDDEN: CSSProperties = {
   position: 'absolute',
@@ -323,11 +370,21 @@ const SET_TOGGLE: CSSProperties = {
  *  the rotation is presentation only). */
 const CHEVRON: CSSProperties = { transition: 'transform 150ms', flexShrink: 0 }
 
-/** The set name block: the name + the facts line UNDER it (one wrapping
- *  line — phone width). */
+/** The set name block: the name line + the facts line UNDER it (one
+ *  wrapping line — phone width). */
 const SET_NAMES: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
+  minWidth: 0,
+}
+
+/** The set name line: the name + the "(N)" count beside it (the facts
+ *  line under it is the block's second row). */
+const SET_NAME_LINE: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'baseline',
+  gap: 6,
   minWidth: 0,
 }
 
@@ -335,6 +392,23 @@ const SET_NAMES: CSSProperties = {
 const SET_NAME: CSSProperties = {
   fontWeight: 700,
   color: 'var(--txr-text)',
+}
+
+/** The folder row's count "(N)" (muted — the sr-only "N models" text is
+ *  the assistive read; the visible "(N)" is aria-hidden). */
+const SET_COUNT: CSSProperties = {
+  fontWeight: 400,
+  fontSize: 12.5,
+  color: 'var(--txr-muted)',
+  whiteSpace: 'nowrap',
+}
+
+/** The folder glyph (the project's icon set — lucide's Folder; muted,
+ *  aria-hidden — the set name/actions speak for the row). */
+const FOLDER_ICON: CSSProperties = {
+  flexShrink: 0,
+  alignSelf: 'center',
+  color: 'var(--txr-muted)',
 }
 
 /** The set facts line (muted — the run/file source + training files kept). */
@@ -378,6 +452,12 @@ const IMPORT_FAILED_LINE = 'The model file could not be opened.'
 const IMPORT_NAME_TAKEN_LINE =
   'A set with this name already exists. Rename that set first, or open the file from inside it to add its models.'
 
+/** The response-null fallback's models: ONE frozen shared empty list. The
+ *  `?? []` fallback allocates a fresh array on every render while the
+ *  first read is still in flight (a new `models` identity also re-runs the
+ *  rows memo); the frozen module-level constant never changes. */
+const EMPTY_MODELS = Object.freeze([] as ModelSummary[]) as ModelSummary[]
+
 /** True for the server's `SET_NAME_TAKEN` import refusal (the framework
  *  transport attaches the server's `error_code` to the thrown Error —
  *  `error_code`, the one stable machine code, never the message). */
@@ -409,7 +489,8 @@ function errorText(error: unknown): string {
  *  — the set row reads ONLY engine facts, never a constant):
  *
  * - a real set: the set's run/file/source fact + `keep_training_files`
- *   (the count and the made date live in the Model and Made columns now);
+ *   (the count is the Name cell's "(N)" beside the name, the made date
+ *   is the Made column's entry now);
  * - a fallback group (the sets read not answered / failed): no set facts
  *   exist — `""` (the page renders no facts line; the rows present the
  *   facts individually).
@@ -497,7 +578,16 @@ export function ModelsPage() {
   const demoUsage = useDemoUsage(isDemo)
 
   const [search, setSearch] = useState('')
-  const inventory = useModelInventory({ query: search, setId })
+  // Part 2: the search is CLIENT-side — this page reads the FULL model
+  // list (never a `q` on the wire; the generated endpoint has no
+  // pagination, DEC-19) and filters in the page over the sets read, so the
+  // input is responsive with no debounce. `useModelInventory`'s `q` arm
+  // stays for its other callers; here the query is omitted (the hook
+  // defaults it to the empty string — the same read).
+  const inventory = useModelInventory({ setId })
+  // The sort state (the page owns it; the pure row builder turns it into
+  // the row order — never the component).
+  const [sort, setSort] = useState<ModelTableSort>(MODEL_TABLE_DEFAULT_SORT)
   // The sets read is the set rows' facts source (model_count, source_label,
   // created_at, keep_training_files) — loaded and refreshed with the model
   // list (a mutation can change a set's rows/count).
@@ -515,8 +605,11 @@ export function ModelsPage() {
   // component's re-render lever (the store itself survives unmount).
   const [expansionTick, setExpansionTick] = useState(0)
   const setRowRefs = useRef(new Map<string, HTMLTableRowElement | null>())
+  // The ONE table element itself (the search-reveal effect's first-match
+  // target — the table's own ref, never a global document query).
+  const tableRef = useRef<HTMLTableElement>(null)
 
-  const models = inventory.response?.models ?? []
+  const models = inventory.response?.models ?? EMPTY_MODELS
 
   /** The set-focus name (the rows' own `set_name`; the URL id is the honest
    *  fallback for a set with no rows — a deleted set must not fabricate a
@@ -537,10 +630,12 @@ export function ModelsPage() {
       buildModelTableRows(sets.response?.sets ?? null, models, {
         expanded: expandedSetSnapshot(),
         focusSetId: setId,
+        search,
+        sort,
       }),
     // expansionTick: the store is module-level; the tick makes the memo
     // re-read it (a toggle expands/collapses the rows).
-    [expansionTick, sets.response, models, setId],
+    [expansionTick, sets.response, models, setId, search, sort],
   )
 
   /** The tbodies of the one table (each set row's models follow it in the
@@ -636,6 +731,29 @@ export function ModelsPage() {
       setRow.scrollIntoView({ block: 'nearest' })
     }
   }, [expansionTick, rows])
+
+  /** One sortable header's click (part 2): the SAME column toggles Made
+   *  (newest ↔ oldest) or Name (A→Z ↔ Z→A); the OTHER column switches to
+   *  it with the brief's birth direction (Name starts A→Z, Made newest
+   *  first). The state is the page's; the ordering is the builder's. */
+  const setSortColumn = useCallback((by: ModelTableSort['by']): void => {
+    setSort(prev =>
+      prev.by === by
+        ? { by, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { by, direction: by === 'name' ? 'asc' : 'desc' },
+    )
+  }, [])
+
+  /** A typed search reveals its FIRST match inside the window-filling box:
+   *  the effect runs after the commit (the filtered rows already exist), so
+   *  `block: 'nearest'` plus the rows' 44 px `scroll-margin-top` brings the
+   *  match out from under the sticky thead. Clearing the search never
+   *  scrolls — the restore is the set's own state. */
+  useEffect(() => {
+    if (search.trim().length === 0) return
+    const first = tableRef.current?.querySelector<HTMLElement>('tbody tr')
+    first?.scrollIntoView({ block: 'nearest' })
+  }, [search, tableRef])
 
   /** Use — the DEC-10 handoff: intent reuse + the pending model id, then
    *  the N screen (the user adds the predict file; the I screen preselects
@@ -781,6 +899,14 @@ export function ModelsPage() {
     (inventory.loading && inventory.response === null) ||
     (sets.loading && sets.response === null)
 
+  // The part-2 view-empty truth: the BUILDER's rows are the filter's
+  // answer — a client-side search (or `?set=` focus) with zero rows is the
+  // honest no-match line; an inventory with no models at all (and no
+  // search/focus) is the empty state.
+  const searching = search.trim().length > 0
+  const viewEmpty = rows.length === 0
+  const noMatch = viewEmpty && (searching || setId !== null)
+
   return (
     <main
       data-testid="txr-models-j"
@@ -804,8 +930,8 @@ export function ModelsPage() {
                   data-testid="txr-models-j-search"
                   className="txr-models-j-search"
                   type="search"
-                  placeholder="Search models"
-                  aria-label="Search models"
+                  placeholder="Search sets and models"
+                  aria-label="Search sets and models"
                   value={search}
                   onChange={event => setSearch(event.target.value)}
                   style={{ width: 220 }}
@@ -905,23 +1031,28 @@ export function ModelsPage() {
           <div data-testid="txr-models-j-loading" style={BOX_LINE}>
             Loading models…
           </div>
-        ) : models.length === 0 ? (
+        ) : noMatch ? (
           <div
-            data-testid={search.trim().length > 0 || setId !== null ? 'txr-models-j-no-match' : 'txr-models-j-empty'}
+            data-testid="txr-models-j-no-match"
             style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 20, alignItems: 'flex-start' }}
           >
             <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
-              {search.trim().length > 0 || setId !== null ? NO_MATCH_LINE : EMPTY_LINE}
+              {NO_MATCH_LINE}
             </p>
-            {search.trim().length === 0 && setId === null ? (
-              <>
-                <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }}>{EMPTY_NOTE}</p>
-                {!isDemo ? (
-                  <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
-                    {IMPORT_LABEL}
-                  </Button>
-                ) : null}
-              </>
+          </div>
+        ) : models.length === 0 ? (
+          <div
+            data-testid="txr-models-j-empty"
+            style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 20, alignItems: 'flex-start' }}
+          >
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
+              {EMPTY_LINE}
+            </p>
+            <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }}>{EMPTY_NOTE}</p>
+            {!isDemo ? (
+              <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
+                {IMPORT_LABEL}
+              </Button>
             ) : null}
           </div>
         ) : (
@@ -929,16 +1060,56 @@ export function ModelsPage() {
             data-testid="txr-models-j-table"
             className="txr-models-j-table"
             style={TABLE}
+            ref={tableRef}
           >
             <thead>
               <tr>
-                <th scope="col" style={HEAD_LOOK}>Set</th>
-                <th scope="col" style={HEAD_LOOK}>Model</th>
+                <th
+                  scope="col"
+                  style={HEAD_LOOK}
+                  aria-sort={sort.by === 'name' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                >
+                  <Button
+                    variant="ghost"
+                    data-testid="txr-models-sort-name"
+                    style={SORT_BUTTON}
+                    onClick={() => setSortColumn('name')}
+                  >
+                    Name
+                    {sort.by === 'name' ? (
+                      sort.direction === 'asc' ? (
+                        <ArrowUp aria-hidden size={12} style={SORT_ARROW} />
+                      ) : (
+                        <ArrowDown aria-hidden size={12} style={SORT_ARROW} />
+                      )
+                    ) : null}
+                  </Button>
+                </th>
                 <th scope="col" style={HEAD_LOOK}>Method</th>
                 <th scope="col" style={HEAD_LOOK}>Predicts</th>
                 <th scope="col" style={HEAD_RIGHT}>Decision day</th>
                 <th scope="col" style={HEAD_RIGHT}>Trained on</th>
-                <th scope="col" style={HEAD_LOOK}>Made</th>
+                <th
+                  scope="col"
+                  style={HEAD_LOOK}
+                  aria-sort={sort.by === 'made' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                >
+                  <Button
+                    variant="ghost"
+                    data-testid="txr-models-sort-made"
+                    style={SORT_BUTTON}
+                    onClick={() => setSortColumn('made')}
+                  >
+                    Made
+                    {sort.by === 'made' ? (
+                      sort.direction === 'asc' ? (
+                        <ArrowUp aria-hidden size={12} style={SORT_ARROW} />
+                      ) : (
+                        <ArrowDown aria-hidden size={12} style={SORT_ARROW} />
+                      )
+                    ) : null}
+                  </Button>
+                </th>
                 <th scope="col" style={{ ...HEAD_LOOK, textAlign: 'right' }}>
                   <span style={VISUALLY_HIDDEN}>Actions</span>
                 </th>
@@ -948,7 +1119,12 @@ export function ModelsPage() {
               <tbody key={body.key}>
                 {body.rows.map(row => {
                   if (row.kind === 'set') {
-                    const expanded = setId === row.key || isSetExpanded(row.key)
+                    // A PARTIAL search match is a FORCED-expanded view arm
+                    // (the chevron must tell the truth — the models ARE
+                    // shown) but the store is untouched, so clearing the
+                    // search restores the set's own state.
+                    const expanded =
+                      setId === row.key || row.match === 'partial' || isSetExpanded(row.key)
                     const factsLine = setFactsLine(row)
                     const isLast = isLastTableRow(row, rows)
                     const tdStyle = isLast ? { ...TD_LOOK, borderBottom: 'none' } : TD_LOOK
@@ -979,17 +1155,22 @@ export function ModelsPage() {
                                 the aria-label. In the ?set= focus view the
                                 trigger is inert (`disabled`, still
                                 aria-expanded=true): the focus is the URL's,
-                                not a togglable view-state. */}
+                                not a togglable view-state — the same inert
+                                truth under a PARTIAL search, where the
+                                match FORCES the set open (the chevron must
+                                not fight the search's view). */}
                             <Button
                               variant="link"
                               data-testid={`txr-models-set-toggle-${row.key}`}
                               style={SET_TOGGLE}
                               aria-expanded={expanded}
-                              disabled={setId === row.key}
+                              disabled={setId === row.key || row.match === 'partial'}
                               aria-label={toggleLabel}
                               title={toggleLabel}
                               onClick={
-                                setId === row.key ? undefined : () => toggleSet(row.key)
+                                setId === row.key || row.match === 'partial'
+                                  ? undefined
+                                  : () => toggleSet(row.key)
                               }
                             >
                               <ChevronRight
@@ -1001,15 +1182,47 @@ export function ModelsPage() {
                                 }}
                               />
                             </Button>
+                            <Folder
+                              aria-hidden
+                              size={16}
+                              style={FOLDER_ICON}
+                              data-testid={`txr-models-set-folder-${row.key}`}
+                            />
                             <span style={SET_NAMES}>
-                              <span style={SET_NAME}>{row.name}</span>
+                              <span style={SET_NAME_LINE}>
+                                <span style={SET_NAME}>{row.name}</span>
+                                {/* brief 7 — the folder's count is "(N)" on
+                                    the row (aria-hidden: the "(N)" is a
+                                    rendering of the count, not the words the
+                                    reader should hear) with ONE
+                                    screen-reader-only "N models" text — the
+                                    one read, never both. A PARTIAL search
+                                    count reads the plan's "2 of 3 models
+                                    match" instead. */}
+                                {row.match === 'partial' ? (
+                                  <span style={SET_COUNT}>
+                                    <span aria-hidden="true">
+                                      ({formatSetModelMatchText(row.matchCount, row.modelCount)})
+                                    </span>
+                                    <span style={VISUALLY_HIDDEN}>
+                                      {formatSetModelMatchText(row.matchCount, row.modelCount)}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <span style={SET_COUNT}>
+                                    <span aria-hidden="true">({row.modelCount})</span>
+                                    <span style={VISUALLY_HIDDEN}>
+                                      {formatSetModelCount(row.modelCount)}
+                                    </span>
+                                  </span>
+                                )}
+                              </span>
                               {factsLine.length > 0 ? (
                                 <span style={SET_FACTS}>{factsLine}</span>
                               ) : null}
                             </span>
                           </span>
                         </th>
-                        <td style={tdStyle}>{formatSetModelCount(row.modelCount)}</td>
                         <td style={tdStyle} />
                         <td style={tdStyle} />
                         <td style={{ ...tdStyle, textAlign: 'right' }} />
@@ -1085,14 +1298,14 @@ export function ModelsPage() {
                       data-testid={`txr-models-row-${model.id}`}
                       style={{ scrollMarginTop: ROW_SCROLL_MARGIN }}
                     >
-                      {/* ONE-TABLE: the Set column is empty on a model row
-                          (the set stamps the row above it; a no-set model
-                          is a plain top-level row with the same empty
-                          entry) — hidden on the phone card layout. */}
-                      <td data-label="Set" style={tdStyle} />
+                      {/* brief 7 — the Set column is gone: the merged Name
+                          column holds the model's label + subline, indented
+                          when the row sits under a set (a no-set model is a
+                          top-level row, never indented — nothing is ever
+                          empty in Name). */}
                       <th
                         scope="row"
-                        data-label="Model"
+                        data-label="Name"
                         style={{
                           ...ROW_HEADER,
                           ...tdStyle,

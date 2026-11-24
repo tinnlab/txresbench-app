@@ -49,6 +49,10 @@ import {
   buildPretrainedRows,
   buildSavedRows,
   buildSavedSections,
+  MODEL_TABLE_DEFAULT_SORT,
+  type ModelTableOptions,
+  type ModelTableRow,
+  type ModelTableSort,
 } from './rows'
 import type { ModelSummary, PretrainedListResponse } from '@/api-client/types'
 
@@ -309,20 +313,32 @@ describe('buildSavedSections — the I run groups (TEST-MOD-06, INV-2)', () => {
 })
 
 describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
-  it('renders one set row per known set, newest first, and the no-set model as a plain top-level row (collapsed sets show only their set row)', () => {
-    const built = buildModelTableRows(
-      [TXRMODELS_SET_A, TXRMODELS_SET_B],
-      TXRMODELS_J_RESPONSE.models,
-      { expanded: new Set(), focusSetId: null },
-    )
-    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+  /** The builder's fixture invocation with the part-2 defaults (Made,
+   *  newest first, no search) overridable per test. */
+  const J = TXRMODELS_J_RESPONSE.models
+  const opt = (over: Partial<ModelTableOptions>): ModelTableOptions => ({
+    expanded: new Set(),
+    focusSetId: null,
+    search: '',
+    sort: MODEL_TABLE_DEFAULT_SORT,
+    ...over,
+  })
+  const keysOf = (rows: ModelTableRow[]): string[] =>
+    rows.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))
+
+  it('renders one set row per known set and the no-set model as a plain top-level row (collapsed sets show only their set row), Made newest first, folders on top', () => {
+    const built = buildModelTableRows([TXRMODELS_SET_A, TXRMODELS_SET_B], J, opt({}))
+    // Made desc (the birth sort) — brief 7's folders-on-top: the set rows
+    // come ALWAYS first (set-a Nov 29, set-b Oct 9), then the no-set
+    // imported row (Dec 4) — each block sorted on its own.
+    expect(keysOf(built)).toEqual([
       'set:set-a',
       'set:set-b',
-      `model:${TXRMODELS_J_RESPONSE.models[2].id}`,
+      `model:${J[2].id}`,
     ])
-    // The set-a row holds the set's TWO listed rows (the server's subset)
-    // and spells the count the old facts line used — the set's own
-    // model_count (7), never the two listed; matchCount is the listed count.
+    // The set-a row holds the set's two listed rows and spells the count
+    // the old facts line used — the set's own model_count (7), never the
+    // two listed; matchCount is the listed count.
     const setA = built[0]
     expect(setA.kind).toBe('set')
     if (setA.kind === 'set') {
@@ -334,17 +350,19 @@ describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
       ])
       expect(setA.modelCount).toBe(7)
       expect(setA.matchCount).toBe(2)
+      expect(setA.match).toBeNull()
     }
     expect(built[1].kind).toBe('set')
     if (built[1].kind === 'set') expect(built[1].modelCount).toBe(3)
     // COLLAPSED by default: no model row follows any set row.
     expect(built.filter(row => row.kind === 'model')).toHaveLength(1)
-    // The no-set model is a top-level plain row (empty Set entry — the page's
-    // convention), NOT a group: the builder has no "Not in a set" section.
+    // The no-set model is a top-level plain row (never indented, never
+    // empty in Name — the page's convention), NOT a group: the builder has
+    // no "Not in a set" section.
     const loose = built[2]
     expect(loose.kind).toBe('model')
     if (loose.kind === 'model') {
-      expect(loose.model.id).toBe(TXRMODELS_J_RESPONSE.models[2].id)
+      expect(loose.model.id).toBe(J[2].id)
       expect(loose.inSet).toBe(false)
     }
     const setKeys = built.map(row => (row.kind === 'set' ? row.key : ''))
@@ -352,36 +370,285 @@ describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
     expect(setKeys.filter(Boolean)).toEqual(['set-a', 'set-b'])
   })
 
-  it('expands a set row into its model rows (inSet) in the list order; other sets stay collapsed', () => {
+  it('expands a set row into its model rows (inSet), newest first by Made; other sets stay collapsed; the no-set row stays last', () => {
     const built = buildModelTableRows(
       [TXRMODELS_SET_A, TXRMODELS_SET_B],
-      TXRMODELS_J_RESPONSE.models,
-      { expanded: new Set(['set-a']), focusSetId: null },
+      J,
+      opt({ expanded: new Set(['set-a']) }),
     )
-    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+    // Inside a set the models are newest first (fm-14 is Dec 4, fm-11
+    // Nov 29); folders on top — the no-set row follows every set.
+    expect(keysOf(built)).toEqual([
       'set:set-a',
-      `model:${TXRMODELS_J_RESPONSE.models[0].id}`,
-      `model:${TXRMODELS_J_RESPONSE.models[3].id}`,
+      `model:${J[3].id}`,
+      `model:${J[0].id}`,
       'set:set-b',
-      `model:${TXRMODELS_J_RESPONSE.models[2].id}`,
+      `model:${J[2].id}`,
     ])
-    // The set-a rows are flagged inSet (the page indents the Model column).
+    // The set-a rows are flagged inSet (the page indents the Name column).
     for (const row of built) {
       if (row.kind === 'model' && row.model.set_id === 'set-a') expect(row.inSet).toBe(true)
     }
   })
 
+  it('sort by Name: A→Z and Z→A (case-insensitive names), the no-set models AFTER every set, each block on its own', () => {
+    const asc = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ sort: { by: 'name', direction: 'asc' } }),
+    )
+    expect(keysOf(asc)).toEqual(['set:set-a', 'set:set-b', `model:${J[2].id}`])
+    const desc = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ sort: { by: 'name', direction: 'desc' } }),
+    )
+    expect(keysOf(desc)).toEqual(['set:set-b', 'set:set-a', `model:${J[2].id}`])
+    // Expanded set-b under the name sort (both directions): its models
+    // follow the SAME name direction (brief 7 — ascending: ctdna steady
+    // rise, landmark-cox-current, Lung pilot; descending: the reverse).
+    const expanded = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({
+        sort: { by: 'name', direction: 'asc' },
+        expanded: new Set(['set-b']),
+      }),
+    )
+    expect(keysOf(expanded)).toEqual([
+      'set:set-a',
+      'set:set-b',
+      `model:${J[5].id}`,
+      `model:${J[4].id}`,
+      `model:${J[1].id}`,
+      `model:${J[2].id}`,
+    ])
+    const expandedDesc = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({
+        sort: { by: 'name', direction: 'desc' },
+        expanded: new Set(['set-b']),
+      }),
+    )
+    expect(keysOf(expandedDesc)).toEqual([
+      'set:set-b',
+      `model:${J[1].id}`,
+      `model:${J[4].id}`,
+      `model:${J[5].id}`,
+      'set:set-a',
+      `model:${J[2].id}`,
+    ])
+  })
+
+  it('sort by Made both ways: the set rows FIRST, then the no-set models (folders on top) and the models follow the toggle', () => {
+    const asc = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ sort: { by: 'made', direction: 'asc' } }),
+    )
+    expect(keysOf(asc)).toEqual(['set:set-b', 'set:set-a', `model:${J[2].id}`])
+    // Asc + expanded: the models INSIDE a set follow the OLDEST-first
+    // direction (PLAN-ONE-TABLE section 2) — set-b's fm-12 (9 Oct) leads
+    // its group, set-a's fm-11 (29 Nov) leads its own, and the no-set
+    // Dec 4 row still sorts after both sets (folders on top).
+    const ascExpanded = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({
+        sort: { by: 'made', direction: 'asc' },
+        expanded: new Set(['set-a', 'set-b']),
+      }),
+    )
+    expect(keysOf(ascExpanded)).toEqual([
+      'set:set-b',
+      `model:${J[1].id}`,
+      `model:${J[4].id}`,
+      `model:${J[5].id}`,
+      'set:set-a',
+      `model:${J[0].id}`,
+      `model:${J[3].id}`,
+      `model:${J[2].id}`,
+    ])
+    // Desc (the default): the set rows first (newest set by date), the
+    // imported Dec row last; expanding set-a inserts its newest-first
+    // models right after the set row.
+    const desc = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ expanded: new Set(['set-a']) }),
+    )
+    expect(keysOf(desc)).toEqual([
+      'set:set-a',
+      `model:${J[3].id}`,
+      `model:${J[0].id}`,
+      'set:set-b',
+      `model:${J[2].id}`,
+    ])
+    // The no-set BLOCK is sorted on its own by Name too (brief 7: blocks,
+    // never a mix): a second loose row sorts INSIDE the no-set block by
+    // its name, not by its date, in both directions.
+    const extraLoose = {
+      ...J[2],
+      id: 'a0000000-0000-4000-8000-0000000000f2',
+      name: 'Aaron loose',
+      created_at: '2026-12-05T09:00:00Z',
+    }
+    const byName = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      [extraLoose, ...J],
+      opt({ sort: { by: 'name', direction: 'asc' } }),
+    )
+    expect(keysOf(byName)).toEqual([
+      'set:set-a',
+      'set:set-b',
+      `model:${extraLoose.id}`,
+      `model:${J[2].id}`,
+    ])
+    const byNameDesc = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      [extraLoose, ...J],
+      opt({ sort: { by: 'name', direction: 'desc' } }),
+    )
+    expect(keysOf(byNameDesc)).toEqual([
+      'set:set-b',
+      'set:set-a',
+      `model:${J[2].id}`,
+      `model:${extraLoose.id}`,
+    ])
+  })
+
+  it('search: a set-name match shows the set with ALL its models and keeps its own expand state', () => {
+    // "day 35" hits the set-b name AND fm-12's model name — the SET-NAME
+    // match wins: all three models are listed, the expand state is the
+    // store's (closed by default → only the set row).
+    const collapsed = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ search: 'day 35' }),
+    )
+    expect(keysOf(collapsed)).toEqual(['set:set-b'])
+    const setB = collapsed[0]
+    expect(setB.kind).toBe('set')
+    if (setB.kind === 'set') {
+      expect(setB.match).toBe('all')
+      expect(setB.matchCount).toBe(3)
+      expect(setB.modelCount).toBe(3)
+    }
+    const expanded = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ search: 'day 35', expanded: new Set(['set-b']) }),
+    )
+    expect(keysOf(expanded)).toEqual([
+      'set:set-b',
+      `model:${J[4].id}`,
+      `model:${J[5].id}`,
+      `model:${J[1].id}`,
+    ])
+  })
+
+  it('search: a model match inside a set FORCES the set row expanded with only the matches', () => {
+    // "cox" matches fm-11 (method landmark-cox-current, set-a) and
+    // fm-12/fm-15 (set-b) — both sets render FORCED expanded with only
+    // their matches (the store never learned the expansion).
+    const built = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ search: 'cox', expanded: new Set() }),
+    )
+    expect(keysOf(built)).toEqual([
+      'set:set-a',
+      `model:${J[0].id}`,
+      'set:set-b',
+      `model:${J[4].id}`,
+      `model:${J[1].id}`,
+    ])
+    const setA = built[0]
+    expect(setA.kind).toBe('set')
+    if (setA.kind === 'set') {
+      expect(setA.match).toBe('partial')
+      expect(setA.matchCount).toBe(1)
+      expect(setA.modelCount).toBe(7)
+    }
+    const setB = built[2]
+    expect(setB.kind).toBe('set')
+    if (setB.kind === 'set') {
+      expect(setB.match).toBe('partial')
+      expect(setB.matchCount).toBe(2)
+      expect(setB.modelCount).toBe(3)
+      // The page spells "2 of 3 models match" from these two counts.
+    }
+  })
+
+  it('search: a no-set model match is a plain top-level row; nothing matches → the empty list', () => {
+    const built = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ search: 'colon panel' }),
+    )
+    expect(keysOf(built)).toEqual([`model:${J[2].id}`])
+    expect(built[0].kind).toBe('model')
+    if (built[0].kind === 'model') expect(built[0].inSet).toBe(false)
+    expect(buildModelTableRows([TXRMODELS_SET_A, TXRMODELS_SET_B], J, opt({ search: 'zzz' }))).toEqual([])
+  })
+
+  it('search: clearing restores each set’s own expand state (the forced expansion is never written)', () => {
+    // set-b is open in the STORE; the search "cutpoint" (fm-12 only)
+    // forces the view expanded over that state, and clearing returns to
+    // the store's truth — set-b still open with ALL its models, set-a
+    // still closed.
+    const during = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ search: 'cutpoint', expanded: new Set(['set-b']) }),
+    )
+    expect(keysOf(during)).toEqual(['set:set-b', `model:${J[1].id}`])
+    const cleared = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ expanded: new Set(['set-b']) }),
+    )
+    expect(keysOf(cleared)).toEqual([
+      'set:set-a',
+      'set:set-b',
+      `model:${J[4].id}`,
+      `model:${J[5].id}`,
+      `model:${J[1].id}`,
+      `model:${J[2].id}`,
+    ])
+  })
+
+  it('the ?set= focus keeps working with the search (a no-hit search inside the focus is the empty view)', () => {
+    const hit = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ focusSetId: 'set-a', search: 'cox' }),
+    )
+    expect(keysOf(hit)).toEqual(['set:set-a', `model:${J[0].id}`])
+    const miss = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      J,
+      opt({ focusSetId: 'set-a', search: 'cutpoint' }),
+    )
+    expect(miss).toEqual([])
+    // The focus keeps the focused set's row even with no listed model.
+    const empty = buildModelTableRows(
+      [TXRMODELS_SET_A, TXRMODELS_SET_B],
+      [J[2]],
+      opt({ focusSetId: 'set-b' }),
+    )
+    expect(keysOf(empty)).toEqual(['set:set-b'])
+  })
+
   it('a ?set= focus shows ONLY that set row, always expanded, never the no-set rows', () => {
     const built = buildModelTableRows(
       [TXRMODELS_SET_A, TXRMODELS_SET_B],
-      TXRMODELS_J_RESPONSE.models,
-      { expanded: new Set(), focusSetId: 'set-a' },
+      J,
+      opt({ focusSetId: 'set-a' }),
     )
-    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
-      'set:set-a',
-      `model:${TXRMODELS_J_RESPONSE.models[0].id}`,
-      `model:${TXRMODELS_J_RESPONSE.models[3].id}`,
-    ])
+    // Inside the focused set the models are newest first by Made.
+    expect(keysOf(built)).toEqual(['set:set-a', `model:${J[3].id}`, `model:${J[0].id}`])
     // The focus set rows are inSet even though the store says collapsed.
     for (const row of built) {
       if (row.kind === 'model') expect(row.inSet).toBe(true)
@@ -390,51 +657,42 @@ describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
 
   it('sends a set_id the sets list does not know to the top level (never a fallback group when the sets read has answered)', () => {
     const ghost = {
-      ...TXRMODELS_J_RESPONSE.models[0],
+      ...J[0],
       id: 'a0000000-0000-4000-8000-000000000099',
       set_id: 'set-ghost',
       set_name: 'Ghost set',
     }
-    const built = buildModelTableRows([TXRMODELS_SET_A], [ghost, TXRMODELS_J_RESPONSE.models[0]], {
-      expanded: new Set(),
-      focusSetId: null,
-    })
-    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
-      'set:set-a',
-      `model:${ghost.id}`,
-    ])
+    const built = buildModelTableRows([TXRMODELS_SET_A], [ghost, J[0]], opt({}))
+    expect(keysOf(built)).toEqual(['set:set-a', `model:${ghost.id}`])
     expect(built[1].kind).toBe('model')
     if (built[1].kind === 'model') expect(built[1].inSet).toBe(false)
   })
 
-  it('omits set rows with no listed model (the server-side q/set filters)', () => {
+  it('omits set rows with no listed model (an empty group has no row)', () => {
     const built = buildModelTableRows(
       [TXRMODELS_SET_A, TXRMODELS_SET_B],
-      TXRMODELS_J_RESPONSE.models.filter(model => model.set_id === 'set-b'),
-      { expanded: new Set(), focusSetId: null },
+      J.filter(model => model.set_id === 'set-b'),
+      opt({}),
     )
-    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
-      'set:set-b',
-    ])
+    expect(keysOf(built)).toEqual(['set:set-b'])
   })
 
-  it('degrades to the rows\' own facts while the sets read has not answered (null), newest row first', () => {
-    const built = buildModelTableRows(null, TXRMODELS_J_RESPONSE.models, {
-      expanded: new Set(['set-a', 'set-b']),
-      focusSetId: null,
-    })
+  it('degrades to the rows\' own facts while the sets read has not answered (null), Made newest first, folders on top', () => {
+    const built = buildModelTableRows(null, J, opt({ expanded: new Set(['set-a', 'set-b']) }))
     // The rows' own set_name names the set rows (never a fabricated title),
     // the set record is null (the facts-line fallback), and the no-set
-    // model is the plain top-level row at the end.
-    expect(built.map(row => (row.kind === 'set' ? `set:${row.key}` : `model:${row.model.id}`))).toEqual([
+    // model is LAST — folders on top (brief 7): set-a (its Dec 4 10:00
+    // fm-14 is the fallback group's newest row), set-b, then the imported
+    // Dec 4 09:00 row.
+    expect(keysOf(built)).toEqual([
       'set:set-a',
-      `model:${TXRMODELS_J_RESPONSE.models[0].id}`,
-      `model:${TXRMODELS_J_RESPONSE.models[3].id}`,
+      `model:${J[3].id}`,
+      `model:${J[0].id}`,
       'set:set-b',
-      `model:${TXRMODELS_J_RESPONSE.models[1].id}`,
-      `model:${TXRMODELS_J_RESPONSE.models[4].id}`,
-      `model:${TXRMODELS_J_RESPONSE.models[5].id}`,
-      `model:${TXRMODELS_J_RESPONSE.models[2].id}`,
+      `model:${J[4].id}`,
+      `model:${J[5].id}`,
+      `model:${J[1].id}`,
+      `model:${J[2].id}`,
     ])
     expect(built[0].kind).toBe('set')
     if (built[0].kind === 'set') {
@@ -449,9 +707,9 @@ describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
     if (setB.kind === 'set') expect(setB.modelCount).toBe(3)
   })
 
-  it('sorts an unparseable created_at last in both comparators (never a NaN placement)', () => {
+  it('sorts an unparseable created_at last in every comparator (never a NaN placement)', () => {
     const undatedModel = {
-      ...TXRMODELS_J_RESPONSE.models[0],
+      ...J[0],
       id: 'a0000000-0000-4000-8000-0000000000e1',
       set_id: 'set-undated',
       set_name: 'Undated set',
@@ -459,33 +717,36 @@ describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
     }
     // The known-sets comparator: a set whose date does not parse sorts
     // after every dated set (a NaN comparison would leave the position
-    // arbitrary).
+    // arbitrary), in BOTH made directions and in the set-name sort too.
     const undatedSet = {
       ...TXRMODELS_SET_B,
       id: 'set-undated',
       name: 'Undated set',
       created_at: 'not-a-date',
     }
-    const built = buildModelTableRows(
-      [undatedSet, TXRMODELS_SET_A, TXRMODELS_SET_B],
-      [undatedModel, ...TXRMODELS_J_RESPONSE.models],
-      { expanded: new Set(), focusSetId: null },
-    )
-    expect(
-      built
-        .filter(row => row.kind === 'set')
-        .map(row => (row.kind === 'set' ? row.key : '')),
-    ).toEqual(['set-a', 'set-b', 'set-undated'])
+    const setKeys = (rows: ModelTableRow[]): string[] =>
+      rows.filter(row => row.kind === 'set').map(row => (row.kind === 'set' ? row.key : ''))
+    // The DATE comparators sort the unknown date last in both directions;
+    // the NAME comparators use the name (the "Undated set" name — Z→A puts
+    // it first; the no-set rule only governs the no-set MODELS, and this is
+    // a named set).
+    const expectations: Array<{ sort: ModelTableSort; setKeys: string[] }> = [
+      { sort: { by: 'made', direction: 'desc' }, setKeys: ['set-a', 'set-b', 'set-undated'] },
+      { sort: { by: 'made', direction: 'asc' }, setKeys: ['set-b', 'set-a', 'set-undated'] },
+      { sort: { by: 'name', direction: 'asc' }, setKeys: ['set-a', 'set-b', 'set-undated'] },
+      { sort: { by: 'name', direction: 'desc' }, setKeys: ['set-undated', 'set-b', 'set-a'] },
+    ]
+    for (const { sort, setKeys: expected } of expectations) {
+      const built = buildModelTableRows(
+        [undatedSet, TXRMODELS_SET_A, TXRMODELS_SET_B],
+        [undatedModel, ...J],
+        opt({ sort }),
+      )
+      expect(setKeys(built), `${sort.by}/${sort.direction}`).toEqual(expected)
+    }
     // The fallback comparator (the sets read not answered): the undated
     // group sorts after every dated group, still before the no-set rows.
-    const fallback = buildModelTableRows(null, [undatedModel, ...TXRMODELS_J_RESPONSE.models], {
-      expanded: new Set(),
-      focusSetId: null,
-    })
-    expect(
-      fallback
-        .filter(row => row.kind === 'set')
-        .map(row => (row.kind === 'set' ? row.key : '')),
-    ).toEqual(['set-a', 'set-b', 'set-undated'])
+    const fallback = buildModelTableRows(null, [undatedModel, ...J], opt({}))
+    expect(setKeys(fallback)).toEqual(['set-a', 'set-b', 'set-undated'])
   })
 })

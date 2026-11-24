@@ -5,15 +5,17 @@
  *
  * Pinned behaviors:
  *
- * - the ONE table (the one-table round): the board's seven columns + the
- *   Set column + the Actions column (the screen-reader-only header), the
+ * - the ONE table (the one-table round, brief 7's FOLDER-STYLE layout):
+ *   the board's columns Name | Method | Predicts | Decision day | Trained
+ *   on | Made + the Actions column (the screen-reader-only header) — the
+ *   Set and Model columns merged into the one Name column, the
  *   row sublines — a run row "6 markers · uses age" (the grown
  *   `marker_count` / `uses_covariates` fields), an imported row "opened
  *   from colleague-panel.txr · 5 markers" with the "not recorded"
  *   trained-on and the "opened 4 Dec 2026" Made entry, a row with no
  *   marker/covariate/import fact rendering the name alone — the Predicts /
  *   Trained-on / Made entries through the ITEM-4 formatters;
- * - the set rows: CLOSED by default; the chevron disclosure
+ * - the set rows ("folders"): CLOSED by default; the chevron disclosure
  *   (`aria-expanded` + the "Show/Hide the models of “<set>”" label, the
  *   same text on the `title`, no `aria-controls` — the chevron's own row
  *   lives in the tbody it would name) expands/collapses the set's model
@@ -21,17 +23,31 @@
  *   a re-render AND a remount while the app is open (never persisted to
  *   disk); in the `?set=` focus view the chevron is inert (`disabled`,
  *   still aria-expanded=true);
- * - a set row carries the name + its facts line UNDER it (from the run /
- *   from the file / training files kept — the "N models" part and the made
- *   date moved out: the set row's Model column spells the count and the Made
- *   column the date), the set actions (Rename set · Export set · Delete
- *   set), and the other entries empty;
- * - the no-set models are PLAIN top-level rows: an empty Set entry, no
- *   indentation, no "Not in a set" section heading/facts;
- * - the model rows of a set's expansion are indented in the Model column;
- * - the search: debounced 250 ms, then `ApiClient.Models.listModels`
- *   carries the server-side `q`; a collapsed set with matches stays
- *   collapsed (the group rows work with the filtered response);
+ * - a folder row carries the folder glyph (aria-hidden) + the name + the
+ *   "(N)" count beside it with ONE screen-reader-only "N models" text (the
+ *   visible "(N)" is aria-hidden — one of them, never both read; a partial
+ *   search reads "(2 of 3 models match)" in place of "(3)") + its facts
+ *   line UNDER it (from the run / from the file / training files kept —
+ *   the made date is the Made column's entry now), the set actions (Rename
+ *   set · Export set · Delete set), and the other entries empty;
+ * - the no-set models are PLAIN top-level rows: never indented, never
+ *   empty in Name, no "Not in a set" section heading/facts;
+ * - the model rows of a set's expansion are indented in the Name column;
+ * - the ONE search box (part 2 — "Search sets and models", CLIENT-side:
+ *   the page loads the full model list — never a `q` on the wire, no
+ *   debounce — and filters over the sets read: a set-name match shows the
+ *   whole set (own expand state kept), a model name/method-id match shows
+ *   the model with its set row FORCED expanded to just the matches ("(2 of
+ *   3 models match)" in the Name cell), a matching no-set model is a
+ *   plain top-level row, the set-name match WINS over model matches, no
+ *   matches → the honest no-match line, and clearing restores each set's
+ *   own expand state; a typed match scrolls its first row into view);
+ * - the two SORTABLE headers (`Name` and `Made` — buttons inside the
+ *   `<th aria-sort>`; the page owns the state: Made newest first at
+ *   birth, clicking toggles, clicking the other column switches to it
+ *   with Name starting A→Z; the ordering is the pure builder's — folders
+ *   on top in both directions: the set rows first, then the no-set
+ *   models, each block sorted on its own);
  * - "Open a model file": a File-constructed pick posts the multipart
  *   import (the `file` part) and refreshes the list; a failure surfaces
  *   the steady "The model file could not be opened." line, except the
@@ -191,6 +207,28 @@ async function toggleSet(setId: string): Promise<void> {
   })
 }
 
+/** The table's data-row testids in DOM order (the thead is not a data row). */
+function tableRowIds(): string[] {
+  const table = screen.getByTestId('txr-models-j-table')
+  return [...table.querySelectorAll('tbody > tr')].map(tr => tr.getAttribute('data-testid') ?? '')
+}
+
+/** Type into the ONE search box (a synchronous onChange — no debounce). */
+async function typeSearch(value: string): Promise<void> {
+  await act(async () => {
+    fireEvent.change(screen.getByTestId('txr-models-j-search'), { target: { value } })
+    await Promise.resolve()
+  })
+}
+
+/** Click one sortable header (Name / Made). */
+async function clickSort(by: 'name' | 'made'): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId(`txr-models-sort-${by}`))
+    await Promise.resolve()
+  })
+}
+
 /** The J fixture's first row (the run row with the full subline). */
 const RUN_ROW = TXRMODELS_J_RESPONSE.models[0]
 
@@ -283,13 +321,13 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
         'Every model you train is kept here, so you can predict new patients later without training again.',
       ),
     ).toBeTruthy()
-    // ONE table (never a per-section table) with the board's columns AND
-    // the ONE-TABLE Set column.
+    // ONE table (never a per-section table) with the board's columns: the
+    // brief 7 folder-style header — a single Name column (the Set and Model
+    // columns merged).
     const table = screen.getByTestId('txr-models-j-table')
     const headers = within(table).getAllByRole('columnheader').map(th => th.textContent)
     expect(headers).toEqual([
-      'Set',
-      'Model',
+      'Name',
       'Method',
       'Predicts',
       'Decision day',
@@ -297,17 +335,23 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
       'Made',
       'Actions',
     ])
-    // The set rows: the name + the facts line under it (the "N models" part
-    // is the Model column's, the made date the Made column's) + the actions.
+    // The set rows ("folders"): the folder glyph + the name + the "(N)"
+    // count beside it (the visible "(N)" is aria-hidden — the one
+    // screen-reader-only "N models" text is the read) + the facts line
+    // under the name + the made date in the Made column + the actions.
     const setA = screen.getByTestId('txr-models-set-row-set-a')
     expect(within(setA).getByText('CRC cohort, day 60')).toBeTruthy()
-    expect(within(setA).getByText('from the run \u201cpatients.csv\u201d')).toBeTruthy()
+    expect(within(setA).getByText('(7)')).toBeTruthy()
     expect(within(setA).getByText('7 models')).toBeTruthy()
+    const folderA = within(setA).getByTestId('txr-models-set-folder-set-a')
+    expect(folderA.getAttribute('aria-hidden')).toBe('true')
+    expect(within(setA).getByText('from the run \u201cpatients.csv\u201d')).toBeTruthy()
     expect(within(setA).getByText('29 Nov 2026')).toBeTruthy()
     expect(within(setA).getByTestId('txr-models-set-rename-btn-set-a')).toBeTruthy()
     expect(within(setA).getByTestId('txr-models-set-export-btn-set-a')).toBeTruthy()
     expect(within(setA).getByTestId('txr-models-set-delete-btn-set-a')).toBeTruthy()
     const setB = screen.getByTestId('txr-models-set-row-set-b')
+    expect(within(setB).getByText('(3)')).toBeTruthy()
     expect(within(setB).getByText('3 models')).toBeTruthy()
     expect(within(setB).getByText('from the run \u201clung-pilot.csv\u201d')).toBeTruthy()
     expect(within(setB).getByText('9 Oct 2026')).toBeTruthy()
@@ -345,7 +389,7 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     }
   })
 
-  it('renders ONE table: the set rows newest first, then the no-set model as a plain row with an empty Set entry', async () => {
+  it('renders ONE table: the rows in the Made-desc order (folders on top — the set rows first, the no-set row after) with a Name entry', async () => {
     renderPage()
     await settle(0)
     // ONE table — never three section tables.
@@ -353,24 +397,31 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     // The old section surface is gone.
     expect(screen.queryAllByTestId(/^txr-models-j-section-/)).toHaveLength(0)
     expect(screen.queryByText('Not in a set')).toBeNull()
-    // The set rows in DOM order (newest set first), no model rows (closed).
+    // Part 2: the default sort is Made, newest first — brief 7's folders on
+    // top: the set rows come ALWAYS first (set-a Nov 29, set-b Oct 9), then
+    // the top-level no-set imported row (Dec 4) — each block on its own.
+    // No model rows yet (closed by default).
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      'txr-models-set-row-set-b',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
     const setRowIds = screen
       .getAllByTestId(/^txr-models-set-row-/)
       .map(el => el.getAttribute('data-testid'))
     expect(setRowIds).toEqual(['txr-models-set-row-set-a', 'txr-models-set-row-set-b'])
-    // The imported (no-set) model is a plain TOP-LEVEL row after them.
+    // The imported (no-set) model is a plain TOP-LEVEL row after every set:
+    // its Name cell is NOT empty and it is NOT indented (a top-level row).
     const importedRow = screen.getByTestId(`txr-models-row-${IMPORTED_ROW.id}`)
     expect(importedRow.getAttribute('data-testid')).toBeTruthy()
-    // Its Set entry is EMPTY (and it is not indented — a top-level row).
-    const setEntry = importedRow.querySelector('td[data-label="Set"]') as HTMLElement
-    expect(setEntry.textContent).toBe('')
-    const modelEntry = importedRow.querySelector('th[data-label="Model"]') as HTMLElement
-    expect(modelEntry.style.paddingLeft).toBe('')
+    const nameEntry = importedRow.querySelector('th[data-label="Name"]') as HTMLElement
+    expect(nameEntry.textContent).toContain(IMPORTED_ROW.name)
+    expect(nameEntry.style.paddingLeft).toBe('')
     // An expanded set's model IS indented (the inSet flag's byte).
     await toggleSet('set-a')
     const runEntry = screen
       .getByTestId(`txr-models-row-${RUN_ROW.id}`)
-      .querySelector('th[data-label="Model"]') as HTMLElement
+      .querySelector('th[data-label="Name"]') as HTMLElement
     expect(runEntry.style.paddingLeft).toBe('42px')
     // Every set's chevron carries the label as its `title` too (the
     // tooltip text is the same as the accessible name), and NO
@@ -408,6 +459,8 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     // LAST model row into view (block: nearest — as much of the set as
     // fits; the set row is scrolled after it only if it left the view,
     // and in jsdom every rect is 0, so exactly the one call is pinned).
+    // Inside a set the models are newest first by Made, so the LAST row is
+    // the oldest one — fm-11 (Nov 29), after fm-14 (Dec 4).
     await toggleSet('set-a')
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(toggle.getAttribute('aria-label')).toBe(
@@ -420,7 +473,7 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1)
     expect(scrollIntoViewSpy.mock.calls[0]).toEqual([{ block: 'nearest' }])
     expect(scrollIntoViewSpy.mock.contexts[0]).toBe(
-      screen.getByTestId(`txr-models-row-${PLAIN_ROW.id}`),
+      screen.getByTestId(`txr-models-row-${RUN_ROW.id}`),
     )
 
     // Collapse: the models vanish, the set row stays, and the set row
@@ -501,9 +554,12 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     pickImport()
     await settle(0)
     // The last response is the truth during the re-read: the unknown set
-    // id is a plain top-level row, never a fact-less fallback set row.
+    // id is a plain top-level row, never a fact-less fallback set row —
+    // its Name cell is its label, not empty, not indented.
     const row = screen.getByTestId(`txr-models-row-${fresh.id}`)
-    expect(row.querySelector('td[data-label="Set"]')?.textContent).toBe('')
+    const freshName = row.querySelector('th[data-label="Name"]') as HTMLElement
+    expect(freshName.textContent).toContain(fresh.name)
+    expect(freshName.style.paddingLeft).toBe('')
     expect(screen.queryByTestId('txr-models-set-row-set-imported-now')).toBeNull()
     // No "Not in a set" surface anywhere.
     expect(screen.queryByText('Not in a set')).toBeNull()
@@ -584,66 +640,287 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(screen.getByTestId('txr-models-j-set-focus')).toBeTruthy()
   })
 
-  it('hides set rows with no matching model under the server-side search; the Model column keeps the set\'s model_count', async () => {
-    renderPage()
-    await settle(0)
-    // The server answers the q with only set-b's rows (the provider's
-    // substring filter — the page never client-filters).
-    api.listModels.mockResolvedValue({
-      ...TXRMODELS_J_RESPONSE,
-      models: TXRMODELS_J_RESPONSE.models.filter(model => model.set_id === 'set-b'),
-      total: 3,
-    })
-    fireEvent.change(screen.getByTestId('txr-models-j-search'), {
-      target: { value: 'lung' },
-    })
-    await settle(250)
-    await settle(0)
-    expect(screen.queryByTestId('txr-models-set-row-set-a')).toBeNull()
-    expect(screen.queryByTestId(`txr-models-row-${IMPORTED_ROW.id}`)).toBeNull()
-    const setB = screen.getByTestId('txr-models-set-row-set-b')
-    // The Model column is the set's OWN count (model_count), never the
-    // filtered view's row count; a collapsed set with matches stays
-    // collapsed.
-    expect(within(setB).getByText('3 models')).toBeTruthy()
-    expect(screen.queryByTestId(`txr-models-row-${fixtureModelId(12)}`)).toBeNull()
-    await toggleSet('set-b')
-    expect(screen.getByTestId(`txr-models-row-${fixtureModelId(12)}`)).toBeTruthy()
-    // And a search with no hits at all keeps the honest no-match line.
-    api.listModels.mockResolvedValue({ ...TXRMODELS_J_RESPONSE, models: [], total: 0 })
-    fireEvent.change(screen.getByTestId('txr-models-j-search'), {
-      target: { value: 'zzz' },
-    })
-    await settle(250)
-    await settle(0)
-    expect(screen.getByTestId('txr-models-j-no-match').textContent).toContain(
-      'Nothing matches here.',
-    )
-    // Zero set rows — the *AllBy query throws on an empty result, so the
-    // honest no-row assertion is the `queryAll` variant.
-    expect(screen.queryAllByTestId(/^txr-models-set-row-/)).toHaveLength(0)
-    expect(screen.queryAllByTestId(/^txr-models-row-/)).toHaveLength(0)
-  })
-
-  it('debounces the search 250 ms and hits the generated client with the server q', async () => {
+  it('searches client-side: a set-name match shows the whole set with its own expand state (no server q, no debounce)', async () => {
     renderPage()
     await settle(0)
     expect(api.listModels).toHaveBeenCalledTimes(1)
     expect(api.listModels).toHaveBeenCalledWith({})
-    fireEvent.change(screen.getByTestId('txr-models-j-search'), {
-      target: { value: 'ldh' },
-    })
-    await settle(249)
+    // Type a set name: the page NEVER re-issues the read (one request
+    // total, no q, no debounce) — the filter is the builder's.
+    await typeSearch('lung')
     expect(api.listModels).toHaveBeenCalledTimes(1)
-    await settle(2)
-    expect(api.listModels).toHaveBeenCalledTimes(2)
-    expect(api.listModels).toHaveBeenLastCalledWith({ q: 'ldh' })
+    expect(screen.queryByTestId('txr-models-set-row-set-a')).toBeNull()
+    expect(screen.queryByTestId(`txr-models-row-${IMPORTED_ROW.id}`)).toBeNull()
+    const setB = screen.getByTestId('txr-models-set-row-set-b')
+    // A set-name match reads the PLAIN count (all its models are shown);
+    // the collapsed set keeps its own expand state.
+    expect(within(setB).getByText('3 models')).toBeTruthy()
+    expect(screen.queryByTestId(`txr-models-row-${fixtureModelId(12)}`)).toBeNull()
+    await toggleSet('set-b')
+    for (const id of [12, 15, 16]) {
+      expect(screen.getByTestId(`txr-models-row-${fixtureModelId(id)}`)).toBeTruthy()
+    }
+  })
+
+  it('searches client-side: a model match forces its set row expanded with only the matches ("2 of 3 models match")', async () => {
+    renderPage()
+    await settle(0)
+    await typeSearch('cox')
+    // "cox" matches fm-11 (set-a) and fm-12/fm-15 (set-b): both set rows
+    // are FORCED expanded with only the matches — the store was never
+    // written (the sets were closed by default).
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      `txr-models-row-${fixtureModelId(11)}`,
+      'txr-models-set-row-set-b',
+      `txr-models-row-${fixtureModelId(15)}`,
+      `txr-models-row-${fixtureModelId(12)}`,
+    ])
+    // The forced expansion is the VIEW's, never the store's.
+    expect(isSetExpanded('set-a')).toBe(false)
+    expect(isSetExpanded('set-b')).toBe(false)
+    // The Name cell reads the brief's "(2 of 3 models match)" (set-b) and
+    // the same rule on set-a (1 of 7 — the set's own model_count): the
+    // visible "(N of M models match)" is aria-hidden, the one
+    // screen-reader-only text is the same words.
+    const setBRow = screen.getByTestId('txr-models-set-row-set-b')
+    expect(within(setBRow).getByText('(2 of 3 models match)')).toBeTruthy()
+    expect(within(setBRow).getByText('2 of 3 models match')).toBeTruthy()
+    expect(
+      within(screen.getByTestId('txr-models-set-row-set-a')).getByText('(1 of 7 models match)'),
+    ).toBeTruthy()
+    expect(
+      within(screen.getByTestId('txr-models-set-row-set-a')).getByText('1 of 7 models match'),
+    ).toBeTruthy()
+    // The chevron tells the truth: the rows ARE shown (aria-expanded=true),
+    // and it is NOT the ?set= focus's inert flag.
+    expect(
+      screen.getByTestId('txr-models-set-toggle-set-a').getAttribute('aria-expanded'),
+    ).toBe('true')
+    expect(
+      screen.getByTestId('txr-models-set-toggle-set-b').getAttribute('aria-expanded'),
+    ).toBe('true')
+    // The chevron is INERT (disabled, still aria-expanded=true) while the
+    // search FORCES the set open — like the ?set= focus, the view is the
+    // search's, not a togglable one: clicking must not collapse the set or
+    // touch the module store.
+    expect(
+      (screen.getByTestId('txr-models-set-toggle-set-a') as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByTestId('txr-models-set-toggle-set-b') as HTMLButtonElement).disabled,
+    ).toBe(true)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-set-toggle-set-a'))
+      await Promise.resolve()
+    })
+    expect(
+      screen.getByTestId('txr-models-set-toggle-set-a').getAttribute('aria-expanded'),
+    ).toBe('true')
+    expect(isSetExpanded('set-a')).toBe(false)
+    // Clearing restores each set's own (closed) expand state.
+    await typeSearch('')
+    expect(screen.queryByTestId(`txr-models-row-${fixtureModelId(12)}`)).toBeNull()
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      'txr-models-set-row-set-b',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    expect(
+      screen.getByTestId('txr-models-set-toggle-set-a').getAttribute('aria-expanded'),
+    ).toBe('false')
+    // With the search cleared the chevron is live again (the store's state).
+    expect(
+      (screen.getByTestId('txr-models-set-toggle-set-a') as HTMLButtonElement).disabled,
+    ).toBe(false)
+  })
+
+  it('searches client-side: a no-set model match, a set-name match that wins, and the honest no-match line', async () => {
+    renderPage()
+    await settle(0)
+    // A no-set model by name: the imported row only.
+    await typeSearch('colon panel')
+    expect(tableRowIds()).toEqual([`txr-models-row-${IMPORTED_ROW.id}`])
+    // The set-name match WINS over the model match: "day 35" matches both
+    // the set-b name and fm-12's model name, but the WHOLE set shows (all
+    // three models after expanding), never just the one model.
+    await typeSearch('day 35')
+    expect(tableRowIds()).toEqual(['txr-models-set-row-set-b'])
+    await toggleSet('set-b')
+    for (const id of [12, 15, 16]) {
+      expect(screen.getByTestId(`txr-models-row-${fixtureModelId(id)}`)).toBeTruthy()
+    }
+    expect(within(screen.getByTestId('txr-models-set-row-set-b')).getByText('3 models')).toBeTruthy()
+    // Nothing matches → the honest no-match line, no rows at all.
+    await typeSearch('zzz')
+    expect(screen.getByTestId('txr-models-j-no-match').textContent).toContain(
+      'Nothing matches here.',
+    )
+    expect(screen.queryAllByTestId(/^txr-models-set-row-/)).toHaveLength(0)
+    expect(screen.queryAllByTestId(/^txr-models-row-/)).toHaveLength(0)
+  })
+
+  it('clearing the search restores a set its own expand state even after a search-forced expansion', async () => {
+    renderPage()
+    await settle(0)
+    await toggleSet('set-b')
+    await typeSearch('cox')
+    // Forced expanded despite the store's own state; only the matches.
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      `txr-models-row-${fixtureModelId(11)}`,
+      'txr-models-set-row-set-b',
+      `txr-models-row-${fixtureModelId(15)}`,
+      `txr-models-row-${fixtureModelId(12)}`,
+    ])
+    await typeSearch('')
+    // set-b was open in the store all along — still open, with ALL its
+    // models; set-a never learned the forced expansion (it stays closed);
+    // folders on top — the loose imported row comes after every set.
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      'txr-models-set-row-set-b',
+      `txr-models-row-${fixtureModelId(15)}`,
+      `txr-models-row-${fixtureModelId(16)}`,
+      `txr-models-row-${fixtureModelId(12)}`,
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    expect(
+      screen.getByTestId('txr-models-set-toggle-set-b').getAttribute('aria-expanded'),
+    ).toBe('true')
+  })
+
+  it('the ONE search box is labelled "Search sets and models" (no debounce, no server q, no 250 ms wait) and a typed match scrolls into view', async () => {
+    renderPage()
+    await settle(0)
     const search = screen.getByTestId('txr-models-j-search')
-    expect(search.getAttribute('aria-label')).toBe('Search models')
+    expect(search.getAttribute('aria-label')).toBe('Search sets and models')
     // RES-18: the board's placeholder is on the box too (the box was
     // aria-only, invisible at a glance; the dark-mode palette half is
     // ITEM-7's).
-    expect(search.getAttribute('placeholder')).toBe('Search models')
+    expect(search.getAttribute('placeholder')).toBe('Search sets and models')
+    // A typing burst costs ZERO round-trips: the list is read once, the
+    // filter is the builder's.
+    expect(api.listModels).toHaveBeenCalledTimes(1)
+    scrollIntoViewSpy.mockClear()
+    await typeSearch('cox')
+    await typeSearch('cox-cutpoint')
+    expect(api.listModels).toHaveBeenCalledTimes(1)
+    // The reveal (part 2): each typed search scrolls its first match into
+    // view (`block: 'nearest'`) — jsdom cannot scroll, so the call is
+    // pinned; the reveal is the search's own, never the chevron's.
+    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(2)
+    expect(scrollIntoViewSpy.mock.calls[0]).toEqual([{ block: 'nearest' }])
+  })
+
+  it('sorts by Name: A→Z / Z→A (buttons inside the th, aria-sort), the no-set model AFTER every set', async () => {
+    renderPage()
+    await settle(0)
+    // Birth: Made descending — the Made th carries aria-sort, the Name th does not.
+    const madeHeader = screen.getByTestId('txr-models-j-table').querySelectorAll('thead th')[5]!
+    const nameHeader = screen.getByTestId('txr-models-j-table').querySelectorAll('thead th')[0]!
+    expect(madeHeader.getAttribute('aria-sort')).toBe('descending')
+    expect(nameHeader.getAttribute('aria-sort')).toBeNull()
+    // Click Name → A→Z: CRC before Lung, the no-set row last.
+    await clickSort('name')
+    expect(nameHeader.getAttribute('aria-sort')).toBe('ascending')
+    expect(madeHeader.getAttribute('aria-sort')).toBeNull()
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      'txr-models-set-row-set-b',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    // Click Name again → Z→A; the no-set row STAYS after every set.
+    await clickSort('name')
+    expect(nameHeader.getAttribute('aria-sort')).toBe('descending')
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-b',
+      'txr-models-set-row-set-a',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    // The name sort orders the model rows inside a set by the SAME name
+    // direction (brief 7): expand set-b under Z→A — "Lung pilot, day 35"
+    // (fm-12), then landmark-cox-current, then ctdna steady rise.
+    await toggleSet('set-b')
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-b',
+      `txr-models-row-${fixtureModelId(12)}`,
+      `txr-models-row-${fixtureModelId(15)}`,
+      `txr-models-row-${fixtureModelId(16)}`,
+      'txr-models-set-row-set-a',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+  })
+
+  it('sorts by Made both ways: the set rows first, the no-set models after (folders on top) and the models follow the toggle', async () => {
+    renderPage()
+    await settle(0)
+    // Desc (birth): the set rows first — set-a (29 Nov) before set-b
+    // (9 Oct); the imported Dec row is the no-set block AFTER every set.
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      'txr-models-set-row-set-b',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    // Click Made → ascending (oldest first): set-b (9 Oct), set-a (29 Nov),
+    // then the Dec 4 imported row.
+    await clickSort('made')
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-b',
+      'txr-models-set-row-set-a',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    // The header's aria-sort flips with the click.
+    const madeHeader = screen.getByTestId('txr-models-j-table').querySelectorAll('thead th')[5]!
+    expect(madeHeader.getAttribute('aria-sort')).toBe('ascending')
+    // Inside a set the models follow the Made direction (PLAN-ONE-TABLE
+    // section 2): under ascending, set-b's fm-12 (9 Oct) leads its group —
+    // the opposite of the newest-first birth order.
+    await toggleSet('set-b')
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-b',
+      `txr-models-row-${fixtureModelId(12)}`,
+      `txr-models-row-${fixtureModelId(15)}`,
+      `txr-models-row-${fixtureModelId(16)}`,
+      'txr-models-set-row-set-a',
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    // …and flipping back to descending restores newest first inside the set
+    // (fm-15/fm-16 29 Nov before fm-12 9 Oct) without touching the store.
+    await clickSort('made')
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-a',
+      'txr-models-set-row-set-b',
+      `txr-models-row-${fixtureModelId(15)}`,
+      `txr-models-row-${fixtureModelId(16)}`,
+      `txr-models-row-${fixtureModelId(12)}`,
+      `txr-models-row-${IMPORTED_ROW.id}`,
+    ])
+    expect(isSetExpanded('set-b')).toBe(true)
+  })
+
+  it('the ?set= focus keeps working with the client-side search', async () => {
+    renderPage('/models?set=set-b')
+    await settle(0)
+    // A search inside the focus: only the focused set's matching model.
+    await typeSearch('cutpoint')
+    expect(tableRowIds()).toEqual(['txr-models-set-row-set-b', `txr-models-row-${fixtureModelId(12)}`])
+    // The search-forced match never writes the expansion store.
+    expect(isSetExpanded('set-b')).toBe(false)
+    // Clearing returns to the focused set, always expanded (the URL's view).
+    await typeSearch('')
+    expect(tableRowIds()).toEqual([
+      'txr-models-set-row-set-b',
+      `txr-models-row-${fixtureModelId(15)}`,
+      `txr-models-row-${fixtureModelId(16)}`,
+      `txr-models-row-${fixtureModelId(12)}`,
+    ])
+    // A no-hit search inside the focus is the honest no-match line.
+    await typeSearch('zzz')
+    expect(screen.getByTestId('txr-models-j-no-match').textContent).toContain(
+      'Nothing matches here.',
+    )
+    expect(screen.getByTestId('txr-models-j-set-focus')).toBeTruthy()
   })
 
   it('renders the marker kind and the set segment on the subline (RES-19/RES-17)', async () => {
@@ -674,17 +951,16 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     await toggleSet('set-a')
     const row = screen.getByTestId(`txr-models-row-${fixtureModelId(11)}`)
     const labels = [...row.querySelectorAll('th, td')].map(el => el.getAttribute('data-label'))
-    expect(labels).toEqual(['Set', 'Model', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made', 'Actions'])
+    expect(labels).toEqual(['Name', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made', 'Actions'])
     // qa-fixes4 ITEM-6 (results-r3 R3-results-12): the Made entry is one
     // date ("10 Nov 2026") — never wrapped across lines ("10 Nov / 2026").
     const made = row.querySelector('td[data-label="Made"]') as HTMLElement
     expect(made.style.whiteSpace).toBe('nowrap')
-    // A set row's empty entries carry no labels on the phone card (the
-    // card's own header words read) — the truth byte is on the model row
-    // above; the set row's data-labels are absent per the card rule.
+    // A set row's cells carry no labels on the phone card (the card's own
+    // header words read) — the truth byte is on the model row above; the
+    // folder row's data-labels are absent per the card rule.
     const setRow = screen.getByTestId('txr-models-set-row-set-a')
     expect([...setRow.querySelectorAll('th, td')].map(el => el.getAttribute('data-label'))).toEqual([
-      null,
       null,
       null,
       null,
@@ -738,8 +1014,9 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     await settle(0)
     // Every set / no-set row is its own tbody: the per-tbody `isLast` used
     // to strip the separator under EVERY collapsed set. The truth is
-    // whole-table — with the default CLOSED fixture the last row is the
-    // imported no-set model; set-a, set-b and every other row keep theirs.
+    // whole-table — with the brief-7 default order (Made desc, folders on
+    // top: set-a, set-b, the imported Dec row) the LAST row is the
+    // imported no-set row; set-a, set-b and every other row keep theirs.
     const SEPARATOR = '1px solid var(--txr-border-subtle)'
     const borderByte = (el: HTMLElement): string =>
       (el.querySelector('th, td') as HTMLElement).style.borderBottom
@@ -750,17 +1027,19 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     // (`medium`); the honest byte is the STYLE, which reads `none`.
     expect(borderByte(imported)).toBe('medium')
     expect((imported.querySelector('td') as HTMLElement).style.borderBottomStyle).toBe('none')
-    // Expanding set-a inserts model rows with THEIR separator; the last row
-    // of the WHOLE table is still the imported one until set-b is expanded.
+    // Expanding set-a inserts model rows with THEIR separator; the imported
+    // row stays the last row of the whole table.
     await toggleSet('set-a')
     expect(borderByte(screen.getByTestId(`txr-models-row-${RUN_ROW.id}`))).toBe(SEPARATOR)
     expect(borderByte(imported)).toBe('medium')
-    // Expand set-b too: the unsetted imported row stays the table's LAST
-    // row (the no-set models come after every group), so even set-b's last
-    // model keeps its separator — the imported row is the one border-less
-    // row in the table.
+    // Expand set-b too: its model rows land BEFORE the imported no-set row
+    // (folders on top — the loose row is the whole table's last), so the
+    // one border-less row is still the imported row and set-b's own set
+    // row RECOVERS its separator.
     await toggleSet('set-b')
-    expect(borderByte(screen.getByTestId(`txr-models-row-${fixtureModelId(16)}`))).toBe(SEPARATOR)
+    expect(borderByte(screen.getByTestId(`txr-models-row-${fixtureModelId(15)}`))).toBe(SEPARATOR)
+    expect(borderByte(screen.getByTestId(`txr-models-row-${fixtureModelId(12)}`))).toBe(SEPARATOR)
+    expect(borderByte(screen.getByTestId('txr-models-set-row-set-b'))).toBe(SEPARATOR)
     expect(borderByte(imported)).toBe('medium')
     expect((imported.querySelector('td') as HTMLElement).style.borderBottomStyle).toBe('none')
   })
