@@ -1567,6 +1567,49 @@ impl StackMethodExecutor {
         };
         let params = params_value(settings, &reuse_outcomes, &selection.mains());
 
+        // The data-carrying reuse's cohort side — the run's own patients as
+        // a train call's FIRST bundles with no predict file
+        // ([`method_bundles`]) — and its cross-check, built HERE, BEFORE any
+        // container call. The order chosen (brief 4): the whole cohort stage
+        // is bundle-stage, so a data-carrying reuse that cannot cross-check
+        // its conversion is refused with ZERO calls — the predict-surface
+        // call below is skipped too (a refusal ends the method either way,
+        // and a bundle refusal never reaches the sandbox: the train path's
+        // rule). The cost of moving the check first is only that the main
+        // call may not have run when the cohort refuses; nothing it would
+        // have produced is shown either way.
+        //
+        // Two refusals share this point: the cohort's own bundle refusal
+        // ([`method_bundles`], e.g. a test patient with no covariate row)
+        // and the too-small-cohort one ([`cohort_folds`], the train path's
+        // rule: some fold's training part has fewer than
+        // [`bundle::MIN_TRAINING_PATIENTS`] known labels or fewer than 2 of
+        // either class). A native-probability model is never refused by this
+        // (its shown column is its own — there is no conversion to
+        // cross-check), and a predict-only reuse has no cohort at all (the
+        // saved-conversion path below).
+        let cohort_crosscheck: Option<(MethodBundles, Vec<usize>)> = match (
+            &reuse_train,
+            super::predictions::own_probability(
+                &facts.own_outputs,
+                outcome_spec.outcome,
+                outcome_spec.horizon,
+            ),
+        ) {
+            (Some(train), false) => {
+                let bundles = match method_bundles(train, None, facts, settings, ctx.min_draws) {
+                    Ok(b) => b,
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                };
+                let needs = needs_list(facts, &bundles.train.outcomes, settings);
+                match cohort_folds(&bundles.train, &needs, &outcome_spec, settings) {
+                    Ok(folds) => Some((bundles, folds)),
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                }
+            }
+            _ => None,
+        };
+
         let bundle_dir = ctx.run_dir.join("bundles").join(&method_id);
         let outputs_dir = ctx.run_dir.join("output").join(&method_id);
         let mut duration_ms: u64 = 0;
@@ -1647,37 +1690,24 @@ impl StackMethodExecutor {
         //    matching map the column has no chances and each note says why.
         let (prob_source, rows, applied) = if score.native_column.is_some() {
             (TxrProbSource::Native, score.rows, None)
-        } else if let Some(train) = reuse_train {
+        } else if reuse_train.is_some() {
             // A data-carrying reuse run: the conversion is re-fitted from the
             // model's scores over the run's own cohort (the honest
             // training-side band). The cohort's marker set, train bundle and
             // test bundle over the cohort itself are exactly a train call's
-            // first bundles with no predict file ([`method_bundles`]). Audit
-            // fix 3: the recorded-features selection applies ONLY when the
-            // model HAS recorded features and no fixed list; otherwise this
-            // is [`method_bundles`] exactly as before (the count rule over
-            // the run's training side), never the predict side's selection.
+            // first bundles with no predict file ([`method_bundles`]) — they
+            // were built BEFORE the first call, by the cohort cross-check
+            // above (the check that gates this branch: a non-native shown
+            // column is exactly what it checked).
+            let crosscheck = cohort_crosscheck
+                .as_ref()
+                .expect("the data-carrying conversion branch always built the cohort cross-check");
             let MethodBundles {
                 train: train_bundle,
                 test: cohort_test,
                 ..
-            } = if recorded_selection {
-                match method_bundles_with_selection(
-                    &train,
-                    None,
-                    settings,
-                    ctx.min_draws,
-                    &selection,
-                ) {
-                    Ok(b) => b,
-                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                }
-            } else {
-                match method_bundles(&train, None, facts, settings, ctx.min_draws) {
-                    Ok(b) => b,
-                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                }
-            };
+            } = &crosscheck.0;
+            let folds = &crosscheck.1;
             let cohort_score = self
                 .predict_call(
                     ctx,
@@ -1689,8 +1719,8 @@ impl StackMethodExecutor {
                     &outcome_spec,
                     &train_bundle.outcomes,
                     &train_bundle.params,
-                    (!facts.saves_model).then_some(&train_bundle),
-                    &cohort_test,
+                    (!facts.saves_model).then_some(train_bundle),
+                    cohort_test,
                     Some((&asset.tree_sha256, Path::new(&asset.host_dir))),
                     None,
                     &bundle_dir,
@@ -1706,6 +1736,26 @@ impl StackMethodExecutor {
             // predict-surface rows (`score` above — the patients the board
             // scored); the cohort table was only the map's training side.
             let predict_rows = score.rows;
+            // The cohort patient's row is its OWN cohort-predict value (the
+            // model's score over the cohort — the number the conversion band
+            // was fitted on), stitched over the predict-surface row so the
+            // shown chance is conversion_k applied to the score the band
+            // actually saw; a patient the cohort never saw keeps the
+            // predict-surface row and the full conversion.
+            let checked_by_patient: std::collections::BTreeMap<
+                String,
+                super::predictions::PredictionRow,
+            > = cohort_score
+                .rows
+                .iter()
+                .map(|row| (row.patient_id.clone(), row.clone()))
+                .collect();
+            let fold_of: std::collections::BTreeMap<String, usize> = train_bundle
+                .patient_ids
+                .iter()
+                .zip(folds)
+                .map(|(id, k)| (id.clone(), *k))
+                .collect();
             let outcomes_csv = bundle::parse_csv(
                 &train_bundle
                     .files
@@ -1722,17 +1772,62 @@ impl StackMethodExecutor {
                 outcome_spec.outcome,
                 outcome_spec.horizon,
             ) {
-                Ok(c) => (
-                    TxrProbSource::Recalibrated,
-                    super::predictions::converted_rows(&c, &predict_rows),
-                    Some((
-                        super::predictions::conversion_key(
+                Ok(c) => {
+                    // The shown column's PER-FOLD conversions (brief 3's
+                    // fixed-rule cross-fit, no extra method runs): fold k's
+                    // conversion is fitted on the OTHER folds' cohort scores
+                    // and outcomes ONLY — a cohort patient's shown chance
+                    // never used its own score, and a change to fold k's
+                    // follow-up times never moves its weights (F4). The FULL
+                    // conversion above stays the run's record
+                    // (conversions.json) exactly as today.
+                    let mut fold_conversions: Vec<super::predictions::Conversion> = Vec::new();
+                    for k in 0..super::predictions::CROSS_FIT_FOLDS {
+                        let other_ids: std::collections::BTreeSet<String> = fold_of
+                            .iter()
+                            .filter(|(_, kk)| **kk != k)
+                            .map(|(id, _)| id.clone())
+                            .collect();
+                        let fold_outcomes =
+                            super::predictions::outcomes_for_patients(&outcomes_csv, &other_ids);
+                        let other_folds: std::collections::BTreeMap<String, Option<f64>> = map
+                            .iter()
+                            .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                            .map(|(id, risk)| (id.clone(), *risk))
+                            .collect();
+                        match super::predictions::fit_recalibration(
+                            spec,
+                            &fold_outcomes,
+                            &other_folds,
                             outcome_spec.outcome,
                             outcome_spec.horizon,
+                        ) {
+                            Ok(cc) => fold_conversions.push(cc),
+                            Err(e) => {
+                                let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
+                                return Ok(failed_outcome(reason));
+                            }
+                        }
+                    }
+                    let stitched =
+                        super::predictions::stitch_rows(&predict_rows, &checked_by_patient);
+                    (
+                        TxrProbSource::Recalibrated,
+                        super::predictions::crosschecked_rows(
+                            &stitched,
+                            &fold_of,
+                            &fold_conversions,
+                            &c,
                         ),
-                        c,
-                    )),
-                ),
+                        Some((
+                            super::predictions::conversion_key(
+                                outcome_spec.outcome,
+                                outcome_spec.horizon,
+                            ),
+                            c,
+                        )),
+                    )
+                }
                 Err(e) => {
                     let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
                     return Ok(failed_outcome(reason));
@@ -10576,6 +10671,97 @@ mod tests {
         (train, predict)
     }
 
+    /// [`cohort_patients_table`] cut to the first `n` patients (the
+    /// small-cohort reuse tests).
+    fn cohort_patients_table_n(n: usize) -> crate::modules::file_validator::types::ParsedTable {
+        let mut t = cohort_patients_table();
+        t.rows.truncate(n);
+        t
+    }
+
+    /// [`cohort_measurements_table`] cut to the first `n` patients.
+    fn cohort_measurements_table_n(n: usize) -> crate::modules::file_validator::types::ParsedTable {
+        let mut t = cohort_measurements_table();
+        t.rows.truncate(n * 3);
+        t
+    }
+
+    /// [`cohort_reuse_request`] over the first `n` patients (a cohort below
+    /// the cross-check minimum; Files-mode reuse reads the predict
+    /// measurements as the run's own, so both sides are cut together).
+    fn small_cohort_reuse_request(
+        asset_dir: &Path,
+        digest: &str,
+        method_id: &str,
+        n: usize,
+    ) -> CreateRunRequest {
+        let mut req = cohort_reuse_request(asset_dir, digest, method_id);
+        req.input.patients = Some(cohort_patients_table_n(n));
+        req.input.measurements = cohort_measurements_table_n(n);
+        req.input.predict_measurements = Some(cohort_measurements_table_n(n));
+        req
+    }
+
+    /// The reuse fixture's prepared sides with the predict file kept whole
+    /// AND three patients the cohort never saw appended (X31..X33, the same
+    /// 3-draw pattern as C01): the predict surface is a strict superset of
+    /// the cohort, so the shown column has both a cohort patient's
+    /// cross-checked chance and an outsider's full-conversion one.
+    fn reuse_sides_with_outsider_patients(
+        prepared: &PreparedRun,
+    ) -> (Arc<CanonicalBundle>, Arc<CanonicalBundle>) {
+        let train = prepared
+            .train
+            .clone()
+            .expect("a Files-mode reuse carries the cohort");
+        let predict = prepared.predict.as_deref().expect("the predict file");
+        let src: Vec<&crate::modules::file_validator::types::CanonicalValue> = predict
+            .values
+            .iter()
+            .filter(|v| v.patient_id == "C01")
+            .collect();
+        assert_eq!(
+            src.len(),
+            3,
+            "the outsider fixture clones C01's three draws"
+        );
+        let mut values = predict.values.clone();
+        for i in 31..=33 {
+            for v in &src {
+                let mut x = (*v).clone();
+                x.patient_id = format!("X{i:02}");
+                values.push(x);
+            }
+        }
+        let predict = Arc::new(CanonicalBundle {
+            values,
+            ..predict.clone()
+        });
+        (train, predict)
+    }
+
+    /// The cross-check facts `execute_reuse` derives for a Files-mode reuse
+    /// — ONE construction (method_bundles + needs_list + [`run_task`] +
+    /// [`cohort_folds`]) with the REUSE path's own settings
+    /// ([`method_bundle_settings`], NOT the train call's covariates-bearing
+    /// ones, and the context's cpus/min_draws) — so a test recomputes
+    /// exactly the folds, strata outcome and needs the executor used.
+    fn reuse_fixture_crosscheck(
+        train: &CanonicalBundle,
+        facts: &Method,
+        config: &RunConfig,
+        cpus: u32,
+        min_draws: u32,
+    ) -> (Vec<usize>, bundle::TrainBundle) {
+        let settings = method_bundle_settings(config, cpus);
+        let bundles = method_bundles(train, None, facts, &settings, min_draws).expect("bundles");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        let displayed = run_task(facts, config.endpoint, settings.look_ahead_day);
+        let folds = cohort_folds(&bundles.train, &needs, &displayed, &settings)
+            .expect("the reuse cohort passes the cross-check");
+        (folds, bundles.train)
+    }
+
     /// The data-carrying reuse conversion builds the cohort's bundles with
     /// [`method_bundles`] (marker set → train bundle → test bundle over the
     /// cohort itself, no predict file): its cohort call receives exactly that
@@ -10817,14 +11003,16 @@ mod tests {
     }
 
     /// A refusal while building the reuse conversion's cohort bundles is
-    /// [`method_bundles`]' refusal (no predict file), code and detail. The
-    /// case, with covariates on: the cohort's measurements carry a patient
-    /// (`X99`) that its patients table does not, and the predict file is a
-    /// smaller set of table patients. The predict-surface call runs; then the
-    /// cohort's test bundle — over the cohort with its own patients table —
-    /// scores `X99` and is refused `BUNDLE_TEST_PATIENT_UNKNOWN`. A cohort
-    /// test bundle built over the predict file instead would be refused
-    /// differently (no predict patients table).
+    /// [`method_bundles`]' refusal (no predict file), code and detail, and it
+    /// comes BEFORE any container call (brief 4's order: the cohort stage is
+    /// bundle-stage — a refusal never reaches the sandbox, the train path's
+    /// rule). The case, with covariates on: the cohort's measurements carry a
+    /// patient (`X99`) that its patients table does not, and the predict file
+    /// is a smaller set of table patients. The cohort's test bundle — over
+    /// the cohort with its own patients table — scores `X99` and is refused
+    /// `BUNDLE_TEST_PATIENT_UNKNOWN`. A cohort test bundle built over the
+    /// predict file instead would be refused differently (no predict patients
+    /// table).
     #[tokio::test]
     async fn executor_reuse_cohort_refusal_is_the_train_call_bundle_refusal() {
         use crate::modules::file_validator::types::{CanonCell, CanonicalValue};
@@ -10908,13 +11096,323 @@ mod tests {
             (refusal.code(), refusal.to_string())
         );
         let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "the cohort bundle refusal is before the first call — no call ran \
+             (brief 4 moved the cohort stage ahead of the predict-surface call)"
+        );
+        drop(calls);
+    }
+
+    /// Brief 4: a data-carrying reuse cross-fits ITS conversion on the
+    /// cohort folds ([`cohort_folds`], the train path's ONE construction) —
+    /// with no extra method runs: a cohort patient's shown chance is
+    /// conversion_k applied to its cohort score (fitted on the OTHER folds'
+    /// scores + outcomes only), a predict-surface patient the cohort never
+    /// saw keeps the full-cohort conversion, conversions.json keeps its one
+    /// entry (the FULL conversion — the per-fold maps only shape the shown
+    /// column), and the call count stays the two calls of before (predict
+    /// surface + cohort).
+    #[tokio::test]
+    async fn executor_reuse_cross_fits_its_conversion() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-crossfit"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let mut req = cohort_reuse_request(&asset_dir, &digest, method);
+        let saved = saved_logistic_map();
+        req.model_ids[0].conversions = saved.clone();
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_outsider_patients(&prepared);
+        let facts = crate::modules::method_list::builtin()
+            .method(method)
+            .expect("facts");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train.clone()),
+            Some(predict),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        let (config, cpus, min_draws) = (req.config.clone(), ctx.cpus, ctx.min_draws);
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Recalibrated));
+        assert_eq!(
+            outcome.coverage.map(|c| (c.scored, c.eligible)),
+            Some((33, 33)),
+            "the column covers the whole predict surface"
+        );
+
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            calls.len(),
+            2,
+            "no new container calls: the predict surface + the cohort, as before"
+        );
+        assert!(calls.iter().all(|c| c.mode == MethodRunMode::ReuseModel));
+        let full_scored = calls[0].scored.clone();
+        let cohort_scored = calls[1].scored.clone();
+        drop(calls);
+        assert_eq!(full_scored.len(), 33, "the predict surface + the outsiders");
+        assert_eq!(cohort_scored.len(), 30, "the cohort");
+        let outsiders: Vec<&String> = full_scored
+            .iter()
+            .filter(|id| !cohort_scored.contains(id))
+            .collect();
+        assert_eq!(outsiders.len(), 3, "X31..X33 are never in the cohort");
+
+        // Recompute the cross-check the executor used (the reuse path's own
+        // settings/context) and the fold conversions from the seam's scores —
+        // exactly the train-path tests' recomputation.
+        let (folds, train_bundle) =
+            reuse_fixture_crosscheck(&train, facts, &config, cpus, min_draws);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let spec = predictions::PredictionSpec::new(facts);
+        let cohort_map: BTreeMap<String, Option<f64>> = cohort_scored
+            .iter()
+            .map(|id| (id.clone(), seam_risk(&cohort_scored, id)))
+            .collect();
+        let full_conversion = predictions::fit_recalibration(
+            &spec,
+            &outcomes_csv,
+            &cohort_map,
+            "progression",
+            Some(238.0),
+        )
+        .expect("the full conversion fits");
+        let fold_conversions: Vec<_> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                let others: BTreeMap<String, Option<f64>> = cohort_map
+                    .iter()
+                    .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                    .map(|(id, r)| (id.clone(), *r))
+                    .collect();
+                predictions::fit_recalibration(
+                    &spec,
+                    &fold_calibration_outcomes(&outcomes_csv, &fold_of, k),
+                    &others,
+                    "progression",
+                    Some(238.0),
+                )
+                .expect("the fold conversion fits")
+            })
+            .collect();
+        // conversions.json keeps its one entry, the FULL conversion on all
+        // cohort scores (the per-fold maps only shape the shown column).
+        let recorded = predictions::read_conversions(&run_dir, "m-1").expect("recorded");
+        assert_eq!(
+            recorded.keys().collect::<Vec<_>>(),
+            vec!["progression@238"],
+            "the recorded map's shape is unchanged"
+        );
+        assert_eq!(
+            recorded["progression@238"], full_conversion,
+            "conversions.json = the full cohort conversion"
+        );
+        assert_ne!(
+            recorded, saved,
+            "the cohort refit, not the saved training map"
+        );
+
+        // The shown column: the predict surface's rows in its order; a
+        // cohort patient's chance = conversion_k applied to its COHORT
+        // score, an outsider's = the full conversion applied to the
+        // predict-call score.
+        let chance = std::fs::read_to_string(run_dir.join("output/m-1/chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        assert_eq!(ids.len(), 33, "every surface patient keeps its row");
+        let mut differs = false;
+        for (id, prob) in ids.iter().zip(probs) {
+            let (risk, conversion, which) = if cohort_scored.contains(id) {
+                let k = *fold_of.get(id.as_str()).expect("a cohort patient's fold");
+                (
+                    seam_risk(&cohort_scored, id).expect("a cohort score"),
+                    &fold_conversions[k],
+                    "the fold's own conversion",
+                )
+            } else {
+                (
+                    seam_risk(&full_scored, id).expect("an outsider score"),
+                    &full_conversion,
+                    "the full-cohort conversion (never in it)",
+                )
+            };
+            let expected = conversion.apply(Some(risk)).expect("a scored risk");
+            assert_eq!(prob, &format!("{expected:.6}"), "{id}: {which}");
+            if (full_conversion.apply(Some(risk)).unwrap() - expected).abs() > 1e-9 {
+                differs = true;
+            }
+        }
+        assert!(
+            differs,
+            "the fold conversions differ from the full one on this cohort: the test must see it"
+        );
+    }
+
+    /// Brief 4: a data-carrying reuse whose cohort is too small for the
+    /// cross-check is refused with the train path's
+    /// `BUNDLE_CROSSCHECK_TOO_SMALL` — before ANY container call (the check
+    /// is part of the cohort bundle stage, ahead of the predict-surface
+    /// call). A predict-only reuse (no cohort at all) and a
+    /// native-probability model (no conversion to cross-check) are never
+    /// refused by this.
+    #[tokio::test]
+    async fn executor_reuse_refuses_a_cohort_too_small_for_the_crosscheck() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-too-small"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        // 14 < 15 = [`bundle::CROSSCHECK_MIN_PATIENTS`]: the cohort's
+        // bundles still build (every outcome has 14 eligible patients,
+        // >= MIN_TRAINING_PATIENTS), but some fold's training part has only
+        // 14 - ceil(14/3) = 9 < 10 known labels — the train path's refusal.
+        let n = bundle::CROSSCHECK_MIN_PATIENTS - 1;
+        let req = small_cohort_reuse_request(&asset_dir, &digest, method, n);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the small-cohort reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let facts = crate::modules::method_list::builtin()
+            .method(method)
+            .expect("facts");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train.clone()),
+            Some(predict),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        // The refusal is [`cohort_folds`]'s OWN over the same cohort bundle,
+        // code and detail — the one construction the train path refuses on.
+        let settings = method_bundle_settings(&ctx.config, ctx.cpus);
+        let bundles = method_bundles(&train, None, facts, &settings, ctx.min_draws)
+            .expect("the 14-patient cohort's bundles still build");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        let displayed = run_task(facts, ctx.config.endpoint, settings.look_ahead_day);
+        let refusal = cohort_folds(&bundles.train, &needs, &displayed, &settings)
+            .expect_err("14 patients: some fold's training part has fewer than 10 known labels");
+
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        let reason = outcome.reason.expect("a failure reason");
+        assert_eq!(
+            (reason.code.as_str(), reason.detail),
+            (refusal.code(), refusal.to_string())
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "zero container calls for a too-small cohort (the predict-surface \
+             call is skipped too: the cohort stage comes first)"
+        );
+        drop(calls);
+    }
+
+    /// A native-probability saved model (landmark-cox-current declares
+    /// p_progression_H*) over a small cohort is NEVER refused by the
+    /// cross-check: its shown column is its own probability, there is no
+    /// conversion to cross-fit, so the data-carrying branch is skipped
+    /// entirely and the run finishes Native with the one predict-surface
+    /// call (no cohort call).
+    #[tokio::test]
+    async fn executor_reuse_native_model_with_a_small_cohort_is_not_refused() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-native-small"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "landmark-cox-current";
+        let n = bundle::CROSSCHECK_MIN_PATIENTS - 1;
+        let req = small_cohort_reuse_request(&asset_dir, &digest, method, n);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the native small-cohort reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train),
+            Some(predict),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Native));
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             calls.len(),
             1,
-            "the reuse call ran before the cohort refusal"
+            "the one predict-surface call — no cohort call, no cross-check"
         );
         assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
-        assert!(!calls[0].scored.contains(&"X99".to_string()));
         drop(calls);
     }
 
