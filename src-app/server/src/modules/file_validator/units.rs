@@ -27,6 +27,9 @@
 //!    ([`unit_mismatch_problem`]): the closed problem-code set carries ONE
 //!    unit-difference code (A04), so the mixed case is A04-error and the
 //!    mismatch case is A04-warning, distinguished by severity and message.
+//!    An entry with NO recorded canonical unit (empty/whitespace) is the one
+//!    no-claim exception: there is no known unit to compare against, so the
+//!    note is not produced (dnd-3).
 //! 4. **Unclassifiable unit.** An unmapped marker whose unit the classifier
 //!    cannot place gets family `none` + the A04 warning
 //!    ([`unit_unclassified_problem`]) — no scale is assumed, so no false
@@ -361,12 +364,23 @@ pub fn unit_mixed_problem(column: &str, facts: &MarkerUnitFacts) -> Option<FileP
 /// unit family" phrasing was clinician jargon on a green-adjacent card — the
 /// fact is one sentence: the unit is not the known one, so scales are not
 /// compared.
+///
+/// `None` when the vocabulary entry records NO canonical unit (empty or
+/// whitespace): there is no known unit to compare against, so "is not the
+/// known unit" would be claiming a non-fact (dnd-3). The unit value itself is
+/// carried as is; only the note is suppressed.
 pub fn unit_mismatch_problem(
     column: &str,
     user_unit: &str,
     canonical_unit: &str,
     agreement: UnitAgreement,
-) -> FileProblem {
+) -> Option<FileProblem> {
+    // An unrecorded canonical unit is NOT a mismatch: every note below names
+    // "the known unit", and there is none to name (the old empty-canonical
+    // message spelling quoted the blank).
+    if canonical_unit.trim().is_empty() {
+        return None;
+    }
     let agreement_text = match agreement {
         UnitAgreement::Family(_) => {
             "it is the same kind of unit but not the same one, so scales are not compared"
@@ -376,24 +390,15 @@ pub fn unit_mismatch_problem(
             "the unit matches — no problem"
         }
     };
-    // The vocabulary entry's canonical unit is not always recorded: an empty
-    // string rendered inside the quotes would read "the known unit ''" — a
-    // bug-shaped blank (qa-fixes ITEM-5, RES-24). The empty case names the
-    // known unit without quoting a non-fact.
-    let message = if canonical_unit.trim().is_empty() {
-        format!("column `{column}` unit '{user_unit}' is not the known unit: {agreement_text}")
-    } else {
-        format!(
-            "column `{column}` unit '{user_unit}' is not the known unit '{canonical_unit}': {agreement_text}"
-        )
-    };
-    FileProblem::new(
+    Some(FileProblem::new(
         ProblemCode::A04UnitDiffers,
         ProblemSeverity::Warning,
         None,
         Some(column.to_string()),
-        message,
-    )
+        format!(
+            "column `{column}` unit '{user_unit}' is not the known unit '{canonical_unit}': {agreement_text}"
+        ),
+    ))
 }
 
 /// The A04 WARNING for a unit the classifier cannot place (the unmapped-marker
@@ -594,7 +599,8 @@ mod tests {
             "U/mL",
             "U/L",
             UnitAgreement::Family(UnitFamily::Count),
-        );
+        )
+        .expect("a recorded canonical unit produces the note");
         assert_eq!(family.code, ProblemCode::A04UnitDiffers);
         assert_eq!(family.severity, ProblemSeverity::Warning);
         assert!(family.message.contains("U/mL"), "{}", family.message);
@@ -609,7 +615,8 @@ mod tests {
             "%",
             "ng/mL",
             UnitAgreement::Unknown,
-        );
+        )
+        .expect("a recorded canonical unit produces the note");
         assert_eq!(unknown.code, ProblemCode::A04UnitDiffers);
         assert!(
             unknown.message.contains("we do not recognise this unit"),
@@ -629,25 +636,32 @@ mod tests {
     }
 
     #[test]
-    fn test_fv8_mismatch_with_unrecorded_canonical_unit_quotes_nothing() {
+    fn test_fv8_mismatch_with_unrecorded_canonical_unit_is_no_note() {
         // A vocabulary-matched marker whose vocabulary entry records no
-        // canonical unit: the message must not quote a blank ('' — the
-        // qa-fixes ITEM-5 RES-24 shape); it names the vocabulary without
-        // a non-fact and keeps the agreement verdict.
-        let problem = unit_mismatch_problem("ctdna", "ng/mL", "", UnitAgreement::Unknown);
-        assert_eq!(problem.code, ProblemCode::A04UnitDiffers);
-        assert_eq!(problem.severity, ProblemSeverity::Warning);
+        // canonical unit has NO known unit to compare against — the
+        // "not the known unit" note must not be produced (dnd-3), whatever
+        // the agreement verdict (the family-only and the no-claim one) and
+        // whether the recorded value is empty or whitespace. The user unit is
+        // not refused or rewritten — it is used as is, only the note is gone.
+        for (unit, agreement) in [
+            ("AC/mL", UnitAgreement::Family(UnitFamily::Count)),
+            ("fraction", UnitAgreement::Unknown),
+        ] {
+            assert!(
+                unit_mismatch_problem("ctdna", unit, "", agreement).is_none(),
+                "no note for {unit} against no canonical unit"
+            );
+            assert!(
+                unit_mismatch_problem("ctdna", unit, "  ", agreement).is_none(),
+                "no note for {unit} against a whitespace canonical unit"
+            );
+        }
+        // A recorded canonical unit still notes (the rule is about the
+        // recorded unit, not the agreement verdict).
         assert!(
-            problem.message.contains("is not the known unit"),
-            "{}",
-            problem.message
+            unit_mismatch_problem("ctdna", "ng/mL", "U/L", UnitAgreement::Unknown).is_some(),
+            "a recorded canonical unit keeps the note"
         );
-        assert!(
-            problem.message.contains("we do not recognise this unit"),
-            "{}",
-            problem.message
-        );
-        assert!(!problem.message.contains("''"), "{}", problem.message);
     }
 
     #[test]

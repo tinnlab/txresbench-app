@@ -334,12 +334,9 @@ fn unit_problems_with_reference(
     let Some(unit) = facts.the_unit() else { return Vec::new() };
     match compare_unit_to_canonical(&unit.spelling, canonical_unit, canonical_family) {
         UnitAgreement::Matches => Vec::new(),
-        agreement => vec![unit_mismatch_problem(
-            &column.key,
-            &unit.spelling,
-            canonical_unit,
-            agreement,
-        )],
+        agreement => unit_mismatch_problem(&column.key, &unit.spelling, canonical_unit, agreement)
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -729,6 +726,86 @@ mod tests {
                 .any(|p| p.code == ProblemCode::A07UnitAbsent && p.column.as_deref() == Some("ldh")),
             "A07 for the vocabulary-matched LDH column: {:?}",
             f.problems
+        );
+    }
+
+    /// dnd-3: a vocabulary-matched marker whose entry records NO canonical
+    /// unit has no known unit to compare against — no A04 note, not for the
+    /// same-family unit (AC/mL vs the count family) nor for an unrecognised
+    /// one (fraction vs the no-claim family). An entry WITH a set unit still
+    /// notes, with the family and the unknown wording as today.
+    #[test]
+    fn test_fv2_inspect_no_a04_note_when_vocabulary_entry_records_no_unit() {
+        // Pin the vocabulary side of the fixture: both markers resolve to a
+        // NON-fuzzy catalogue entry that records no canonical unit (the test
+        // is about the reference path — an unmapped classifier path would
+        // warn on "fraction" instead).
+        for marker in ["ctDNA_TP53_MAC", "ctDNA_TP53_MAF"] {
+            let matches = crate::modules::file_validator::vocab::marker_matches(marker);
+            assert!(
+                matches.iter().any(|m| {
+                    m.canonical_unit.trim().is_empty() && m.match_kind != MatchKind::Fuzzy
+                }),
+                "{marker} must resolve to its no-canonical-unit vocabulary entry: {matches:?}"
+            );
+        }
+        for (marker, unit) in [("ctDNA_TP53_MAC", "AC/mL"), ("ctDNA_TP53_MAF", "fraction")] {
+            let f = inspect(&FileInspectionRequest {
+                kind: FileTableKind::Measurements,
+                table: table(
+                    &meas_columns(),
+                    &[&["P1", "0", marker, "0.1", unit], &["P1", "7", marker, "0.2", unit]],
+                ),
+            });
+            let a04: Vec<&str> = f
+                .problems
+                .iter()
+                .filter(|p| p.code == ProblemCode::A04UnitDiffers)
+                .map(|p| p.message.as_str())
+                .collect();
+            assert!(
+                a04.is_empty(),
+                "no A04 note for {marker}/{unit}: {a04:?}"
+            );
+        }
+        let f = inspect(&FileInspectionRequest {
+            kind: FileTableKind::Measurements,
+            table: table(
+                &meas_columns(),
+                &[&["P1", "0", "ldh", "100", "U/mL"], &["P1", "7", "ldh", "110", "U/mL"]],
+            ),
+        });
+        let family_note = f
+            .problems
+            .iter()
+            .find(|p| p.code == ProblemCode::A04UnitDiffers)
+            .expect("U/L vs U/mL still notes");
+        assert_eq!(family_note.severity, ProblemSeverity::Warning);
+        assert!(
+            family_note.message.contains("same kind of unit but not the same one"),
+            "{}",
+            family_note.message
+        );
+        let f = inspect(&FileInspectionRequest {
+            kind: FileTableKind::Measurements,
+            table: table(
+                &meas_columns(),
+                &[
+                    &["P1", "0", "CEA (LOINC 2039-6)", "5", "%"],
+                    &["P1", "7", "CEA (LOINC 2039-6)", "6", "%"],
+                ],
+            ),
+        });
+        let unknown_note = f
+            .problems
+            .iter()
+            .find(|p| p.code == ProblemCode::A04UnitDiffers)
+            .expect("ng/mL vs % still notes");
+        assert_eq!(unknown_note.severity, ProblemSeverity::Warning);
+        assert!(
+            unknown_note.message.contains("we do not recognise this unit"),
+            "{}",
+            unknown_note.message
         );
     }
 

@@ -272,22 +272,22 @@ fn column_unit_verdict(
                 UnitAgreement::Matches => (UnitStatus::Matches, None, entry.unit_family),
                 UnitAgreement::Family(_) => (
                     UnitStatus::Family,
-                    Some(unit_mismatch_problem(
+                    unit_mismatch_problem(
                         &column.key,
                         &unit.spelling,
                         &entry.canonical_unit,
                         agreement,
-                    )),
+                    ),
                     entry.unit_family,
                 ),
                 UnitAgreement::Unknown => (
                     UnitStatus::Unknown,
-                    Some(unit_mismatch_problem(
+                    unit_mismatch_problem(
                         &column.key,
                         &unit.spelling,
                         &entry.canonical_unit,
                         agreement,
-                    )),
+                    ),
                     entry.unit_family,
                 ),
             }
@@ -951,6 +951,110 @@ mod tests {
         assert!(outcomes.has_survival_day);
         assert!(outcomes.has_event);
         assert!(!outcomes.has_responder);
+    }
+
+    /// dnd-3: the same no-note rule at the validate entry point — a mapping
+    /// to a vocabulary entry with NO canonical unit (the catalogue's
+    /// ctDNA_TP53_MAC, family count, and ctDNA_TP53_MAF, family none) must
+    /// not produce the A04 note, neither for the same-family unit nor for the
+    /// unrecognised one; the unit value is still carried as is. A mapping to
+    /// an entry WITH a set unit keeps the note, family and unknown wording as
+    /// today.
+    #[test]
+    fn test_fv10_no_a04_note_when_mapped_entry_records_no_unit() {
+        for (marker_id, unit) in [("ctDNA_TP53_MAC", "AC/mL"), ("ctDNA_TP53_MAF", "fraction")] {
+            let measurements = table(
+                &meas_cols(),
+                &[
+                    &["P1", "0", marker_id, "0.1", unit],
+                    &["P1", "7", marker_id, "0.2", unit],
+                ],
+            );
+            let r = req(
+                ValidationMode::Predict,
+                None,
+                measurements,
+                vec![],
+                vec![MarkerMapping {
+                    key: marker_id.to_string(),
+                    marker_id: marker_id.to_string(),
+                }],
+                56.0,
+                0.0,
+            );
+            let v = validate(&r).expect("predict validate");
+            assert!(
+                !v.problems
+                    .iter()
+                    .any(|p| p.code == ProblemCode::A04UnitDiffers),
+                "no A04 note for the mapped no-canonical-unit entry {marker_id}/{unit}: {:?}",
+                v.problems
+                    .iter()
+                    .map(|p| p.message.as_str())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                v.markers[0].unit.as_deref(),
+                Some(unit),
+                "the unit value is used as is"
+            );
+        }
+        let measurements = table(
+            &meas_cols(),
+            &[&["P1", "0", "LDH", "100", "U/mL"], &["P1", "7", "LDH", "110", "U/mL"]],
+        );
+        let r = req(
+            ValidationMode::Predict,
+            None,
+            measurements,
+            vec![],
+            vec![MarkerMapping {
+                key: "LDH".to_string(),
+                marker_id: "14804-9".to_string(),
+            }],
+            56.0,
+            0.0,
+        );
+        let v = validate(&r).expect("predict validate");
+        let family_note = v
+            .problems
+            .iter()
+            .find(|p| p.code == ProblemCode::A04UnitDiffers)
+            .expect("U/L vs U/mL still notes");
+        assert_eq!(family_note.severity, ProblemSeverity::Warning);
+        assert!(
+            family_note.message.contains("same kind of unit but not the same one"),
+            "{}",
+            family_note.message
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[&["P1", "0", "CEA", "5", "%"], &["P1", "7", "CEA", "6", "%"]],
+        );
+        let r = req(
+            ValidationMode::Predict,
+            None,
+            measurements,
+            vec![],
+            vec![MarkerMapping {
+                key: "CEA".to_string(),
+                marker_id: "2039-6".to_string(),
+            }],
+            56.0,
+            0.0,
+        );
+        let v = validate(&r).expect("predict validate");
+        let unknown_note = v
+            .problems
+            .iter()
+            .find(|p| p.code == ProblemCode::A04UnitDiffers)
+            .expect("ng/mL vs % still notes");
+        assert_eq!(unknown_note.severity, ProblemSeverity::Warning);
+        assert!(
+            unknown_note.message.contains("we do not recognise this unit"),
+            "{}",
+            unknown_note.message
+        );
     }
 
     #[test]
