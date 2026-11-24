@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use txresbench_desktop_lib::updates::{
     UPDATER_FEED_URL, UpdateEvents, UpdateInfo, UpdateRuntime, UpdateState, available_prompt_text,
-    boot_prompt, check_for_update, get_update_status, install_update, parse_feed,
-    set_runtime_for_tests, updater_configured, CheckFn, InstallFn, RestartFn,
+    boot_prompt, check_for_update, current_feed_target, get_update_status, install_update,
+    parse_feed, set_runtime_for_tests, updater_configured, CheckFn, InstallFn, RestartFn,
 };
 
 /// The updater runtime is a process-global one-slot (like the shell's); every
@@ -132,6 +132,18 @@ fn feed(version: &str) -> Vec<u8> {
         }
     }))
     .expect("feed serializes")
+}
+
+/// The artifact URL the [`feed`] body assigns to [`current_feed_target`]
+/// — the assertion must follow the platform key, not a hard-coded Linux
+/// artifact (the AppImage literal failed on Windows/macOS — W5).
+fn current_platform_artifact_url() -> String {
+    let feed: serde_json::Value =
+        serde_json::from_slice(&feed("0.2.0")).expect("the feed body parses");
+    feed["platforms"][current_feed_target()]["url"]
+        .as_str()
+        .expect("the current platform's entry url")
+        .to_string()
 }
 
 /// The injected CHECK seam (TEST-IR-6/21): assert the crate passed the fixed
@@ -258,7 +270,7 @@ async fn newer_feed_goes_to_available_and_the_request_is_a_bare_get() {
         rt.state(),
         UpdateState::Available {
             version: "0.2.0".to_string(),
-            url: "https://github.com/tinnlab/txresbench-app/releases/download/app-v0.2.0/TxResBench_0.2.0_amd64.AppImage".to_string(),
+            url: current_platform_artifact_url(),
         }
     );
 
@@ -319,10 +331,17 @@ async fn a_404_is_silent_up_to_date() {
 async fn malformed_feed_is_an_error_state() {
     let _serial = SERIAL.lock().unwrap();
     let recorded: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
-    let feed_server = LoopbackFeed::serve(
-        Response::Feed(br#"{"version": "0.2.0", "platforms": {"linux-x86_64": {"url": ""}}}"#.to_vec()),
-        Duration::from_secs(1),
-    );
+    // The malformed entry carries the CURRENT platform's key, so the reader
+    // reaches it on every OS — the fixed Linux-keyed body answered Ok(None)
+    // (silent "no update") on Windows/macOS instead of Error (W5).
+    let mut malformed_platforms = serde_json::Map::new();
+    malformed_platforms.insert(current_feed_target().to_string(), serde_json::json!({"url": ""}));
+    let malformed = serde_json::to_vec(&serde_json::json!({
+        "version": "0.2.0",
+        "platforms": malformed_platforms,
+    }))
+    .expect("malformed feed serializes");
+    let feed_server = LoopbackFeed::serve(Response::Feed(malformed), Duration::from_secs(1));
     let rt = test_runtime(
         true,
         loopback_check(feed_server.addr, recorded.clone()),
