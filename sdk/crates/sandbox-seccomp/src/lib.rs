@@ -142,14 +142,49 @@ pub const DENY_SOCKET_FAMILIES: &[DeniedSocketFamily] = &[DeniedSocketFamily {
     errno: 97,
 }];
 
+/// Syscalls the **WSL agent's** filter answers with success without doing
+/// them: `SCMP_ACT_ERRNO(0)` — the call returns 0 and changes nothing.
+///
+/// WSL has no cgroup cpuset, so a sandboxed method could otherwise call
+/// `sched_setaffinity(2)` to widen its own CPU set back after the agent
+/// pinned the command to the request's CPU slots. A no-op rather than EPERM,
+/// because OpenMP runtimes and R/Python libraries that bind threads inside
+/// their set call it and some do not handle a failure.
+///
+/// Only the WSL agent's filter uses this list. The Linux host runner and the
+/// macOS VM keep the exact shared filter ([`build_bpf`]), byte for byte.
+pub const NOOP_IN_WSL: &[&str] = &["sched_setaffinity"];
+
 /// Compile the seccomp filter to its BPF byte image (for bwrap `--seccomp <fd>`).
 /// Per-name best-effort for the deny lists: syscalls absent on the running
 /// kernel are skipped (one failed lookup there must not disable the whole
 /// filter). The exception is `socket`, which carries the socket family rules:
 /// if it does not resolve, this returns an error. Returns the BPF bytes plus
 /// the names that didn't resolve (callers may log them).
+///
+/// The shared filter: identical on the Linux host backend and in the VM
+/// guests. (The WSL agent uses [`build_bpf_wsl`] instead.)
 #[cfg(target_os = "linux")]
 pub fn build_bpf() -> Result<(Vec<u8>, Vec<String>), String> {
+    build_bpf_with_noop(&[])
+}
+
+/// [`build_bpf`] plus, for each name in [`NOOP_IN_WSL`], a rule that answers
+/// the syscall with success (`SCMP_ACT_ERRNO(0)`) without executing it. WSL
+/// mode only: in WSL there is no cgroup cpuset, so without this a method
+/// could call `sched_setaffinity` to widen the CPU set the agent pinned.
+/// Unresolved names join the returned list exactly like the deny lists'.
+#[cfg(target_os = "linux")]
+pub fn build_bpf_wsl() -> Result<(Vec<u8>, Vec<String>), String> {
+    build_bpf_with_noop(NOOP_IN_WSL)
+}
+
+/// The shared builder, one private implementation so [`build_bpf`] and
+/// [`build_bpf_wsl`] cannot drift: `noop` is the extra list of syscalls the
+/// filter answers with success without doing them (empty for the shared
+/// filter — byte for byte the filter [`build_bpf`] always produced).
+#[cfg(target_os = "linux")]
+fn build_bpf_with_noop(noop: &[&str]) -> Result<(Vec<u8>, Vec<String>), String> {
     use libseccomp::{ScmpAction, ScmpArgCompare, ScmpCompareOp, ScmpFilterContext, ScmpSyscall};
 
     let mut ctx =
@@ -195,6 +230,16 @@ pub fn build_bpf() -> Result<(Vec<u8>, Vec<String>), String> {
         // libseccomp resolves names from its own table, so this does not
         // happen on x86_64 or aarch64.
         Err(_) => return Err("socket(2) does not resolve here: the socket family rules cannot be added".into()),
+    }
+    for name in noop {
+        let sys = match ScmpSyscall::from_name(name) {
+            Ok(s) => s,
+            Err(_) => {
+                unresolved.push((*name).to_string());
+                continue;
+            }
+        };
+        ctx.add_rule(ScmpAction::Errno(0), sys).map_err(|e| format!("add_rule {name}: {e}"))?;
     }
     let mut buf: Vec<u8> = Vec::new();
     let mut f = tempfile::tempfile().map_err(|e| format!("tempfile: {e}"))?;
@@ -373,6 +418,35 @@ mod tests {
     }
 
     #[test]
+    fn wsl_filter_builds_and_differs_from_the_shared_filter() {
+        let (shared, _) = build_bpf().expect("shared filter builds");
+        let (wsl, _) = build_bpf_wsl().expect("WSL filter builds");
+        assert!(!shared.is_empty(), "exported BPF must be non-empty");
+        assert!(!wsl.is_empty(), "exported BPF must be non-empty");
+        assert_ne!(
+            shared, wsl,
+            "the WSL filter must differ from the shared one: it adds the NOOP_IN_WSL rules"
+        );
+    }
+
+    #[test]
+    fn noop_in_wsl_names_are_in_no_deny_list() {
+        // A name in NOOP_IN_WSL must never also be denied: the no-op answer
+        // (success) would then lose to the deny rule (or vice versa) and the
+        // method would either widen its CPU set again or be broken by EPERM.
+        // `sched_setaffinity` must be the pinned member (an empty list would
+        // make this test pass vacuously).
+        assert!(
+            NOOP_IN_WSL.contains(&"sched_setaffinity"),
+            "the WSL no-op list must pin sched_setaffinity"
+        );
+        for n in NOOP_IN_WSL {
+            assert!(!DENY_EPERM.contains(n), "{n} is in DENY_EPERM and NOOP_IN_WSL");
+            assert!(!DENY_ENOSYS.contains(n), "{n} is in DENY_ENOSYS and NOOP_IN_WSL");
+        }
+    }
+
+    #[test]
     fn deny_socket_families_pins_af_vsock() {
         let vsock = DENY_SOCKET_FAMILIES
             .iter()
@@ -476,6 +550,18 @@ mod tests {
     /// `--seccomp` fd.
     fn policy_filter() -> Vec<libc::sock_filter> {
         let (bytes, _) = build_bpf().expect("filter builds");
+        bytes_to_instructions(&bytes)
+    }
+
+    /// build_bpf_wsl's bytes as BPF instructions (see [`policy_filter`]).
+    fn policy_filter_wsl() -> Vec<libc::sock_filter> {
+        let (bytes, _) = build_bpf_wsl().expect("filter builds");
+        bytes_to_instructions(&bytes)
+    }
+
+    /// Split exported BPF bytes into the `sock_filter` instructions the
+    /// kernel loads: 8-byte little-endian instructions.
+    fn bytes_to_instructions(bytes: &[u8]) -> Vec<libc::sock_filter> {
         assert_eq!(bytes.len() % 8, 0, "whole BPF instructions");
         bytes
             .chunks_exact(8)
@@ -559,6 +645,116 @@ mod tests {
         }
     }
 
+    /// In a forked child: load `filter` (no_new_privs + PR_SET_SECCOMP) and
+    /// then call `sched_setaffinity(0, {the first of the child's allowed
+    /// CPUs})` — exactly the widening call a method could make. Reports the
+    /// call's return value and the affinity mask before and after it; `before`
+    /// is the mask the child inherited from the test process, so the no-op is
+    /// visible: the shared filter still lets the call through and the mask
+    /// narrows to the one CPU, while the WSL filter answers with success and
+    /// the mask is unchanged. `Err(errno)` when the kernel refused the filter.
+    #[cfg(target_pointer_width = "64")]
+    fn in_filtered_child_sched(filter: &[libc::sock_filter]) -> Result<(i32, Vec<usize>, Vec<usize>), i32> {
+        use std::io::Read;
+        use std::os::fd::FromRawFd;
+
+        let prog = libc::sock_fprog {
+            len: u16::try_from(filter.len()).expect("a filter of at most 65535 instructions"),
+            filter: filter.as_ptr().cast_mut(),
+        };
+        let size = std::mem::size_of::<libc::cpu_set_t>();
+        let mut pipe: [libc::c_int; 2] = [-1, -1];
+        // SAFETY: pipe2 fills the array it is given.
+        assert_eq!(unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+        // SAFETY: the child makes only raw syscalls (no allocation, no locks)
+        // and leaves with _exit.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork: {}", std::io::Error::last_os_error());
+        if pid == 0 {
+            // SAFETY: as above; `prog` points at `filter`, alive in this copy.
+            unsafe {
+                // The report: [loaded, errno_or_rc, before bytes, after bytes].
+                let mut out = [0u8; 8 + 2 * std::mem::size_of::<libc::cpu_set_t>()];
+                let none: libc::c_ulong = 0;
+                let loaded = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1 as libc::c_ulong, none, none, none) == 0
+                    && libc::prctl(
+                        libc::PR_SET_SECCOMP,
+                        libc::SECCOMP_MODE_FILTER as libc::c_ulong,
+                        &prog as *const libc::sock_fprog,
+                    ) == 0;
+                if loaded {
+                    let mut before = std::mem::MaybeUninit::<libc::cpu_set_t>::zeroed();
+                    let mut after = std::mem::MaybeUninit::<libc::cpu_set_t>::zeroed();
+                    if libc::sched_getaffinity(0, size, before.as_mut_ptr()) == 0 {
+                        let before = before.assume_init();
+                        let first = (0..libc::CPU_SETSIZE as usize)
+                            .find(|&c| libc::CPU_ISSET(c, &before))
+                            .unwrap_or(0);
+                        let mut one = std::mem::MaybeUninit::<libc::cpu_set_t>::zeroed();
+                        // SAFETY: CPU_ZERO initializes the whole set; the CPU
+                        // is below CPU_SETSIZE, CPU_SET's domain.
+                        libc::CPU_ZERO(&mut *one.as_mut_ptr());
+                        libc::CPU_SET(first, &mut *one.as_mut_ptr());
+                        let one = one.assume_init();
+                        let rc = libc::sched_setaffinity(0, size, &one);
+                        libc::sched_getaffinity(0, size, after.as_mut_ptr());
+                        let after = after.assume_init();
+                        out[..4].copy_from_slice(&1u32.to_ne_bytes());
+                        out[4..8].copy_from_slice(&(rc as u32).to_ne_bytes());
+                        out[8..8 + size].copy_from_slice(std::slice::from_raw_parts(
+                            &before as *const libc::cpu_set_t as *const u8,
+                            size,
+                        ));
+                        out[8 + size..].copy_from_slice(std::slice::from_raw_parts(
+                            &after as *const libc::cpu_set_t as *const u8,
+                            size,
+                        ));
+                    } else {
+                        // sched_getaffinity itself failed: report as an odd
+                        // rc so the parent cannot mistake it for a no-op.
+                        out[..4].copy_from_slice(&1u32.to_ne_bytes());
+                        out[4..8].copy_from_slice(&(-2i32 as u32).to_ne_bytes());
+                    }
+                } else {
+                    out[4..8].copy_from_slice(&((*libc::__errno_location()) as u32).to_ne_bytes());
+                }
+                libc::write(pipe[1], out.as_ptr().cast(), out.len());
+                libc::_exit(0);
+            }
+        }
+        // SAFETY: closing this process's copy of the write end; the read end
+        // becomes the File's.
+        let mut answers = unsafe {
+            libc::close(pipe[1]);
+            std::fs::File::from_raw_fd(pipe[0])
+        };
+        let mut bytes = Vec::new();
+        answers.read_to_end(&mut bytes).expect("read the child's answers");
+        let mut status = 0;
+        // SAFETY: waits for the child forked above.
+        assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+        assert!(
+            libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
+            "the filtered child did not exit 0 (wait status {status:#x})"
+        );
+        if bytes.len() != 8 + 2 * size {
+            panic!("the child's report has {} bytes, want {}", bytes.len(), 8 + 2 * size);
+        }
+        let loaded = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        if loaded != 1 {
+            let errno = i32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+            return Err(errno);
+        }
+        let rc = i32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let decode = |slice: &[u8]| {
+            let set = unsafe { &*(slice.as_ptr() as *const libc::cpu_set_t) };
+            (0..libc::CPU_SETSIZE as usize)
+                .filter(|&c| unsafe { libc::CPU_ISSET(c, set) })
+                .collect::<Vec<usize>>()
+        };
+        Ok((rc, decode(&bytes[8..8 + size]), decode(&bytes[8 + size..])))
+    }
+
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn a_filtered_process_cannot_create_a_vsock_socket() {
@@ -625,6 +821,61 @@ mod tests {
         assert!(
             bare.iter().any(|(_, r)| *r != libc::EAFNOSUPPORT),
             "every vsock call fails with EAFNOSUPPORT here without the filter too: {bare:?}"
+        );
+    }
+
+    /// The WSL filter must turn `sched_setaffinity(2)` into a no-op that
+    /// returns success, and only the WSL filter.
+    ///
+    /// The shared one (Linux host + VM guests) must still let the call
+    /// through, so the two known filters differ on exactly this behavior: the
+    /// kernel observes what the agent promised.
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn wsl_filter_noops_sched_setaffinity_while_the_shared_one_still_narrows() {
+        let (rc, before, after) = match in_filtered_child_sched(&policy_filter_wsl()) {
+            Ok(report) => report,
+            Err(errno) => {
+                // Only a system that refuses every filter may skip this, such
+                // as Docker's amd64 emulation on an arm64 Mac.
+                let allow_all = [libc::sock_filter {
+                    code: (libc::BPF_RET | libc::BPF_K) as u16,
+                    jt: 0,
+                    jf: 0,
+                    k: libc::SECCOMP_RET_ALLOW,
+                }];
+                match in_filtered_child_sched(&allow_all) {
+                    Err(any) => {
+                        eprintln!(
+                            "SKIPPED: this system refuses every seccomp filter (errno {any}); \
+                             the sched_setaffinity no-op was not checked in a kernel"
+                        );
+                        return;
+                    }
+                    Ok(_) => panic!(
+                        "the kernel refused the WSL filter (errno {errno}) but takes an allow-all one"
+                    ),
+                }
+            }
+        };
+        assert!(!before.is_empty(), "the forked child must run on at least one CPU");
+        let first = before[0];
+        assert_eq!(
+            rc, 0,
+            "the WSL filter answers sched_setaffinity with success (a no-op, not EPERM): rc {rc}"
+        );
+        assert_eq!(
+            after, before,
+            "the WSL filter no-ops the call: the affinity mask is unchanged (before {before:?}, after {after:?})"
+        );
+
+        let (rc, _before, after) =
+            in_filtered_child_sched(&policy_filter()).expect("the shared filter loads (the WSL one did)");
+        assert_eq!(rc, 0, "the shared filter still lets sched_setaffinity through: rc {rc}");
+        assert_eq!(
+            after,
+            vec![first],
+            "under the shared filter the call narrows the mask to the one CPU: {after:?}"
         );
     }
 }

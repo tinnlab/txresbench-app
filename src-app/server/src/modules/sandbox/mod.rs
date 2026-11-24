@@ -105,6 +105,10 @@
 pub mod backend;
 pub mod cgroup;
 pub mod config;
+// CPU-slot leases for concurrent WSL runs (DEC-12's thread rule; only the
+// Windows run path uses them at run time, so the module compiles on every
+// platform and its tests run in the Linux gate — see the module doc).
+pub mod cpu_slots;
 pub mod env_id;
 pub mod env_image;
 // macOS: stacked method runs execute in a per-run libkrun microVM (the base +

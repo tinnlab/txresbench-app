@@ -43,6 +43,7 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 mod cli;
+mod cpu_pin;
 mod wsl_mode;
 #[cfg(target_os = "linux")]
 mod wsl_sys;
@@ -52,6 +53,8 @@ use std::sync::Arc;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
+use cpu_pin::{allowed_cpus, pin_command, pinned_cpus};
 #[cfg(target_os = "linux")]
 use sandbox_vm_protocol::{
     encode, CgroupLimits, Decoder, ExitStatus, Frame, PROGRESS_GUEST_FIFO_PATH, PROGRESS_MAX_LINE_BYTES,
@@ -180,20 +183,28 @@ fn vm_main() {
             init_mounts();
             cgroup_init();
 
-            let bpf = build_seccomp_bpf();
+            let bpf = build_seccomp_bpf(Guest::Vm);
 
             // libkrun bridges this vsock port to a unix socket on the host.
             serve_vsock(VSOCK_PORT, bpf).await
         })
 }
 
-/// Build the seccomp BPF once from the shared policy crate (identical to the
-/// Linux host). Per-exec we pipe these bytes to bwrap's --seccomp fd. If the
+/// Build the seccomp BPF once from the shared policy crate. VM mode uses the
+/// shared filter, byte for byte the one the Linux host runs; WSL mode uses
+/// `build_bpf_wsl`, which additionally answers `NOOP_IN_WSL` syscalls with
+/// success without doing them — in WSL there is no cgroup cpuset, so a method
+/// could otherwise call `sched_setaffinity` to widen the CPU set the agent
+/// pinned. Per-exec we pipe these bytes to bwrap's --seccomp fd. If the
 /// build fails (a broken guest image), execs that request seccomp fail
 /// closed rather than running unfiltered.
 #[cfg(target_os = "linux")]
-fn build_seccomp_bpf() -> Option<Arc<Vec<u8>>> {
-    match sandbox_seccomp::build_bpf() {
+fn build_seccomp_bpf(guest: Guest) -> Option<Arc<Vec<u8>>> {
+    let built = match guest {
+        Guest::Wsl => sandbox_seccomp::build_bpf_wsl(),
+        Guest::Vm => sandbox_seccomp::build_bpf(),
+    };
+    match built {
         Ok((bytes, unresolved)) => {
             if !unresolved.is_empty() {
                 tracing::warn!(?unresolved, "agent: some seccomp DENY entries unresolved on this kernel");
@@ -232,7 +243,7 @@ fn stdio_main(args: &cli::StdioArgs) -> i32 {
         say(&format!("setup failed: {why}"));
         return cli::EXIT_SETUP;
     }
-    let bpf = build_seccomp_bpf();
+    let bpf = build_seccomp_bpf(Guest::Wsl);
     let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
@@ -626,6 +637,31 @@ where
         .kill_on_drop(true);
     if guest.own_process_group() {
         cmd.process_group(0);
+    }
+
+    // CPU pinning (the host gives each concurrent run its own CPU slots, only
+    // in WSL: the macOS host never sends them, and the macOS VM is sized by
+    // its vCPU count instead). Best-effort: a pinning failure leaves the
+    // command unpinned — pinning is a resource control and must never stop a
+    // run — and is reported as one stderr line. `None` and an empty list both
+    // mean "no pinning" (the protocol doc says so), so neither is reported.
+    if let Some(slots) = req.cpu_slots.as_deref().filter(|s| !s.is_empty()) {
+        match allowed_cpus().map(|allowed| pinned_cpus(&allowed, slots)) {
+            Ok(cpus) if !cpus.is_empty() => {
+                pin_command(&mut cmd, &cpus);
+                tracing::info!(cpus = ?cpus, "agent: command pinned to CPUs");
+            }
+            Ok(_) => {
+                let _ = tx.send(Frame::Stderr(
+                    b"agent: CPU pinning skipped: no CPUs to pin to\n".to_vec(),
+                ));
+            }
+            Err(e) => {
+                let _ = tx.send(Frame::Stderr(
+                    format!("agent: CPU pinning skipped: {e}\n").into_bytes(),
+                ));
+            }
+        }
     }
 
     // Install the seccomp pipe (read end dup2'd to the host-specified fd in the
@@ -1538,6 +1574,7 @@ mod tests {
             progress: false,
             collect_artifacts: vec![],
             artifacts: Default::default(),
+            cpu_slots: None,
         }
     }
 
@@ -2027,6 +2064,96 @@ mod tests {
         assert!(
             !frames.iter().any(|f| matches!(f, Frame::Stdout(_))),
             "command must NOT have run"
+        );
+    }
+
+    /// Run `/bin/sh -c 'grep Cpus_allowed_list /proc/self/status'` through the
+    /// exec path and return the child's allowed CPUs.
+    async fn run_cpu_report(req: &mut sandbox_vm_protocol::ExecRequest) -> (Vec<usize>, Vec<Frame>) {
+        req.bwrap_path = "/bin/sh".into();
+        let frames = run_exec(req.clone()).await;
+        let stdout: Vec<u8> = frames
+            .iter()
+            .filter_map(|f| match f {
+                Frame::Stdout(b) => Some(b.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let listed = cpu_pin::parse_cpus_allowed_list(&String::from_utf8_lossy(&stdout));
+        let exit = frames.iter().find_map(|f| match f {
+            Frame::Exit(s) => Some(*s),
+            _ => None,
+        });
+        assert_eq!(exit, Some(ExitStatus { code: 0, timed_out: false }), "{frames:?}");
+        (listed, frames)
+    }
+
+    #[tokio::test]
+    async fn exec_cpu_slots_pin_the_command_to_the_resolved_cpu() {
+        // Slot 0 is the agent's first allowed CPU: the child must run pinned
+        // to exactly that one CPU.
+        let allowed = allowed_cpus().expect("sched_getaffinity succeeds");
+        assert!(!allowed.is_empty(), "the test process must run on at least one CPU");
+        let mut req = echo_exec(vec!["-c", "grep Cpus_allowed_list /proc/self/status"]);
+        req.cpu_slots = Some(vec![0]);
+        let (listed, _) = run_cpu_report(&mut req).await;
+        assert_eq!(listed, vec![allowed[0]], "the child is pinned to the slot's CPU");
+    }
+
+    #[tokio::test]
+    async fn exec_without_cpu_slots_runs_on_the_agents_own_allowed_cpus() {
+        // No slots: no pinning; the child inherits the agent's mask, so its
+        // allowed list is the agent's own.
+        let allowed = allowed_cpus().expect("sched_getaffinity succeeds");
+        let mut req = echo_exec(vec!["-c", "grep Cpus_allowed_list /proc/self/status"]);
+        req.cpu_slots = None;
+        let (listed, _) = run_cpu_report(&mut req).await;
+        assert_eq!(listed, allowed, "unpinned child has the agent's own mask");
+    }
+
+    #[tokio::test]
+    async fn exec_with_empty_cpu_slots_runs_on_the_agents_own_allowed_cpus() {
+        // An empty list means "no pinning" exactly like `None` (the protocol
+        // doc says so): the child inherits the agent's mask, and the agent
+        // sends no "CPU pinning skipped" stderr line for it.
+        let allowed = allowed_cpus().expect("sched_getaffinity succeeds");
+        let mut req = echo_exec(vec!["-c", "grep Cpus_allowed_list /proc/self/status"]);
+        req.cpu_slots = Some(vec![]);
+        let (listed, frames) = run_cpu_report(&mut req).await;
+        assert_eq!(listed, allowed, "unpinned child has the agent's own mask");
+        let stderr: Vec<u8> = frames
+            .iter()
+            .filter_map(|f| match f {
+                Frame::Stderr(b) => Some(b.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let msg = String::from_utf8_lossy(&stderr);
+        assert!(
+            !msg.contains("CPU pinning skipped"),
+            "an empty slot list is no pinning, not a skip: {msg:?}"
+        );
+    }
+
+    #[test]
+    fn wsl_mode_builds_the_wsl_filter_vm_mode_the_shared_filter() {
+        let wsl = build_seccomp_bpf(Guest::Wsl).expect("the WSL filter builds");
+        let vm = build_seccomp_bpf(Guest::Vm).expect("the VM filter builds");
+
+        // WSL mode must pick the WSL builder (the one that no-ops
+        // `sched_setaffinity`) and VM mode the shared builder (byte for byte
+        // the Linux host's filter): the wiring is what keeps the two —
+        // and only the two — filters in place.
+        let (wsl_direct, _) = sandbox_seccomp::build_bpf_wsl().expect("the WSL filter builds directly");
+        let (shared_direct, _) = sandbox_seccomp::build_bpf().expect("the shared filter builds directly");
+        assert_eq!(wsl.as_ref(), &wsl_direct, "WSL mode must use the WSL filter");
+        assert_eq!(vm.as_ref(), &shared_direct, "VM mode must use the shared filter");
+        assert_ne!(
+            wsl.as_ref(),
+            vm.as_ref(),
+            "the WSL filter adds no-op rules, so the two must differ"
         );
     }
 }

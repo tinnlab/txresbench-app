@@ -388,6 +388,7 @@ pub(crate) async fn check<A: AgentExec>(agent: &A, argv: &[&str]) -> Result<VmEx
         progress: false,
         collect_artifacts: Vec::new(),
         artifacts: Default::default(),
+        cpu_slots: None,
     };
     agent.exec(req, Duration::from_millis(CHECK_TIMEOUT_MS + 5_000), None, &[]).await
 }
@@ -1289,6 +1290,7 @@ mod tests {
             progress: false,
             collect_artifacts: Vec::new(),
             artifacts: Default::default(),
+            cpu_slots: None,
         };
         req.argv.push("y".into());
         let started = Instant::now();
@@ -1321,6 +1323,7 @@ mod tests {
             progress: false,
             collect_artifacts: Vec::new(),
             artifacts: Default::default(),
+            cpu_slots: None,
         };
         let stopped = exec_over(host, req, Duration::from_secs(5), None, &[]).await.err().expect("no exit status");
         let incomplete = outputs_incomplete(&["pred.csv: write failed".into()], b"");

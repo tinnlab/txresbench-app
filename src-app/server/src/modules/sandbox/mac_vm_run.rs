@@ -1380,6 +1380,7 @@ mod tests {
                 tmpfs_root: Some(GUEST_ARTIFACTS_OUT_DIR.into()),
                 ..Default::default()
             },
+            cpu_slots: None,
         };
         let out = vm
             .exec(req, Duration::from_secs(120), None, &out_dirs(&[&host.0]))
@@ -1435,6 +1436,7 @@ mod tests {
             progress: true,
             collect_artifacts: Vec::new(),
             artifacts: Default::default(),
+            cpu_slots: None,
         };
         let rec = Arc::new(Rec(Mutex::new(Vec::new())));
         let sink: Arc<dyn ProgressSink> = rec.clone();
@@ -1490,6 +1492,7 @@ mod tests {
                 tmpfs_root: Some(GUEST_ARTIFACTS_OUT_DIR.into()),
                 ..Default::default()
             },
+            cpu_slots: None,
         };
         let out = vm
             .exec(req, Duration::from_secs(120), None, &out_dirs(&[&host.0]))
@@ -1547,6 +1550,7 @@ mod tests {
                 total_cap_bytes: 64 * 1024 * 1024,
                 ..Default::default()
             },
+            cpu_slots: None,
         };
         let out = vm
             .exec(req, Duration::from_secs(120), None, &out_dirs(&[&host.0]))
