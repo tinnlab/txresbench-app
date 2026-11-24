@@ -97,6 +97,19 @@ async fn no_trusted_key_turns_updates_off_and_serves_builtin() {
 
 #[tokio::test]
 async fn live_list_from_loopback_registry_verified_and_served() {
+    // The stand-in registry is the POSIX `bin/oras` shell script and the app
+    // spawns the tool it RESOLVED (`oras.exe` on Windows — CreateProcess runs
+    // no shell script): the update check can only be exercised on a
+    // shell-capable host.
+    #[cfg(windows)]
+    {
+        crate::common::skip_reason(
+            "the stand-in registry tool (bin/oras) is a POSIX shell script; \
+             on Windows the app spawns `oras.exe` and no shell script can stand in, \
+             so this host cannot serve the method list through it"
+        );
+        return;
+    }
     let server = TestServer::spawn_with(served_options()).await;
     let token = owner_token(&server).await;
     let (list, sig, sequence) = newer_list(1, |_| {});
@@ -246,6 +259,18 @@ const METHOD: &str = "ctdna-tf-four-group";
 
 #[tokio::test]
 async fn run_started_then_list_swapped_finishes_on_old_images() {
+    // The same stand-in-registry limitation as
+    // `live_list_from_loopback_registry_verified_and_served` (the `bin/oras`
+    // shell stub cannot be spawned as `oras.exe`).
+    #[cfg(windows)]
+    {
+        crate::common::skip_reason(
+            "the stand-in registry tool (bin/oras) is a POSIX shell script; \
+             on Windows the app spawns `oras.exe` and no shell script can stand in, \
+             so this host cannot serve the method list through it"
+        );
+        return;
+    }
     let server = TestServer::spawn_with(served_options()).await;
     let token = owner_token(&server).await;
     // Env downloads through the stand-in are slow, then refused: the run is still going

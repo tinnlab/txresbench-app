@@ -29,7 +29,11 @@ const FX_002: &str = "fx-rule-002";
 /// pinned size + sha256, and write the asset into `bundled_dir` under its
 /// release name.
 pub(super) fn pack_fixture(bundled_dir: &std::path::Path, name: &str) -> Vec<u8> {
-    let out = std::process::Command::new("python3")
+    // The resolved interpreter (the shared `python3()` finder; the caller's
+    // `skip_unless_python3!()` checked it).
+    let py = crate::common::python3_cmd();
+    let out = std::process::Command::new(&py[0])
+        .args(&py[1..])
         .arg(repo_root().join("scripts/pretrained-catalogue/pack_model_txr.py"))
         .args([
             "--tree",
@@ -128,6 +132,7 @@ async fn install_fixture() -> (TestServer, FixtureHttpServer, PathBuf) {
 /// (the same model_id, no second row).
 #[tokio::test]
 async fn bundled_install_records_the_store_row_and_resolves() {
+    crate::skip_unless_python3!();
     let (server, fx, _bundled_dir) = install_fixture().await;
     let token = super::super::model_store::owner_token(&server).await;
     let resp = server
@@ -249,6 +254,7 @@ async fn bundled_install_records_the_store_row_and_resolves() {
 /// the file is quarantined, and NO store row exists.
 #[tokio::test]
 async fn tampered_bundle_is_409_and_never_imports() {
+    crate::skip_unless_python3!();
     let (server, fx, bundled_dir) = install_fixture().await;
     let token = super::super::model_store::owner_token(&server).await;
     let resp = server

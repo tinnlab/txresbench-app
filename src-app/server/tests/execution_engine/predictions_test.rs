@@ -33,6 +33,9 @@ use txresbench::modules::sandbox::stack::MethodRunMode;
 /// [0, 1] and ordered exactly as the raw risk.
 #[tokio::test]
 async fn risk_only_method_is_recalibrated_and_ordered_with_the_raw_risk() {
+    // The run must classify the method as queued (a published environment for
+    // this machine's chip type) or nothing executes.
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-cal").await;
     let pool = pool(&server).await;
@@ -127,6 +130,7 @@ async fn risk_only_method_is_recalibrated_and_ordered_with_the_raw_risk() {
 /// declared column bytes (never re-derived).
 #[tokio::test]
 async fn native_method_keeps_its_probability_verbatim() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-native").await;
     let pool = pool(&server).await;
@@ -197,6 +201,7 @@ async fn native_method_keeps_its_probability_verbatim() {
 /// fit → training scores → predict).
 #[tokio::test]
 async fn a_shifted_predict_ranking_flows_through_the_fitted_map() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let (_token, owner) = register_user(&server, "txr-train-only").await;
     let pool = pool(&server).await;

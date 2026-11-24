@@ -86,7 +86,11 @@ fn pack_parity(dir: &std::path::Path) -> (PathBuf, u64, String) {
     std::fs::write(&facts, serde_json::to_vec_pretty(&parity_facts()).expect("facts serialize"))
         .expect("write facts");
     let out = dir.join(format!("{FX_PARITY}@1.0.0.txr"));
-    let run = std::process::Command::new("python3")
+    // The resolved interpreter (the shared `python3()` finder; the caller's
+    // `skip_unless_python3!()` checked it).
+    let py = crate::common::python3_cmd();
+    let run = std::process::Command::new(&py[0])
+        .args(&py[1..])
         .arg(repo_root().join("scripts/pretrained-catalogue/pack_model_txr.py"))
         .args([
             "--tree",
@@ -127,6 +131,7 @@ fn pack_parity(dir: &std::path::Path) -> (PathBuf, u64, String) {
 /// formula), and both totals sum to one.
 #[tokio::test]
 async fn pretrained_and_installed_rows_answer_identically() {
+    crate::skip_unless_python3!();
     let scratch = std::env::temp_dir().join(format!(
         "pc-parity-{}-{}",
         std::process::id(),
@@ -303,6 +308,7 @@ async fn pretrained_and_installed_rows_answer_identically() {
 /// contract.
 #[test]
 fn tampered_container_bytes_are_refused_by_the_store_reader() {
+    crate::skip_unless_python3!();
     use txresbench::modules::model_store::container::read_container_bytes;
     use txresbench::modules::model_store::types::ModelStoreLimits;
     let scratch = std::env::temp_dir().join(format!(
@@ -340,6 +346,7 @@ fn tampered_container_bytes_are_refused_by_the_store_reader() {
 /// same soft reason codes + counts.
 #[tokio::test]
 async fn parity_holds_for_the_soft_coverage_case() {
+    crate::skip_unless_python3!();
     let scratch = std::env::temp_dir().join(format!(
         "pc-parity-some-{}-{}",
         std::process::id(),

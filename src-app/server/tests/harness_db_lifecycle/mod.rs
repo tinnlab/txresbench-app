@@ -279,6 +279,21 @@ async fn the_sweep_spares_the_template_and_build_files() {
 /// nothing at all.
 #[tokio::test]
 async fn the_sweep_collects_an_idle_orphan() {
+    // The harness's liveness predicate is an exclusive `flock(2)` on the test
+    // file (the kernel releases it however the owner dies). Windows has no
+    // `flock`; the not-unix arm answers "no signal", so the sweep is
+    // deliberately conservative there and collects nothing — the collect
+    // control cannot pass, and the two sparing controls above stay the only
+    // things it proves on Windows.
+    #[cfg(windows)]
+    {
+        crate::common::skip_reason(
+            "the harness's liveness signal is flock(2), which Windows lacks; \
+             on Windows the startup sweep is deliberately conservative (it collects \
+             nothing), so the orphan-collection control cannot run here"
+        );
+        return;
+    }
     let name = format!(
         "{TEMPLATE_BASE}_test_{}_deadbeefdeadbeefdeadbeefdeadbeef",
         uuid::Uuid::new_v4().simple()

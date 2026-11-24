@@ -14,7 +14,6 @@
 //! return when that tree is absent.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -34,7 +33,11 @@ fn fixture(rel: &str) -> PathBuf {
 }
 
 fn run_generator(args: &[&str]) -> std::process::Output {
-    let out = Command::new("python3")
+    // The resolved interpreter: the shared `python3()` finder (TXR_TEST_PYTHON,
+    // python3, python, `py -3`), checked at each test's `skip_unless_python3!()`.
+    let py = crate::common::python3_cmd();
+    let out = std::process::Command::new(&py[0])
+        .args(&py[1..])
         .arg(generator())
         .args(args)
         .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -66,6 +69,7 @@ fn assert_ok(args: &[&str], what: &str) -> std::process::Output {
 /// policy violations.
 #[test]
 fn generator_selftest_passes() {
+    crate::skip_unless_python3!();
     let out = assert_ok(&["--selftest"], "generator --selftest");
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -79,6 +83,7 @@ fn generator_selftest_passes() {
 /// manifest and the served copy) — the generator is deterministic.
 #[test]
 fn generator_check_parity_on_fixtures() {
+    crate::skip_unless_python3!();
     assert_ok(&["--fixtures", "--check"], "generator --fixtures --check");
 }
 
@@ -87,6 +92,7 @@ fn generator_check_parity_on_fixtures() {
 /// entry with its code.
 #[test]
 fn generator_gate_exit_codes() {
+    crate::skip_unless_python3!();
     let out = assert_ok(&["--fixtures", "--check-restricted"], "good registry gate");
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("gate: OK (3 entries)"), "gate output: {text}");

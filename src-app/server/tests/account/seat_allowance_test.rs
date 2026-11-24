@@ -1228,7 +1228,10 @@ fn all_server_sources() -> Vec<(String, String)> {
                 Some("rs") | Some("sql")
             ) {
                 out.push((
-                    p.display().to_string(),
+                    // Normalized separators: `p.display()` uses `\` on Windows,
+                    // and the assertions compare against `/`-joined repo
+                    // suffixes (`modules/account/repository.rs`).
+                    p.display().to_string().replace('\\', "/"),
                     std::fs::read_to_string(&p).expect("read source"),
                 ));
             }

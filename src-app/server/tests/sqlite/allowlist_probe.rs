@@ -58,6 +58,9 @@ fn repo_root() -> PathBuf {
 /// THE guard, run on the branch — TEST-34's first half.
 #[test]
 fn the_network_allowlist_guard_passes_on_the_branch() {
+    // The guard is a repo shell script: without bash/sh on PATH it cannot
+    // run on Windows (the gate host has bash — no skip there).
+    crate::skip_unless_bash!();
     let guard = repo_root().join("scripts/check-network-allowlist.sh");
     assert!(guard.is_file(), "missing guard: {}", guard.display());
     let out = Command::new("bash")

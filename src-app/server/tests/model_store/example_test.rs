@@ -328,6 +328,10 @@ fn example_family_is_deterministic_and_passes_the_validator() {
 /// endpoint serves is the same list.
 #[tokio::test]
 async fn pick_is_deterministic_three_fast_saving_methods() {
+    // The pick admits only methods whose environment the host can run
+    // (`has_env` → `EnvArch::host()`); on an arm64 machine the shipped list
+    // publishes none, so the pick is empty and the whole test is moot.
+    crate::skip_unless_host_env!();
     let inputs = example::example_run_inputs().expect("the example canonicalizes");
     let patients = inputs.patients();
     let a = example::pick_fast_methods(&inputs);
@@ -413,6 +417,7 @@ async fn poll_ready(
 /// the set + calling again recreates it (a fresh run, a different set id).
 #[tokio::test]
 async fn example_set_is_created_once_and_recreated_after_deletion() {
+    crate::skip_unless_host_env!();
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
     let pool = pool(&server).await;

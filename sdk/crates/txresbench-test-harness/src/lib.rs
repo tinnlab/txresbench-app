@@ -608,6 +608,17 @@ async fn build_template_file<A: HarnessApp>(
     // lock is held another process is building right now — wait for it (a
     // bounded loop), then still proceed: the atomic rename means the later
     // builder wins cleanly.
+    //
+    // Windows has no `flock`: `lock_template_build` can never be taken there
+    // (`lock_exclusive_nonblocking` returns `false` on a non-unix target), so
+    // this loop would ALWAYS burn its full 60 s on Windows — including for
+    // the very first spawn of a test binary, which is exactly the boot the
+    // demo-refusal test times (its own 120 s spawn budget). Without a liveness
+    // signal there is nothing to wait FOR, so proceed immediately: the atomic
+    // publish `rename` below is the only synchronization Windows offers and a
+    // concurrent builder still wins cleanly (`VACUUM INTO` the staging file +
+    // rename, never a partial `template_path`).
+    #[cfg(not(windows))]
     for _ in 0..12 {
         if file_db::lock_template_build(template_path)
             .expect("open template build lock file")
@@ -617,6 +628,8 @@ async fn build_template_file<A: HarnessApp>(
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
+    #[cfg(windows)]
+    let _ = file_db::lock_template_build(template_path).expect("open template build lock file");
 
     let stem = template_path
         .file_stem()
