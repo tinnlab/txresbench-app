@@ -176,9 +176,10 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "Pick one of the three ways of the Start screen: \"pretrained\" predicts with a ready-made model (already trained by the TxResBench team), \"reuse\" predicts with a model you saved, \"train\" learns from your own patients. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
+      "description": "Pick one of the two ways of the Start screen: \"train\" learns from your own patients, \"predict\" predicts new patients with a ready-made model, a saved model or an opened model file. The old two-list spellings stay accepted: \"pretrained\" (a ready-made model from the lab) and \"reuse\" (a model you saved) both start the predict way with that list pinned. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
       "aliases": [
         "learn from my data",
+        "predict new patients",
         "predict with a ready-made model",
         "predict with a pretrained model",
         "use a model I saved"
@@ -193,15 +194,48 @@
           "intent": {
             "type": "string",
             "enum": [
+              "predict",
+              "train",
               "pretrained",
-              "reuse",
-              "train"
+              "reuse"
             ],
-            "description": "\"pretrained\", \"reuse\" (a saved model) or \"train\" (learn from my data)."
+            "description": "\"predict\" (any model), \"train\" (learn from my data), or the old list spellings \"pretrained\" (a ready-made model) / \"reuse\" (a saved model)."
           },
           "startAtFiles": {
             "description": "Open the file step directly (every path already starts with its file step; kept for older callers).",
             "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "id": "flow.useExample",
+      "title": "Use the example data in a flow",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "description": "The one-click example path of the Start cards (and Help's try-it cards): \"predict\" adopts the example patients-to-predict table, ensures the \"Example models\" set (usually under a minute; the first time also downloads the methods) and opens the predict path's file step with that set ticked once it checks out; \"train\" fills the learn path's study answers and both example files and opens its file step. Back from the step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
+      "aliases": [
+        "use example",
+        "use the example data",
+        "try the example data"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "intent"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "predict",
+              "train"
+            ],
+            "description": "\"predict\" (the example patients to predict + the example models) or \"train\" (learn from my data)."
           }
         }
       }
@@ -590,6 +624,34 @@
             "description": "The set id (from the model sets list)."
           }
         }
+      }
+    },
+    {
+      "id": "models.openModelFile",
+      "title": "Open a model file",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Models",
+      "description": "Open a saved model container (.txr file): on the Start page the picker opens in place and the imported model lands on the Models page; with no open picker (the agent path) it opens the Models page instead, where \"Open a model file\" is the same affordance. Refused in demo mode.",
+      "aliases": [
+        "open a model file",
+        "open model file",
+        "import a model file",
+        "use a model file"
+      ],
+      "keywords": [
+        "import",
+        "model file",
+        ".txr"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {}
       }
     },
     {

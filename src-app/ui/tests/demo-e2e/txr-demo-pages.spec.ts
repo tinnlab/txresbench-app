@@ -89,12 +89,12 @@ test.describe('txr-demo-pages — the three paths, no upload (TEST-DM-6, ITEM-6)
     expect(pageErrors, `page errors on the train path: ${pageErrors.join('; ')}`).toEqual([])
   })
 
-  test('reuse: Start → the example predict card → the seeded example set → a replay reuse run → results', async ({ page }) => {
+  test('predict (the example set): Start → the example predict card → the seeded example set → a replay reuse run → results', async ({ page }) => {
     const pageErrors: string[] = []
     page.on('pageerror', error => pageErrors.push(String(error)))
 
     await openApp(page)
-    await page.getByTestId('txr-use-example-reuse').click()
+    await page.getByTestId('txr-use-example-predict').click()
     await page.waitForURL('/predict-files', { timeout: 60_000 })
     await expect(page.getByTestId('txr-example-card-predict')).toBeVisible({ timeout: 60_000 })
     expect(await page.locator('input[type=file]').count()).toBe(0)
@@ -119,16 +119,16 @@ test.describe('txr-demo-pages — the three paths, no upload (TEST-DM-6, ITEM-6)
     expect(pageErrors, `page errors on the reuse path: ${pageErrors.join('; ')}`).toEqual([])
   })
 
-  test('pretrained: Start → the example predict card (the catalogue of this tree is empty — the demo arm is ITEM-7\'s, recorded in DRIFT-1 ITEM-7)', async ({ page }) => {
+  test('predict (merged card): the example predict card and the Continue to the saved-models list (round-1 bridge)', async ({ page }) => {
     await openApp(page)
-    await page.getByTestId('txr-use-example-pretrained').click()
+    await page.getByTestId('txr-use-example-predict').click()
     await page.waitForURL('/predict-files', { timeout: 60_000 })
     await expect(page.getByTestId('txr-example-card-predict')).toBeVisible({ timeout: 60_000 })
     expect(await page.locator('input[type=file]').count()).toBe(0)
-    // The Continue of this path leads to the pretrained-models page (ITEM-7's
-    // demo adaptation; the running-page completion lands there).
+    // The example path pinned the saved source (the example set is saved
+    // models), so round 1's bridge Continue leads to the saved-models page.
     await page.getByTestId('txr-intake-continue').click()
-    await page.waitForURL('/pretrained-models', { timeout: 60_000 })
+    await page.waitForURL('/saved-models', { timeout: 60_000 })
   })
 
   test('no enabled file input anywhere on the ITEM-6 pages, and the study panel notes the example setup', async ({ page }) => {

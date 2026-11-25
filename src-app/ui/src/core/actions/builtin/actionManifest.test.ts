@@ -37,6 +37,8 @@ const EXPECTED: Record<string, { permission: string; mutating: boolean }> = {
   'flow.startPath': { permission: 'mcp::use', mutating: true },
   'models.useModel': { permission: 'mcp::use', mutating: true },
   'history.useSettingsAgain': { permission: 'mcp::use', mutating: true },
+  'flow.useExample': { permission: 'mcp::use', mutating: true },
+  'models.openModelFile': { permission: 'mcp::use', mutating: true },
   'models.renameSet': { permission: 'mcp::use', mutating: true },
   'models.exportSet': { permission: 'mcp::use', mutating: false },
   'models.deleteSet': { permission: 'mcp::use', mutating: true },

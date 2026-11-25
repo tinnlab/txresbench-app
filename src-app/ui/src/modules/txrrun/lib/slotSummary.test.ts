@@ -125,7 +125,7 @@ describe('buildSlotSummaries (the E slot lines, ITEM-6)', () => {
   it('the predict line is the predict-mode cohort count — only for the predict-mode validate', () => {
     const predict = snapshot({
       mode: 'predict',
-      intent: 'reuse',
+      intent: 'predict',
       patients: null,
       measurements: null,
       predictMeasurements: snapshot().measurements,
@@ -157,7 +157,7 @@ describe("runSetupMissing (the empty state's named piece, ITEM-6)", () => {
       runSetupMissing(
         snapshot({
           mode: 'predict',
-          intent: 'reuse',
+          intent: 'predict',
           patients: null,
           measurements: null,
           predictMeasurements: null,

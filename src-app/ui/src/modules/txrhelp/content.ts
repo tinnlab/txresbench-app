@@ -68,7 +68,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     cta: 'Add the patients to predict',
     tryExample: {
       label: 'Try it with example data',
-      path: 'pretrained',
+      path: 'predict',
     },
   },
   {
@@ -81,7 +81,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     cta: 'Predict with a model I saved',
     tryExample: {
       label: 'Try it with example data',
-      path: 'reuse',
+      path: 'predict',
     },
   },
 ]

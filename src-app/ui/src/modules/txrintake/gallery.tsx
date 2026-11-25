@@ -24,7 +24,7 @@
  *   problem measurements (row 14 `week 4`, P0187 rows 88..91, ldh/LDH
  *   spellings) + its fixed twin, and the patients file.
  * - `txr-intake-n`: screen N (PredictFiles.dc.html) — the REAL
- *   PredictFilesPage in predict mode (intent `pretrained`), the one
+ *   PredictFilesPage in predict mode (source `lab`), the one
  *   measurements card, the aside, and the Continue → `/pretrained-models`
  *   walk (the story's navigation-result seam records the route the page's
  *   Continue reached — the component is never probed, the
@@ -197,7 +197,7 @@ function seedValidatedFiles(fresh = true): void {
 /** Seed the store's N screen (predict intent, the clean predict file). */
 function seedPredictFile(fresh = true): void {
   if (fresh) TxrIntake.reset()
-  TxrIntake.setIntent('pretrained')
+  TxrIntake.setIntent('predict', 'lab')
   const predictTable = parseCsvText(
     TXR_INTAKE_FIXTURE_BUNDLE.predict,
     { kind: 'measurements' },
@@ -239,7 +239,7 @@ function CStoryView() {
 function NStoryView() {
   useEffect(() => {
     TxrIntake.reset()
-    TxrIntake.setIntent('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
   }, [])
   return (
     <div>

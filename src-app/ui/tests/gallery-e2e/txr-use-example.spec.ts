@@ -66,30 +66,32 @@ test.describe('txr-use-example — one click per path (test QF3-3)', () => {
     await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /choose-methods')
   })
 
-  test('predict with a pretrained model: one click fills /predict-files, Continue enabled → /pretrained-models', async ({ page }) => {
+  test('predict with the example: one click fills /predict-files, Continue enabled → /saved-models (round-1 bridge)', async ({ page }) => {
     await openStart(page)
-    await page.getByTestId('txr-use-example-pretrained').click()
+    await page.getByTestId('txr-use-example-predict').click()
 
     await expect(page.getByTestId('txr-intake-predict-files')).toBeVisible()
     await expect(page.getByTestId(EXAMPLES_BADGE)).toBeVisible()
     await expect(page.getByTestId('txr-intake-example-loaded')).toBeVisible()
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
+    // The example path pinned the saved source (the example set is saved
+    // models) — round 1's bridge continues to the saved-models list.
     await page.getByTestId('txr-intake-continue').click()
-    await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /pretrained-models')
+    await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /saved-models')
   })
 
-  test('use a model I saved: one click fills /predict-files (the example set answers ready), Continue enabled → /saved-models', async ({ page }) => {
+  test('the example set answers ready: no training-progress line once the flow landed, Continue → /saved-models', async ({ page }) => {
     await openStart(page)
-    await page.getByTestId('txr-use-example-reuse').click()
+    await page.getByTestId('txr-use-example-predict').click()
 
     await expect(page.getByTestId('txr-intake-predict-files')).toBeVisible()
     await expect(page.getByTestId(EXAMPLES_BADGE)).toBeVisible()
     await expect(page.getByTestId('txr-intake-example-loaded')).toBeVisible()
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
-    // The one-click promise of the reuse path: the example set (ITEM-3) was
+    // The one-click promise of the predict path: the example set (ITEM-3) was
     // ensured during the click — the progress line must NOT be visible once
     // the flow landed (the ready answer settles in one round).
-    await expect(page.getByTestId('txr-use-example-progress-reuse')).not.toBeVisible()
+    await expect(page.getByTestId('txr-use-example-progress-predict')).not.toBeVisible()
     await page.getByTestId('txr-intake-continue').click()
     await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /saved-models')
   })

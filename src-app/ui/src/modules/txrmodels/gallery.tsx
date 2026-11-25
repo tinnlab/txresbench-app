@@ -285,7 +285,8 @@ function SeedGate({ seed, children }: { seed: () => void; children: ReactNode })
  */
 function seedIntake(): void {
   useTxrIntakeStore.setState({
-    intent: 'pretrained',
+    intent: 'predict',
+    predictSource: 'lab',
     mode: 'predict',
     patients: null,
     measurements: null,
@@ -385,7 +386,8 @@ function seedLDialogStory(): void {
 function seedEmptyStory(): void {
   TxrModels.reset()
   useTxrIntakeStore.setState({
-    intent: 'pretrained',
+    intent: 'predict',
+    predictSource: 'lab',
     mode: 'predict',
     patients: null,
     measurements: null,

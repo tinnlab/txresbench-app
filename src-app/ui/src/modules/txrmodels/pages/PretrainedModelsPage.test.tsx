@@ -199,7 +199,8 @@ function validation(): ValidationResponse {
 
 function seedIntake(): void {
   useTxrIntakeStore.setState({
-    intent: 'pretrained',
+    intent: 'predict',
+    predictSource: 'lab',
     mode: 'predict',
     patients: null,
     measurements: null,
@@ -1539,7 +1540,8 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
     expect(screen.getByTestId('txr-models-d-no-catalogue-action-your-models')).toBeTruthy()
     await click('txr-models-d-no-catalogue-action-use-saved')
     expect(screen.getByTestId('route-location').textContent).toBe('/saved-models')
-    expect(useTxrIntakeStore.getState().intent).toBe('reuse')
+    expect(useTxrIntakeStore.getState().intent).toBe('predict')
+    expect(useTxrIntakeStore.getState().predictSource).toBe('saved')
     expect(useTxrIntakeStore.getState().validation).toBe(checked)
     // The saved list took the step's place: its Back goes to the file step.
     expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/saved-models'])

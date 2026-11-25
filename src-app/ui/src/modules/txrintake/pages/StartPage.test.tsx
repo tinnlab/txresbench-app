@@ -1,12 +1,18 @@
 // @vitest-environment jsdom
 /**
- * TEST-INT-11 — screen A (`pages/StartPage.tsx`, ITEM-4): the three path
- * cards (board Start.dc.html, DEC-13 copy), the learn card's LIVE runnable
- * count (CONS-UI-INTAKE-3) with its number-free degradation, the intent
- * navigation (pretrained/reuse → `/predict-files`, train → `/study`), the
- * banner's study link, "Use example" on each card (qa-fixes3 ITEM-4: one
- * click fills the path's intent + example files + answers and lands on the
- * path's file step), and the web-URL notice (DEC-12: `http:` dev/web only).
+ * TEST-INT-11 — screen A (`pages/StartPage.tsx`, ITEM-4; predict-card merge
+ * round 1): the TWO path cards (board Start.dc.html, DEC-13 copy) — learn
+ * and predict — with the counts-gated states (state A vs state B: "some
+ * model exists" vs "no model anywhere and all three counts known"),
+ * the learn card's LIVE runnable count (CONS-UI-INTAKE-3) with its
+ * number-free degradation, the intent navigation (predict →
+ * `/predict-files`, train → `/files`), the "Recommended to start" badge
+ * rule (lab > 0 → predict, else learn — also while loading or failed), the
+ * banner's study link, "Use example" on each card (the registered
+ * `flow.useExample` action — qa-fixes3 ITEM-4's one-click example flow),
+ * "Open a model file" (the registered `models.openModelFile` — the picker
+ * opens in place, a successful import lands on the Models page), and the
+ * web-URL notice (DEC-12: `http:` dev/web only).
  *
  * The ApiClient is mocked (the txrlist/Datasets-store precedent); the
  * example-data path runs the REAL PROV-FV-7 decode against inline CSV
@@ -18,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import '@/core/actions/builtin/stepActions'
+import '@/core/actions/builtin/modelFileActions'
 import { RouterBridge } from '@/core/actions/navigateBridge'
 import { StartPage } from './StartPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
@@ -32,6 +39,7 @@ const api = vi.hoisted(() => ({
   exampleSet: vi.fn(),
   pretrained: vi.fn(),
   saved: vi.fn(),
+  importModel: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -47,6 +55,7 @@ vi.mock('@/api-client', () => ({
     Models: {
       exampleSet: api.exampleSet,
       listModels: api.saved,
+      importModel: api.importModel,
     },
   },
 }))
@@ -73,6 +82,11 @@ const PREDICT_CSV = [
 /** The live runnable-set size the mocked list response reports. */
 const RUNNABLE_COUNT = 359
 
+/** A store row with a provenance (the counts hook filters by it). */
+function modelRow(id: string, provenance: 'run' | 'imported' | 'pretrained') {
+  return { id, provenance }
+}
+
 function LocationProbe() {
   const location = useLocation()
   return <div data-testid="route-location">{location.pathname}</div>
@@ -81,8 +95,9 @@ function LocationProbe() {
 function renderStart() {
   return render(
     <MemoryRouter initialEntries={['/']}>
-      {/* The card buttons run the registered flow.startPath (its navigation
-          goes through the router bridge, as in the app). */}
+      {/* The card buttons run the registered flow.startPath / flow.useExample
+          / models.openModelFile (their navigation goes through the router
+          bridge, as in the app). */}
       <RouterBridge />
       <StartPage />
       <LocationProbe />
@@ -93,22 +108,26 @@ function renderStart() {
 const routeAt = () => screen.getByTestId('route-location').textContent
 const store = () => useTxrIntakeStore.getState()
 
+/** Set the hidden picker input's files and fire its change (jsdom files). */
+function pickModelFile(testid: string, file: File): void {
+  const input = screen.getByTestId(testid) as HTMLInputElement
+  Object.defineProperty(input, 'files', { value: [file], configurable: true })
+  fireEvent.change(input)
+}
+
 beforeEach(() => {
   api.list.mockReset()
   api.example.mockReset()
   api.exampleSet.mockReset()
   api.pretrained.mockReset()
   api.saved.mockReset()
+  api.importModel.mockReset()
   api.list.mockResolvedValue({ methods: [], total: RUNNABLE_COUNT })
-  // One released ready-made model: the ready-made card is the recommended way in.
+  // One released ready-made model: lab > 0, state A, the badge on predict.
   api.pretrained.mockResolvedValue({ models: [{ id: 'relchange-threshold' }], origin: 'embedded' })
-  // One saved model: the saved-model card carries no "no saved models" note.
-  api.saved.mockResolvedValue({ models: [{ id: 'm-1' }], total: 1 })
-  api.example.mockImplementation(({ kind }: { kind: 'patients' | 'measurements' | 'predict-measurements' }) =>
-    Promise.resolve(
-      kind === 'patients' ? PATIENTS_CSV : kind === 'measurements' ? MEASUREMENTS_CSV : PREDICT_CSV,
-    ),
-  )
+  // No store models (the counts hook filters by provenance; none means zero).
+  api.saved.mockResolvedValue({ models: [], total: 0 })
+  // The example set answers ready (the poll settles in one round).
   api.exampleSet.mockResolvedValue({
     state: 'ready',
     set_id: 'set-1',
@@ -116,6 +135,17 @@ beforeEach(() => {
     run_id: undefined,
     run_status: undefined,
     error: undefined,
+  })
+  api.importModel.mockResolvedValue({ models: [], set_id: undefined })
+  api.example.mockImplementation(({ kind }: { kind: 'patients' | 'measurements' | 'predict-measurements' }) =>
+    Promise.resolve(
+      kind === 'patients' ? PATIENTS_CSV : kind === 'measurements' ? MEASUREMENTS_CSV : PREDICT_CSV,
+    ),
+  )
+  // The human picker path's user-activation flag (the agent path has none).
+  Object.defineProperty(navigator, 'userActivation', {
+    configurable: true,
+    value: { isActive: true },
   })
   window.localStorage.clear()
   store().reset()
@@ -129,22 +159,33 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('StartPage (TEST-INT-11, ITEM-4)', () => {
-  it('renders the three path cards with the board copy', async () => {
+describe('StartPage (TEST-INT-11, ITEM-4, predict-card merge round 1)', () => {
+  it('renders the two path cards with the state-A board copy', async () => {
     renderStart()
-    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
-    expect(within(pretrained).getByText('No training needed')).toBeTruthy()
-    expect(within(pretrained).getByText(/Predict with a ready-made model/)).toBeTruthy()
-    expect(await within(pretrained).findByText('Recommended to start')).toBeTruthy()
-    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
+    const predict = screen.getByTestId('txr-intake-start-card-predict')
+    // The counts settle asynchronously — the state-A eyebrow IS the settled
+    // mark (the loading state shows skeletons instead).
+    expect(await within(predict).findByText('Uses a trained model')).toBeTruthy()
+    expect(within(predict).getByText('Predict new patients')).toBeTruthy()
+    expect(
+      within(predict).getByText(
+        'Add the blood measurements of the patients you want predictions for, then pick any models that can run on them: ready-made models from the lab, models you saved, or models opened from a file.',
+      ),
+    ).toBeTruthy()
+    expect(await within(predict).findByText('Recommended to start')).toBeTruthy()
+    expect(within(predict).getByText('Works with a small cohort, and with no outcomes')).toBeTruthy()
+    expect(
+      within(predict).getByText('The app checks your file and shows which models can run'),
+    ).toBeTruthy()
+    expect(within(predict).getByText('Mix a lab model and your own in the same run')).toBeTruthy()
     expect(screen.getByText('Most flexible')).toBeTruthy()
     expect(screen.getByText('Learn from my data')).toBeTruthy()
-    expect(screen.getByText('Repeat a past analysis')).toBeTruthy()
-    expect(screen.getByText('Use a model I saved')).toBeTruthy()
-    // The pretrained + saved cards carry no count clause (OWNER-7) — the
-    // board's model counts are design examples (DEC-13).
+    // The old cards are gone — never a hidden second predict surface.
+    expect(screen.queryByTestId('txr-intake-start-card-pretrained')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-reuse')).toBeNull()
+    // The two cards carry no count clause (OWNER-7) — the board's model
+    // counts are design examples (DEC-13).
     expect(screen.queryByText(/^\d+ models/)).toBeNull()
-    expect(screen.getByText('The app checks your file and shows which models can run')).toBeTruthy()
   })
 
   it('renders the live runnable method count on the learn card', async () => {
@@ -167,26 +208,24 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
 
   it('sets the intent and navigates from each card button', () => {
     renderStart()
-    fireEvent.click(screen.getByTestId('txr-intake-start-card-pretrained-cta'))
+    fireEvent.click(screen.getByTestId('txr-intake-start-card-predict-cta'))
     expect(routeAt()).toBe('/predict-files')
-    expect(store().intent).toBe('pretrained')
+    expect(store().intent).toBe('predict')
     expect(store().mode).toBe('predict')
+    // The unified card's button pins no source (round 1's bridge then goes
+    // to the saved-models list; round 2's /choose-models reads it).
+    expect(store().predictSource).toBeNull()
 
     fireEvent.click(screen.getByTestId('txr-intake-start-card-train-cta'))
     // The learn path starts with its files (the study questions come after).
     expect(routeAt()).toBe('/files')
     expect(store().intent).toBe('train')
     expect(store().mode).toBe('study')
-
-    fireEvent.click(screen.getByTestId('txr-intake-start-card-reuse-cta'))
-    expect(routeAt()).toBe('/predict-files')
-    expect(store().intent).toBe('reuse')
-    expect(store().mode).toBe('predict')
   })
 
   it('spaces each card\'s button from its Use example button, on one row', () => {
     renderStart()
-    for (const path of ['pretrained', 'train', 'reuse']) {
+    for (const path of ['predict', 'train']) {
       const row = screen.getByTestId(`txr-intake-start-card-${path}-cta`).parentElement!
       expect(within(row).getByTestId(`txr-use-example-${path}`)).toBeTruthy()
       expect(row.style.gap, path).toBe('10px')
@@ -246,31 +285,21 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     expect(store().exampleSlots.measurements).toBe(true)
   })
 
-  it('Use example — predict: pretrained intent + the example predict table, then /predict-files', async () => {
+  it('Use example — predict (state A): predict intent + the example predict table + the example set, then /predict-files', async () => {
     renderStart()
-    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
 
     await waitFor(() => {
       expect(routeAt()).toBe('/predict-files')
     })
     expect(api.example).toHaveBeenCalledTimes(1)
     expect(api.example).toHaveBeenCalledWith({ kind: 'predict-measurements' })
-    expect(store().intent).toBe('pretrained')
+    expect(api.exampleSet).toHaveBeenCalledTimes(1)
+    expect(store().intent).toBe('predict')
+    expect(store().predictSource).toBe('saved')
     expect(store().mode).toBe('predict')
     expect(store().predictMeasurements?.source.name).toBe('predict-measurements_example.csv')
     expect(store().predictMeasurements?.table.rows[0]?.[0]).toBe('J1000')
-    expect(store().exampleSlots.predictMeasurements).toBe(true)
-  })
-
-  it('Use example — reuse: ensure the example set, tick it later, then /predict-files', async () => {
-    renderStart()
-    fireEvent.click(screen.getByTestId('txr-use-example-reuse'))
-
-    await waitFor(() => {
-      expect(routeAt()).toBe('/predict-files')
-    })
-    expect(api.exampleSet).toHaveBeenCalledTimes(1)
-    expect(store().intent).toBe('reuse')
     expect(store().exampleSlots.predictMeasurements).toBe(true)
     expect(store().pendingExampleSetId).toBe('set-1')
   })
@@ -301,61 +330,214 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
   })
 })
 
-
-describe('ITEM-6 L1/L2/L3 — the banner link, the board dots, the distinct saved-model CTA', () => {
-  it('the three path cards keep the board dots and the CTA bodies (L2, L3)', () => {
-    renderStart()
-    const bullets = screen.getByText('Works with a small cohort, and with no outcomes').closest('ul') as HTMLElement
-    expect(bullets.style.listStyle).toBe('disc')
-    const reuse = screen.getByTestId('txr-intake-start-card-reuse-cta')
-    expect(reuse.textContent).toBe('Predict with a model I saved')
-    // Only ONE card carries the board's "Add the patients to predict" label
-    // with a different action — the two flows are distinguishable (L3).
-    expect(screen.getAllByText('Add the patients to predict')).toHaveLength(1)
+describe('state B — no model anywhere (all three counts KNOWN and 0)', () => {
+  beforeEach(() => {
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    api.saved.mockResolvedValue({ models: [], total: 0 })
   })
 
-  it('qa-fixes3 ITEM-4: one Use example button per card, the accessible names naming the paths, and the banner points at them', () => {
+  it('the learn card switches its eyebrow and body to the start-here copy; title, bullets and button stay', async () => {
     renderStart()
-    expect(screen.getByTestId('txr-use-example-train')).toBeTruthy()
-    expect(screen.getByTestId('txr-use-example-pretrained')).toBeTruthy()
-    expect(screen.getByTestId('txr-use-example-reuse')).toBeTruthy()
+    await screen.findByTestId('txr-intake-start-card-predict-note')
+    const learn = screen.getByTestId('txr-intake-start-card-train')
+    expect(within(learn).getByText('Start here: train your first models')).toBeTruthy()
     expect(
-      screen.getByRole('button', { name: 'Use example data: predict with a ready-made model' }),
+      within(learn).getByText(
+        'Train the methods on your patients with known outcomes and save them as models. Then predict new patients with them.',
+      ),
     ).toBeTruthy()
+    expect(within(learn).getByText('Learn from my data')).toBeTruthy()
     expect(
-      screen.getByRole('button', { name: 'Use example data: learn from my data' }),
+      within(learn).getByText('Needs patients with outcomes (progression or death times)'),
     ).toBeTruthy()
-    expect(
-      screen.getByRole('button', { name: 'Use example data: use a model I saved' }),
-    ).toBeTruthy()
-    expect(screen.getByTestId('txr-intake-start-example-hint').textContent).toContain(
-      'Use example',
+    expect(within(learn).getByTestId('txr-intake-start-card-train-cta').textContent).toBe(
+      'Add my data',
     )
-    expect(screen.queryByTestId('txr-intake-start-example')).toBeNull()
   })
 
-  it('Use example records the per-slot example fact; a user adoption clears only that slot (F6)', async () => {
+  it('the predict card shows the state-B text, the info note, its one bullet and the two buttons', async () => {
     renderStart()
-    fireEvent.click(screen.getByTestId('txr-use-example-train'))
+    const predict = screen.getByTestId('txr-intake-start-card-predict')
+    const note = await within(predict).findByTestId('txr-intake-start-card-predict-note')
+    expect(note.textContent).toContain(
+      'Use example first trains a few example models on the example patients',
+    )
+    expect(note.textContent).toContain('the first time also downloads the methods')
+    // The body's "Learn from my data" is bold — the text is split across the
+    // <b>'s child, so the matcher reads the <p>'s own textContent.
+    expect(
+      within(predict).getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          element.textContent ===
+            'Predicts new patients with a trained model: a ready-made one from the lab, one you saved, or one opened from a file. Models you train and save with Learn from my data appear here.',
+      ),
+    ).toBeTruthy()
+    expect(within(predict).getByText('Or open a model file someone gave you')).toBeTruthy()
+    // Use example is the primary; Open a model file is the outline.
+    const example = screen.getByTestId('txr-use-example-predict')
+    expect(example.textContent).toBe('Use example')
+    expect(screen.getByTestId('txr-intake-start-card-predict-open-file').textContent).toBe(
+      'Open a model file',
+    )
+    expect(screen.queryByTestId('txr-intake-start-card-predict-cta')).toBeNull()
+  })
+
+  it('Use example in state B still adopts the predict file, ensures the set and opens /predict-files', async () => {
+    renderStart()
+    await screen.findByTestId('txr-intake-start-card-predict-note')
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
     await waitFor(() => {
-      expect(routeAt()).toBe('/files')
+      expect(routeAt()).toBe('/predict-files')
     })
-    expect(store().exampleLoaded).toBe(true)
-    // An adoption of the user's OWN file clears that slot and the
-    // aggregate (the badge + banner announce only the example that is
-    // still loaded — the FilesPage test renders the banner itself).
-    store().adoptFile(
-      'patients',
-      store().patients as NonNullable<ReturnType<typeof store>['patients']>,
+    expect(store().intent).toBe('predict')
+    expect(store().predictSource).toBe('saved')
+    expect(store().exampleSlots.predictMeasurements).toBe(true)
+    expect(store().pendingExampleSetId).toBe('set-1')
+  })
+
+  it('Open a model file from the start card lands on the Models page; back on the start page state A', async () => {
+    let imported = false
+    api.importModel.mockImplementation(() => {
+      imported = true
+      return Promise.resolve({ models: [modelRow('open-1', 'imported')], set_id: undefined })
+    })
+    // The Models page (after the import) lists the opened model; the SECOND
+    // mount of the Start page counts it.
+    api.saved.mockImplementation(() =>
+      Promise.resolve({
+        models: imported ? [modelRow('open-1', 'imported')] : [],
+        total: imported ? 1 : 0,
+      }),
     )
-    expect(store().exampleSlots.patients).toBe(false)
-    expect(store().exampleSlots.measurements).toBe(true)
-    expect(store().exampleLoaded).toBe(true)
-    store().adoptFile(
-      'measurements',
-      store().measurements as NonNullable<ReturnType<typeof store>['measurements']>,
-    )
-    expect(store().exampleLoaded).toBe(false)
+    renderStart()
+    await screen.findByTestId('txr-intake-start-card-predict-cta')
+    // The human path: the click opens the picker (user activation active)…
+    fireEvent.click(screen.getByTestId('txr-intake-start-card-predict-open-file'))
+    // …the picked `.txr` container posts the multipart import and lands on
+    // the Models page with the imported model.
+    pickModelFile('txr-intake-start-open-model-file-input', new File(['txr-bytes'], 'panel.txr'))
+    await waitFor(() => {
+      expect(api.importModel).toHaveBeenCalledTimes(1)
+      expect(routeAt()).toBe('/models')
+    })
+    const form = api.importModel.mock.calls[0][0] as FormData
+    expect((form.get('file') as File).name).toBe('panel.txr')
+    // Back on the start page (a real second mount re-reads the counts), the
+    // imported model counts: state A with the plain predictive CTA.
+    cleanup()
+    renderStart()
+    await screen.findByTestId('txr-intake-start-card-predict-cta')
+    expect(screen.queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
+    expect(store().intent).toBe('train')
+  })
+})
+
+describe('loading, failed and the badge rule', () => {
+  it('loading shows state A\'s title and buttons with skeletons, never the state-B note', () => {
+    api.pretrained.mockReturnValue(new Promise(() => {}))
+    api.saved.mockReturnValue(new Promise(() => {}))
+    renderStart()
+    const predict = screen.getByTestId('txr-intake-start-card-predict')
+    // State A's title and buttons are there…
+    expect(within(predict).getByText('Predict new patients')).toBeTruthy()
+    expect(within(predict).getByTestId('txr-intake-start-card-predict-cta')).toBeTruthy()
+    // …with skeleton lines where the eyebrow, body and bullets would be.
+    expect(within(predict).queryAllByText('Uses a trained model')).toHaveLength(0)
+    expect(within(predict).queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
+    // The kit's Skeleton stamps `data-slot="skeleton"`.
+    expect(predict.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
+    expect(within(predict).queryAllByText('Works with a small cohort, and with no outcomes')).toHaveLength(0)
+  })
+
+  it('loading keeps the learn card in state A (its state-B copy never flashes)', () => {
+    api.pretrained.mockReturnValue(new Promise(() => {}))
+    api.saved.mockReturnValue(new Promise(() => {}))
+    renderStart()
+    expect(screen.getByText('Most flexible')).toBeTruthy()
+    expect(screen.queryByText('Start here: train your first models')).toBeNull()
+  })
+
+  it('a failed count shows state A (never state B)', async () => {
+    api.pretrained.mockRejectedValue(new Error('catalogue down'))
+    api.saved.mockRejectedValue(new Error('store down'))
+    renderStart()
+    await waitFor(() => expect(api.pretrained).toHaveBeenCalled())
+    await Promise.resolve()
+    const predict = screen.getByTestId('txr-intake-start-card-predict')
+    expect(within(predict).getByText('Uses a trained model')).toBeTruthy()
+    expect(within(predict).getByTestId('txr-intake-start-card-predict-cta')).toBeTruthy()
+    expect(within(predict).queryByText('Or open a model file someone gave you')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
+    expect(screen.getByText('Most flexible')).toBeTruthy()
+    expect(screen.queryByText('Start here: train your first models')).toBeNull()
+  })
+
+  it('a downloaded lab model (provenance pretrained) does not count as saved', async () => {
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    api.saved.mockResolvedValue({
+      models: [modelRow('downloaded-1', 'pretrained')],
+      total: 1,
+    })
+    renderStart()
+    // All three counts are KNOWN and 0 (the downloaded model is neither
+    // `run` nor `imported`): state B — it is not a saved model.
+    await screen.findByTestId('txr-intake-start-card-predict-note')
+    expect(screen.queryByTestId('txr-intake-start-card-predict-cta')).toBeNull()
+  })
+
+  it('a run-saved model counts as saved (state A)', async () => {
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    api.saved.mockResolvedValue({ models: [modelRow('run-1', 'run')], total: 1 })
+    renderStart()
+    await screen.findByTestId('txr-intake-start-card-predict-cta')
+    expect(screen.queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
+  })
+
+  it('an imported model counts as imported (state A)', async () => {
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    api.saved.mockResolvedValue({ models: [modelRow('open-1', 'imported')], total: 1 })
+    renderStart()
+    await screen.findByTestId('txr-intake-start-card-predict-cta')
+    expect(screen.queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
+  })
+
+  it('the badge is on the predict card when lab > 0, else on learn (also while loading or failed)', async () => {
+    // lab > 0: predict.
+    renderStart()
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('txr-intake-start-card-predict-badge').textContent,
+      ).toBe('Recommended to start')
+    })
+    expect(screen.queryByTestId('txr-intake-start-card-train-badge')).toBeNull()
+    cleanup()
+
+    // No lab model (but saved models exist): learn.
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    api.saved.mockResolvedValue({ models: [modelRow('run-1', 'run')], total: 1 })
+    renderStart()
+    await waitFor(() => {
+      expect(screen.getByTestId('txr-intake-start-card-train-badge').textContent).toBe(
+        'Recommended to start',
+      )
+    })
+    expect(screen.queryByTestId('txr-intake-start-card-predict-badge')).toBeNull()
+    cleanup()
+
+    // Loading (lab unknown): learn.
+    api.pretrained.mockReturnValue(new Promise(() => {}))
+    api.saved.mockResolvedValue({ models: [], total: 0 })
+    renderStart()
+    expect(screen.getByTestId('txr-intake-start-card-train-badge')).toBeTruthy()
+    cleanup()
+
+    // Failed catalogue read: learn.
+    api.pretrained.mockRejectedValue(new Error('catalogue down'))
+    renderStart()
+    await waitFor(() => expect(api.pretrained).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(screen.getByTestId('txr-intake-start-card-train-badge')).toBeTruthy()
   })
 })
 
@@ -364,7 +546,7 @@ const LONG_ERROR =
   'No method with a published environment can run on the example data on this computer, so the ' +
   'example models could not be prepared. Check the method catalogue and try again.'
 
-const CARD_PATHS = ['pretrained', 'train', 'reuse'] as const
+const CARD_PATHS = ['predict', 'train'] as const
 
 /** A file the user loaded themselves (no example flag): Use example asks first. */
 function ownFile(name = 'mine.csv'): LoadedFile {
@@ -393,7 +575,7 @@ describe('the Use example message sits under the card\'s button row, across the 
     api.example.mockRejectedValue(new Error(LONG_ERROR))
     renderStart()
     for (const path of CARD_PATHS) fireEvent.click(screen.getByTestId(`txr-use-example-${path}`))
-    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(3))
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2))
 
     for (const path of CARD_PATHS) {
       const card = screen.getByTestId(`txr-intake-start-card-${path}`)
@@ -415,11 +597,7 @@ describe('the Use example message sits under the card\'s button row, across the 
       expect(message.contains(error), path).toBe(true)
       expect(error.getAttribute('role'), path).toBe('alert')
       expect(error.textContent, path).toBe(LONG_ERROR)
-      // The row holds the two buttons only.
-      expect(childIds(row), path).toEqual([
-        `txr-intake-start-card-${path}-cta`,
-        `txr-use-example-${path}`,
-      ])
+      // The row holds the buttons only.
       expect(row.contains(error), path).toBe(false)
       expect(screen.getByTestId(`txr-use-example-${path}`).textContent, path).toBe('Try again')
     }
@@ -437,44 +615,53 @@ describe('the Use example message sits under the card\'s button row, across the 
   it('the confirm question and its two answers sit under the row, which keeps only the card\'s button', () => {
     store().adoptFile('predictMeasurements', ownFile())
     renderStart()
-    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
 
-    const actions = screen.getByTestId('txr-intake-start-card-pretrained-actions')
-    const row = screen.getByTestId('txr-intake-start-card-pretrained-buttons')
-    expect(childIds(row)).toEqual(['txr-intake-start-card-pretrained-cta'])
+    const actions = screen.getByTestId('txr-intake-start-card-predict-actions')
+    const row = screen.getByTestId('txr-intake-start-card-predict-buttons')
+    expect(childIds(row)).toEqual(['txr-intake-start-card-predict-cta'])
     expect(childIds(actions)).toEqual([
-      'txr-intake-start-card-pretrained-buttons',
-      'txr-use-example-message-pretrained',
+      'txr-intake-start-card-predict-buttons',
+      'txr-use-example-message-predict',
     ])
-    const message = screen.getByTestId('txr-use-example-message-pretrained')
+    const message = screen.getByTestId('txr-use-example-message-predict')
     expect(within(message).getByTestId('txr-use-example-confirm')).toBeTruthy()
     expect(within(message).getByTestId('txr-use-example-confirm-yes')).toBeTruthy()
     expect(within(message).getByTestId('txr-use-example-confirm-no')).toBeTruthy()
 
     // "Keep my files" closes the question; the row gets its Use example back.
     fireEvent.click(screen.getByTestId('txr-use-example-confirm-no'))
-    expect(screen.queryByTestId('txr-use-example-message-pretrained')).toBeNull()
+    expect(screen.queryByTestId('txr-use-example-message-predict')).toBeNull()
     expect(childIds(row)).toEqual([
-      'txr-intake-start-card-pretrained-cta',
-      'txr-use-example-pretrained',
+      'txr-intake-start-card-predict-cta',
+      'txr-use-example-predict',
     ])
     expect(store().predictMeasurements?.source.name).toBe('mine.csv')
   })
 })
 
 describe('demo mode (ITEM-6) — the card example actions are the primary', () => {
-  it('the three card CTAs read "Use the example data"; the plain path buttons are gone', () => {
+  it('the two card CTAs read "Use the example data"; the plain path buttons and Open a model file are gone', () => {
     seedDemoMode('demo')
     renderStart()
-    for (const path of ['train', 'pretrained', 'reuse']) {
+    for (const path of ['train', 'predict']) {
       expect(screen.getByTestId(`txr-use-example-${path}`).textContent).toBe(DEMO_START_PRIMARY)
       expect(screen.getByTestId(`txr-use-example-${path}`).getAttribute('aria-label')).toMatch(/Use example data/)
     }
     // The plain CTAs are replaced, not hidden twice: their testids are gone.
     expect(screen.queryByTestId('txr-intake-start-card-train-cta')).toBeNull()
-    expect(screen.queryByTestId('txr-intake-start-card-pretrained-cta')).toBeNull()
-    expect(screen.queryByTestId('txr-intake-start-card-reuse-cta')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-predict-cta')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-predict-open-file')).toBeNull()
     expect(screen.getByTestId('txr-intake-start-example-hint').textContent).toBe(DEMO_START_HINT)
+  })
+
+  it('the demo predict card is state A (the demo has its recorded lab models), with the badge on predict', async () => {
+    seedDemoMode('demo')
+    renderStart()
+    const predict = screen.getByTestId('txr-intake-start-card-predict')
+    expect(within(predict).getByText('Uses a trained model')).toBeTruthy()
+    expect(await within(predict).findByText('Recommended to start')).toBeTruthy()
+    expect(within(predict).queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
   })
 
   it("the demo primary action fills the flow and lands on the path's file step", async () => {
@@ -493,8 +680,9 @@ describe('demo mode (ITEM-6) — the card example actions are the primary', () =
     seedDemoMode('desktop')
     renderStart()
     expect(screen.getByTestId('txr-intake-start-card-train-cta').textContent).toBe('Add my data')
-    expect(screen.getByTestId('txr-intake-start-card-pretrained-cta').textContent).toBe('Add the patients to predict')
-    expect(screen.getByTestId('txr-intake-start-card-reuse-cta').textContent).toBe('Predict with a model I saved')
+    expect(screen.getByTestId('txr-intake-start-card-predict-cta').textContent).toBe(
+      'Add the patients to predict',
+    )
     expect(screen.getByText(/Prefer to try it first/)).toBeTruthy()
   })
 })
@@ -502,7 +690,7 @@ describe('demo mode (ITEM-6) — the card example actions are the primary', () =
 /** The cards in page order, by their path. */
 const cardOrder = () =>
   screen
-    .getAllByTestId(/^txr-intake-start-card-(train|pretrained|reuse)$/)
+    .getAllByTestId(/^txr-intake-start-card-(train|predict)$/)
     .map(el => el.getAttribute('data-testid')!.replace('txr-intake-start-card-', ''))
 
 /** Every "Recommended to start" badge on the page, by its card. */
@@ -512,23 +700,23 @@ const badgeCards = () =>
     .map(el => el.closest('section')!.getAttribute('data-testid')!.replace('txr-intake-start-card-', ''))
 
 describe('the card layout (the user, 2026-11-19)', () => {
-  it('orders the cards: learn from my data, then ready-made, then saved', () => {
+  it('orders the cards: learn from my data, then predict new patients', () => {
     renderStart()
-    expect(cardOrder()).toEqual(['train', 'pretrained', 'reuse'])
+    expect(cardOrder()).toEqual(['train', 'predict'])
   })
 
-  it('highlights no card: all three share one 1 px border', () => {
+  it('highlights no card: both share one 1 px border', () => {
     renderStart()
-    const borders = ['train', 'pretrained', 'reuse'].map(
+    const borders = ['train', 'predict'].map(
       path => screen.getByTestId(`txr-intake-start-card-${path}`).style.border,
     )
     expect(new Set(borders).size).toBe(1)
     expect(borders[0]).toBe('1px solid var(--txr-border)')
   })
 
-  it('gives the three main buttons the same filled look', () => {
+  it('gives the two main buttons the same filled look', () => {
     renderStart()
-    const looks = ['train', 'pretrained', 'reuse'].map(path => {
+    const looks = ['train', 'predict'].map(path => {
       const { background, color, fontWeight } = screen.getByTestId(`txr-intake-start-card-${path}-cta`).style
       return { background, color, fontWeight }
     })
@@ -537,110 +725,14 @@ describe('the card layout (the user, 2026-11-19)', () => {
     }
   })
 
-  it('labels the cards: most flexible, no training needed, repeat a past analysis', () => {
+  it('labels the cards: most flexible, uses a trained model — the old card labels are gone', async () => {
     renderStart()
     expect(within(screen.getByTestId('txr-intake-start-card-train')).getByText('Most flexible')).toBeTruthy()
-    expect(within(screen.getByTestId('txr-intake-start-card-pretrained')).getByText('No training needed')).toBeTruthy()
-    expect(within(screen.getByTestId('txr-intake-start-card-reuse')).getByText('Repeat a past analysis')).toBeTruthy()
+    expect(
+      await within(screen.getByTestId('txr-intake-start-card-predict')).findByText('Uses a trained model'),
+    ).toBeTruthy()
+    expect(screen.queryByText('No training needed')).toBeNull()
+    expect(screen.queryByText('Repeat a past analysis')).toBeNull()
     expect(screen.queryByText('Quickest')).toBeNull()
-  })
-
-  it('a ready-made model exists: the badge is on the ready-made card only', async () => {
-    renderStart()
-    await waitFor(() => expect(badgeCards()).toEqual(['pretrained']))
-  })
-
-  it('no ready-made model: the badge is on "Learn from my data" only', async () => {
-    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
-    renderStart()
-    await screen.findByTestId('txr-intake-start-card-pretrained-none')
-    expect(badgeCards()).toEqual(['train'])
-  })
-
-  it('no saved model: the saved-model card says so, and its button stays enabled', async () => {
-    api.saved.mockResolvedValue({ models: [], total: 0 })
-    renderStart()
-    const reuse = screen.getByTestId('txr-intake-start-card-reuse')
-    const note = await within(reuse).findByTestId('txr-intake-start-card-reuse-none')
-    expect(note.textContent).toBe('No saved models yet. Train one with Learn from my data first.')
-    expect(api.saved).toHaveBeenCalledWith({})
-    const cta = screen.getByTestId('txr-intake-start-card-reuse-cta')
-    expect((cta as HTMLButtonElement).disabled).toBe(false)
-    fireEvent.click(cta)
-    expect(routeAt()).toBe('/predict-files')
-    expect(store().intent).toBe('reuse')
-  })
-
-  /** Waits until the saved-models read has settled (resolved or failed) and
-   *  the page has re-rendered with its result, so a "no note" check runs on
-   *  the loaded count, not before it arrives. */
-  async function settleSavedRead() {
-    await waitFor(() => expect(api.saved).toHaveBeenCalled())
-    await act(async () => {
-      await (api.saved.mock.results[0].value as Promise<unknown>).catch(() => {})
-      await new Promise(resolve => setTimeout(resolve, 0))
-    })
-  }
-
-  it('some saved models: no note on the saved-model card', async () => {
-    renderStart()
-    await settleSavedRead()
-    expect(screen.queryByTestId('txr-intake-start-card-reuse-none')).toBeNull()
-  })
-
-  it('a failed or pending saved-models read: no note (never a false "none saved")', async () => {
-    api.saved.mockRejectedValue(new Error('store down'))
-    renderStart()
-    await settleSavedRead()
-    expect(screen.queryByTestId('txr-intake-start-card-reuse-none')).toBeNull()
-  })
-})
-
-describe('the ready-made card while no ready-made model is released (the badge follows the catalogue)', () => {
-  it('an empty catalogue: no "Recommended to start" badge, and the card says none are released yet', async () => {
-    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
-    renderStart()
-    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
-    const note = await within(pretrained).findByTestId('txr-intake-start-card-pretrained-none')
-    expect(note.textContent).toBe(
-      'No ready-made models have been released yet. You can still use your saved models.',
-    )
-    expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
-    // The card still works: its button starts the predict path.
-    expect(screen.getByTestId('txr-intake-start-card-pretrained-cta')).toBeTruthy()
-  })
-
-  it('while the catalogue loads: no badge and no note on the ready-made card (the badge is on learn)', () => {
-    api.pretrained.mockReturnValue(new Promise(() => {}))
-    renderStart()
-    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
-    expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
-    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
-    expect(badgeCards()).toEqual(['train'])
-  })
-
-  it('a failed catalogue read: neither the badge nor the note (never a false "none released")', async () => {
-    api.pretrained.mockRejectedValue(new Error('catalogue down'))
-    renderStart()
-    await waitFor(() => expect(api.pretrained).toHaveBeenCalled())
-    // Let the rejection settle.
-    await Promise.resolve()
-    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
-    expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
-    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
-    expect(badgeCards()).toEqual(['train'])
-  })
-
-  it('a released model brings the badge back on the next visit (the catalogue is asked on every mount)', async () => {
-    api.pretrained.mockResolvedValueOnce({ models: [], origin: 'embedded' })
-    const first = renderStart()
-    expect(await screen.findByTestId('txr-intake-start-card-pretrained-none')).toBeTruthy()
-    first.unmount()
-    api.pretrained.mockResolvedValueOnce({ models: [{ id: 'relchange-threshold' }], origin: 'live' })
-    renderStart()
-    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
-    expect(await within(pretrained).findByText('Recommended to start')).toBeTruthy()
-    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
-    expect(api.pretrained).toHaveBeenCalledTimes(2)
   })
 })

@@ -4,6 +4,8 @@ import { defineAction } from '../defineAction'
 import { currentPathViaBridge } from '../navigateBridge'
 import { getActiveEntity } from '../activeContext'
 import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
+import { runExampleFlow } from '@/modules/txrintake/lib/example'
+import type { IntakeIntent, PredictModelSource } from '@/modules/txrintake/types'
 import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import {
   beginPath,
@@ -135,9 +137,9 @@ defineAction({
     const path = list === 'saved' ? SAVED_MODELS_ROUTE : PUBLISHED_MODELS_ROUTE
     // Already on that list: nothing to switch.
     if ((current.step === 'saved-models') === (list === 'saved')) return { path }
-    // The intent the Start cards set for the two lists; the checked file stays
-    // (setIntent changes the intent and the mode only).
-    TxrIntake.setIntent(list === 'saved' ? 'reuse' : 'pretrained')
+    // The ONE predict intent + the source preset the list shows; the checked
+    // file stays (setIntent changes the intent and the mode only).
+    TxrIntake.setIntent('predict', list === 'saved' ? 'saved' : 'lab')
     replaceCurrentStep(path)
     ctx.navigate(path)
     return { path }
@@ -149,13 +151,13 @@ defineAction({
   title: 'Start a new analysis',
   permission: Permissions.McpUse,
   mutating: true,
-  aliases: ['learn from my data', 'predict with a ready-made model', 'predict with a pretrained model', 'use a model I saved'],
+  aliases: ['learn from my data', 'predict new patients', 'predict with a ready-made model', 'predict with a pretrained model', 'use a model I saved'],
   description:
-    'Pick one of the three ways of the Start screen: "pretrained" predicts with a ready-made model (already trained by the TxResBench team), "reuse" predicts with a model you saved, "train" learns from your own patients. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.',
+    'Pick one of the two ways of the Start screen: "train" learns from your own patients, "predict" predicts new patients with a ready-made model, a saved model or an opened model file. The old two-list spellings stay accepted: "pretrained" (a ready-made model from the lab) and "reuse" (a model you saved) both start the predict way with that list pinned. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.',
   params: z.object({
     intent: z
-      .enum(['pretrained', 'reuse', 'train'])
-      .describe('"pretrained", "reuse" (a saved model) or "train" (learn from my data).'),
+      .enum(['predict', 'train', 'pretrained', 'reuse'])
+      .describe('"predict" (any model), "train" (learn from my data), or the old list spellings "pretrained" (a ready-made model) / "reuse" (a saved model).'),
     startAtFiles: z
       .boolean()
       .optional()
@@ -163,12 +165,47 @@ defineAction({
   }),
   run: ({ intent, startAtFiles }, ctx) => {
     assertCanStartPath()
-    TxrIntake.setIntent(intent)
+    // The old two-list intents become the ONE predict intent plus the source
+    // preset they pinned (`lab` / `saved`); `predict` pins no source (round
+    // 1's bridge then continues to the saved-models list — round 2 replaces
+    // it with /choose-models).
+    const pathIntent: IntakeIntent = intent === 'train' ? 'train' : 'predict'
+    const source: PredictModelSource | null =
+      intent === 'pretrained' ? 'lab' : intent === 'reuse' ? 'saved' : null
+    TxrIntake.setIntent(pathIntent, source)
     beginPathHere()
     // Every path starts with its file step (the learn path's study questions
     // come after the files); `startAtFiles` changes nothing any more.
     void startAtFiles
-    const path = intent !== 'train' ? PREDICT_FILES_ROUTE : FILES_ROUTE
+    const path = pathIntent !== 'train' ? PREDICT_FILES_ROUTE : FILES_ROUTE
+    ctx.navigate(path)
+    return { path }
+  },
+})
+
+defineAction({
+  id: 'flow.useExample',
+  title: 'Use the example data in a flow',
+  permission: Permissions.McpUse,
+  mutating: true,
+  aliases: ['use example', 'use the example data', 'try the example data'],
+  description:
+    'The one-click example path of the Start cards (and Help\'s try-it cards): "predict" adopts the example patients-to-predict table, ensures the "Example models" set (usually under a minute; the first time also downloads the methods) and opens the predict path\'s file step with that set ticked once it checks out; "train" fills the learn path\'s study answers and both example files and opens its file step. Back from the step returns to the page it was started from. Refused while a run is starting or a dialog is open.',
+  params: z.object({
+    intent: z
+      .enum(['predict', 'train'])
+      .describe('"predict" (the example patients to predict + the example models) or "train" (learn from my data).'),
+  }),
+  run: async ({ intent }, ctx) => {
+    assertCanStartPath()
+    beginPathHere()
+    await runExampleFlow(intent, {
+      // The UI host (the button) streams the set-training state through the
+      // progress channel; the agent sees the same as a progress note.
+      onSetProgress: response => ctx.progress('Preparing the example models', response),
+      cancelled: () => ctx.signal?.aborted ?? false,
+    })
+    const path = intent === 'train' ? FILES_ROUTE : PREDICT_FILES_ROUTE
     ctx.navigate(path)
     return { path }
   },
@@ -189,7 +226,7 @@ defineAction({
   run: async ({ modelId, name }, ctx) => {
     assertCanStartPath()
     const { useTxrModelsStore } = await import('@/modules/txrmodels/stores/TxrModels.store')
-    TxrIntake.setIntent('reuse')
+    TxrIntake.setIntent('predict', 'saved')
     useTxrModelsStore.getState().setPendingUse(modelId)
     beginPathHere()
     const path =

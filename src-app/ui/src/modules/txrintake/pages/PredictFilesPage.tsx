@@ -37,8 +37,9 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
  * ITEM-7): the predict-mode variant of the C flow. ONE measurements card
  * (no patients file, no outcomes — the board's "No outcomes are needed, and
  * no patients file." line), the "What the models look for" aside, and the
- * Continue gate into the model choice screens: `/pretrained-models` for
- * intent `pretrained` (screen D) and `/saved-models` for `reuse` (screen I).
+ * Continue gate into the model choice screens by the predict path's source
+ * preset (round 1's bridge — `lab` → `/pretrained-models`, else →
+ * `/saved-models`; round 2 replaces it with `/choose-models`).
  *
  * INV-2's flow, one pipe for C and N (the card markup is the shared
  * `TxrFileCard` — ITEM-9's component extraction; this page owns the N
@@ -234,7 +235,7 @@ export function PredictFilesPage() {
   const { isDemo } = useAppMode()
   const [searchParams] = useSearchParams()
   const file = useStore(useTxrIntakeStore, s => s.predictMeasurements)
-  const intent = useStore(useTxrIntakeStore, s => s.intent)
+  const predictSource = useStore(useTxrIntakeStore, s => s.predictSource)
   const joins = useStore(useTxrIntakeStore, s => s.joins)
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
@@ -274,7 +275,7 @@ export function PredictFilesPage() {
     setDemoLoading(true)
     setDemoError(null)
     try {
-      await runExampleFlow(intent === 'reuse' ? 'reuse' : 'pretrained')
+      await runExampleFlow('predict')
     } catch (err) {
       setDemoError(
         err instanceof Error ? err.message : 'The example table could not be loaded.',
@@ -282,7 +283,7 @@ export function PredictFilesPage() {
     } finally {
       setDemoLoading(false)
     }
-  }, [intent])
+  }, [])
   useEffect(() => {
     // A failed attempt STAYS failed (the error line + its Retry): without
     // this the state flips (loading true→false) and the effect re-adopts on
@@ -465,15 +466,19 @@ export function PredictFilesPage() {
     !hasErrorProblems(validation.problems) &&
     !fileHasNoDataRows(file)
   /**
-   * The board's Continue — into the model choice screens: pretrained (D)
-   * for intent `pretrained`, saved (I) for `reuse` (DEC-3's declared
-   * conventions; the ownership stays ui-models').
+   * The board's Continue — into the model choice screens (DEC-3's declared
+   * conventions; the ownership stays ui-models'). Round 1's bridge: the ONE
+   * predict intent continues by its source preset — `lab` → the ready-made
+   * list, `saved` or no preset → the saved-models list.
    */
   const continueFlow = useCallback(() => {
     navigate(
-      intent === 'reuse' ? ROUTE_CONVENTIONS.savedModels : ROUTE_CONVENTIONS.pretrainedModels,
+      // round-2: /choose-models
+      predictSource === 'lab'
+        ? ROUTE_CONVENTIONS.pretrainedModels
+        : ROUTE_CONVENTIONS.savedModels,
     )
-  }, [navigate, intent])
+  }, [navigate, predictSource])
 
   return (
     <div
@@ -502,14 +507,15 @@ export function PredictFilesPage() {
             ) : null}
 
             {/* qa-fixes4 ITEM-5 (help-r3 R3-help-6): this screen serves BOTH
-                predict paths — the screen says which one the user is on (the
-                Help quick-start cards set the intent first; a direct visit
-                defaults to the pretrained path, the same default the
-                Continue button and the aside use). */}
+                predict lists — the screen says which one the user is on (the
+                Start card and the Help quick-start cards set the intent
+                first; a direct visit defaults to the saved-model list, the
+                same default the Continue button and the aside use — round 1's
+                bridge, round 2 replaces it with /choose-models). */}
             <p data-testid="txr-intake-predict-path" style={INTRO}>
-              {intent === 'reuse'
-                ? 'This is the saved-model path — you will pick from the models you saved.'
-                : 'This is the ready-made model path — you will pick from the ready-made models.'}
+              {predictSource === 'lab'
+                ? 'This is the ready-made model path — you will pick from the ready-made models.'
+                : 'This is the saved-model path — you will pick from the models you saved.'}
             </p>
 
             <div
@@ -542,7 +548,7 @@ export function PredictFilesPage() {
                   ) : (
                     <span style={INTRO}></span>
                   )}
-                  <TxrUseExampleButton path={intent === 'reuse' ? 'reuse' : 'pretrained'} />
+                  <TxrUseExampleButton path="predict" />
                 </>
               )}
             </div>
@@ -611,12 +617,12 @@ export function PredictFilesPage() {
               <aside style={ASIDE} data-testid="txr-intake-aside">
                 <div style={ASIDE_EYEBROW}>What the models look for</div>
                 <p style={ASIDE_PARA}>
-                  {/* R2-12: the aside's lead must name the path the Continue takes —
-                      the board's "pretrained models" byte is the pretrained path's;
-                      a saved-model flow reads its own words. */}
-                  {intent === 'reuse'
-                    ? 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'
-                    : 'After you add the file we check which ready-made models can run on it. These are the draws most models use:'}
+                  {/* R2-12: the aside's lead must name the list the Continue takes —
+                      the board's "ready-made models" byte is the lab list's; a
+                      saved-model flow reads its own words. */}
+                  {predictSource === 'lab'
+                    ? 'After you add the file we check which ready-made models can run on it. These are the draws most models use:'
+                    : 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'}
                 </p>
                 <ul style={ASIDE_LIST}>
                   <li style={ASIDE_ITEM}>

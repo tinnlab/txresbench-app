@@ -6,7 +6,8 @@
  * and no patients file." line, the validate round in `mode: 'predict'` with
  * the patients key OMITTED (TEST-INT-3 / DRIFT-1 ITEM-6 #2), the board-N
  * status box (EXAMPLE-INT-3), the Continue gate into `/pretrained-models`
- * for intent `pretrained` and `/saved-models` for `reuse` (DEC-3).
+ * for source `lab` and `/saved-models` for `saved`/no source (DEC-3; round
+ * 1's bridge — round 2 replaces it with `/choose-models`).
  *
  * Harness identity with FilesPage.test.tsx (ITEM-6): the ApiClient is
  * mocked, the store is the real TxrIntake store (reset per test), and the
@@ -53,6 +54,7 @@ const api = vi.hoisted(() => ({
   validate: vi.fn(),
   template: vi.fn(),
   example: vi.fn(),
+  exampleSet: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -62,6 +64,7 @@ vi.mock('@/api-client', () => ({
       template: api.template,
       example: api.example,
     },
+    Models: { exampleSet: api.exampleSet },
   },
 }))
 
@@ -192,9 +195,19 @@ beforeEach(() => {
   api.validate.mockReset()
   api.template.mockReset()
   api.example.mockReset()
+  api.exampleSet.mockReset()
   api.inspect.mockResolvedValue(inspectionFixture())
   api.validate.mockResolvedValue(validationFixture())
   api.template.mockResolvedValue('patient_id,day,marker,value,unit\n')
+  // The demo path's example-set ensure (the demo's recorded example models).
+  api.exampleSet.mockResolvedValue({
+    state: 'ready',
+    set_id: 'set-demo',
+    methods: ['kelim'],
+    run_id: undefined,
+    run_status: undefined,
+    error: undefined,
+  })
   window.localStorage.clear()
   store().reset()
 })
@@ -207,6 +220,9 @@ afterEach(() => {
 
 describe('PredictFilesPage (screen N, ITEM-7)', () => {
   it('renders ONE measurements card with the board N copy, the aside and no patients card', () => {
+    // The ready-made list's spell (the screen's default is the saved-model
+    // list — round 1's bridge).
+    store().setIntent('predict', 'lab')
     renderPredict()
     expect(screen.getByText('Add the patients to predict')).toBeTruthy()
     expect(screen.getByTestId('txr-intake-file-card-measurements')).toBeTruthy()
@@ -289,8 +305,8 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(continueButton().disabled).toBe(false)
   })
 
-  it('Continue goes to the pretrained models screen for intent pretrained', async () => {
-    store().setIntent('pretrained')
+  it('Continue goes to the pretrained models screen for source lab (round-1 bridge)', async () => {
+    store().setIntent('predict', 'lab')
     renderPredict()
     pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
@@ -301,8 +317,8 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(store().mode).toBe('predict')
   })
 
-  it('Continue goes to the saved models screen for intent reuse', async () => {
-    store().setIntent('reuse')
+  it('Continue goes to the saved models screen for source saved (round-1 bridge)', async () => {
+    store().setIntent('predict', 'saved')
     renderPredict()
     pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
@@ -467,10 +483,11 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
     expect(units.textContent).toContain(': add the unit column so we can check')
   })
 
-  // R2-12 (qa-fixes2): the aside's lead named "pretrained models" on the
-  // saved-models flow too — the board's byte is the pretrained path's; a
-  // reuse flow reads its own words (the two screens differ only here).
-  it('the aside lead names saved models for intent reuse (R2-12)', () => {
+  // R2-12 (qa-fixes2): the aside's lead named "ready-made models" on the
+  // saved-model flow too — the board's byte is the ready-made path's; a
+  // saved-model flow reads its own words (the two screens differ only here).
+  it('the aside lead names saved models for source saved (R2-12)', () => {
+    store().setIntent('predict', 'lab')
     renderPredict()
     expect(
       screen.getByText(
@@ -478,7 +495,7 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
       ),
     ).toBeTruthy()
     cleanup()
-    store().setIntent('reuse')
+    store().setIntent('predict', 'saved')
     renderPredict()
     expect(
       screen.queryByText(
@@ -529,7 +546,7 @@ describe('demo mode (ITEM-6) — the example predict card replaces the upload', 
     expect(screen.queryByTestId('txr-intake-file-drop-measurements')).toBeNull()
     expect(document.querySelector('input[type=file]')).toBeNull()
     expect(screen.queryByTestId('txr-intake-clear-example')).toBeNull()
-    expect(screen.queryByTestId('txr-use-example-pretrained')).toBeNull()
+    expect(screen.queryByTestId('txr-use-example-predict')).toBeNull()
 
     await waitFor(() => {
       expect(api.validate).toHaveBeenCalled()

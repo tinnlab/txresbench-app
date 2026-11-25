@@ -185,8 +185,9 @@ describe('help content — sections (TEST-HELP-1)', () => {
     expect(QUICK_START[1].route).toBe('/predict-files')
     expect(QUICK_START[2].route).toBe('/predict-files')
     // qa-fixes3 ITEM-5: each card carries the one-line example action, and
-    // the path it starts is the card's own way in (the Start screen's
-    // intent spelling, never a different path's example).
+    // the path it starts is the card's own way in (predict-card merge r1:
+    // the two predict cards share the ONE predict intent — the merged model
+    // step has no two paths left).
     expect(QUICK_START.map(card => card.tryExample.label)).toEqual([
       'Try it with example data',
       'Try it with example data',
@@ -194,8 +195,8 @@ describe('help content — sections (TEST-HELP-1)', () => {
     ])
     expect(QUICK_START.map(card => card.tryExample.path)).toEqual([
       'train',
-      'pretrained',
-      'reuse',
+      'predict',
+      'predict',
     ])
   })
 

@@ -54,7 +54,7 @@ plans bind the same strings:
 
 | type | meaning |
 |---|---|
-| `IntakeIntent` | the A-card path: `'pretrained'` / `'train'` / `'reuse'`; sets the snapshot's `mode` |
+| `IntakeIntent` | the A-card path: `'predict'` / `'train'` (the ONE predict intent is accompanied by the `predictSource` preset); sets the snapshot's `mode` |
 | `StudyAnswers` | the six B question groups (disease, treatment, outcome, marker groups, before-treatment, draws during treatment, last draw day) |
 | `LoadedFile` | one adopted file: the decoded table, the inspect result, the problem list, the ready flag and the pending offers |
 | `JoinOffer` / `VocabOffer` | a confirmed spelling join / a confirmed vocabulary match — suggestions only, never auto-applied (the validator's own rule) |

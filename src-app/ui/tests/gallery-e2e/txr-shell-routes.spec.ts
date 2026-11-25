@@ -641,7 +641,7 @@ async function failExampleFetch(page: import('@playwright/test').Page) {
 test('route Start: a Use example error is the card\'s last row, under the buttons, across the card', async ({
   page,
 }) => {
-  const paths = ['pretrained', 'train', 'reuse'] as const
+  const paths = ['predict', 'train'] as const
   for (const size of [
     { width: 1440, height: 900 },
     { width: 390, height: 844 },
@@ -745,7 +745,7 @@ async function startCardRow(page: import('@playwright/test').Page, path: string)
 test('route Start: Use example keeps its width while loading (and Try again while it retries); the row stays off the card border', async ({
   page,
 }) => {
-  const paths = ['pretrained', 'train', 'reuse'] as const
+  const paths = ['predict', 'train'] as const
   const open = async (size: { width: number; height: number }) => {
     await page.setViewportSize(size)
     await page.goto(`${GALLERY}txr-shell-route-start`, { waitUntil: 'domcontentloaded' })

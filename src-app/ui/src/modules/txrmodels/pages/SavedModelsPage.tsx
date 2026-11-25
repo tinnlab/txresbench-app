@@ -738,7 +738,7 @@ export function SavedModelsPage() {
         ) : null}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <TxrUseExampleButton path="reuse" onDone={() => navigate(predictFilesPath())} />
+        <TxrUseExampleButton path="predict" />
       </div>
       {isDemo ? (
         <DemoRetentionBlock

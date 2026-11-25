@@ -6,6 +6,10 @@ import { TxrModelsDialogHost } from './components/TxrModelsDialogHost'
 // Side-effect import: registers the model-step Run (`models.run`) — the
 // D/I Run button and the AI agent take the same guarded path.
 import '@/core/actions/builtin/modelRunActions'
+// Side-effect import: registers the model-file action
+// (`models.openModelFile`) — the Models page's "Open a model file" and the
+// Start card's, the human picker and the agent's navigate path share it.
+import '@/core/actions/builtin/modelFileActions'
 // Side-effect import: registers the model-set actions (`models.renameSet` /
 // `models.exportSet` / `models.deleteSet`) — the set section buttons (J),
 // the saved-models section actions (I) and the AI agent take the same path.

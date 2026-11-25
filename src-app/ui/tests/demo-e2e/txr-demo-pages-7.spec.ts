@@ -124,7 +124,7 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
     page.on('pageerror', error => pageErrors.push(String(error)))
     await openApp(page)
     // The reuse path: the example predict card → the seeded example set.
-    await page.getByTestId('txr-use-example-reuse').click()
+    await page.getByTestId('txr-use-example-predict').click()
     await page.waitForURL('/predict-files', { timeout: 60_000 })
     await expect(page.getByTestId('txr-example-card-predict')).toBeVisible({ timeout: 60_000 })
     await page.getByTestId('txr-intake-continue').click()

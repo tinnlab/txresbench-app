@@ -112,11 +112,11 @@ const FILE_LINE: CSSProperties = { margin: '6px 0 0', fontSize: 13, color: 'var(
 export function TxrSavedDialog({ response, file = { status: 'none' }, onClose }: TxrSavedDialogProps) {
   const navigate = useNavigate()
 
-  // The registered `flow.startPath` (reuse): its first step goes back to the
-  // page this dialog opened on.
+  // The registered `flow.startPath` (the ONE predict intent): its first
+  // step goes back to the page this dialog opened on.
   const predictWithThem = (): void => {
     if (response === null) return
-    void runAction('flow.startPath', { intent: 'reuse' }).catch(() => undefined)
+    void runAction('flow.startPath', { intent: 'predict' }).catch(() => undefined)
     onClose()
   }
 
