@@ -71,6 +71,10 @@ import type {
   TxrReasonParams,
 } from '@/modules/txrlist/lib/format'
 import {
+  markerCountNeedsMoreMarkers,
+  markerCountReasonLine,
+} from '@/modules/txrlist/lib/format'
+import {
   PREVIEW_REASON_FALLBACK,
   diseaseClause,
   groupShortName,
@@ -260,17 +264,26 @@ export interface ExcludedMethod {
   reasonText: string
   /** The code the grouped list buckets the row under (see `excludedReasonCode`). */
   reasonCode: ReasonCode
+  /**
+   * The params of the row's first non-machine reason — the marker-count
+   * rule's bucket decision reads the file's own count (`file_markers`), so
+   * the row carries them to the grouping.
+   */
+  reasonParams?: TxrReasonParams
 }
 
 /**
  * The grouped left-out list's bucket codes (step2-filters, brief 5b): the
  * answer-caused three each get their own collapsible section — in this
- * order — and every other reason code shares one section.
+ * order — the marker-count rule's own section (a method that needs more
+ * markers than the file has can never run on it, so it is left out with its
+ * own words), and every other reason code shares one section.
  */
 export type ExcludedGroupCode =
   | 'DISEASE_NOT_MATCHED'
   | 'TREATMENT_NOT_MATCHED'
   | 'OUTCOME_NOT_MATCHED'
+  | 'MARKER_COUNT_UNMET'
   | 'other'
 
 /** One grouped left-out section: the bucket code + its rows in list order. */
@@ -279,18 +292,29 @@ export interface ExcludedGroup {
   methods: ExcludedMethod[]
 }
 
-/** The fixed section order (disease, treatment, outcome, everything else). */
+/** The fixed section order (disease, treatment, outcome, the marker-count
+ *  rule, everything else). */
 const EXCLUDED_GROUP_ORDER: readonly ExcludedGroupCode[] = [
   'DISEASE_NOT_MATCHED',
   'TREATMENT_NOT_MATCHED',
   'OUTCOME_NOT_MATCHED',
+  'MARKER_COUNT_UNMET',
   'other',
 ]
 
-/** The bucket of one reason code: the three answer codes keep their names,
- *  everything else (a missing marker, too few draws, a task mismatch …) is
- *  the section's "do not fit" bucket. */
-export function excludedGroupCode(code: ReasonCode): ExcludedGroupCode {
+/** The bucket of one reason code: the three answer codes and the
+ *  marker-count rule keep their names — "needs more markers than your file
+ *  has" is its own section, but ONLY when the reason says the file has
+ *  FEWER main markers than the method takes (`file_markers < expected`): a
+ *  panel no-list method or a fixed list resolving to the wrong count also
+ *  carries MARKER_COUNT_UNMET with the file giving MORE, and those are not
+ *  "needs more" — they fall to the do-not-fit bucket. Everything else (a
+ *  missing marker, too few draws, a task mismatch …) is the section's "do
+ *  not fit" bucket. */
+export function excludedGroupCode(code: ReasonCode, params?: TxrReasonParams): ExcludedGroupCode {
+  if (code === 'MARKER_COUNT_UNMET') {
+    return markerCountNeedsMoreMarkers(params) ? 'MARKER_COUNT_UNMET' : 'other'
+  }
   return code === 'DISEASE_NOT_MATCHED' ||
     code === 'TREATMENT_NOT_MATCHED' ||
     code === 'OUTCOME_NOT_MATCHED'
@@ -301,13 +325,15 @@ export function excludedGroupCode(code: ReasonCode): ExcludedGroupCode {
 /**
  * The excluded list as the grouped sections the panel renders: the
  * answer-caused three first (disease, treatment, outcome), then the
- * one "do not fit" bucket with every other code, each section's rows in
- * the list's own order, empty sections omitted.
+ * marker-count rule's own section — "needs more markers than your file
+ * has", only the rows whose reason says the file has FEWER markers than the
+ * method takes — then the one "do not fit" bucket with every other code,
+ * each section's rows in the list's own order, empty sections omitted.
  */
 export function groupExcludedMethods(methods: ReadonlyArray<ExcludedMethod>): ExcludedGroup[] {
   const byCode = new Map<ExcludedGroupCode, ExcludedMethod[]>()
   for (const method of methods) {
-    const code = excludedGroupCode(method.reasonCode)
+    const code = excludedGroupCode(method.reasonCode, method.reasonParams)
     const bucket = byCode.get(code)
     if (bucket === undefined) byCode.set(code, [method])
     else bucket.push(method)
@@ -481,7 +507,11 @@ const PREVIEW_SHARED_CODES: ReadonlySet<string> = new Set([
  * fact first — the runner code ahead of the environment one — and a mixed
  * method's answer cause is what the list is about; the machine fact has its
  * own line, "N of them cannot run yet"). The schedule rule therefore
- * renders the board's B line from `min_draws.required`; an inventory-only
+ * renders the board's B line from `min_draws.required`; the marker-count
+ * rule's line voices the two counts ("needs 5 markers; your file has 3")
+ * only when the reason says the file has FEWER main markers than the method
+ * takes — with the file giving more, or without the params, the method is
+ * not "needs more" and reads the module's constant line; an inventory-only
  * code (`DECISION_DAY_UNMET`, impossible from a preview but possible in a
  * fixture) and anything outside the shared set fall to the module's
  * constant line.
@@ -506,6 +536,19 @@ export function excludedReasonLine(
     )
   }
   if (code === 'MIN_DRAWS_UNMET') return `needs ${method.min_draws.required} or more draws`
+  // The marker-count rule's own section ("N need more markers than your
+  // file has") holds ONLY the methods whose reason says the file has FEWER
+  // main markers than the method takes (`file_markers < expected`); their
+  // row names the two counts (the E row's bytes, one vocabulary). With the
+  // file giving more — a panel no-list method, a fixed list resolving to
+  // the wrong count — the method is not a "needs more": it is the do-not-fit
+  // bucket with the module's fallback line.
+  if (code === 'MARKER_COUNT_UNMET') {
+    const params = excludedReasonParams(method)
+    return markerCountNeedsMoreMarkers(params)
+      ? markerCountReasonLine(params)
+      : PREVIEW_REASON_FALLBACK
+  }
   if (!PREVIEW_SHARED_CODES.has(code)) return PREVIEW_REASON_FALLBACK
   return formatters.formatReasonLine(
     toRunStatus(method.status),
@@ -516,6 +559,14 @@ export function excludedReasonLine(
     method.missing_groups,
     formatters.labels,
   )
+}
+
+/** The first non-machine reason's params (the row's own reason facts — the
+ *  marker-count rule's bucket decision and line read `expected` /
+ *  `file_markers`). */
+function excludedReasonParams(method: MethodEligibility): TxrReasonParams | undefined {
+  const reason = method.reasons.find(reason => !isMachineReason(reason.code))
+  return reason?.params as TxrReasonParams | undefined
 }
 
 /**
@@ -552,6 +603,7 @@ export function excludedMethods(
         id: method.id,
         reasonText: excludedReasonLine(method, formatters),
         reasonCode,
+        reasonParams: excludedReasonParams(method),
       }
     })
 }

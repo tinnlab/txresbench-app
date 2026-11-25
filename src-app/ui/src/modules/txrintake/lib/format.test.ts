@@ -102,6 +102,10 @@ describe('brief 5b — the treatment hint and the grouped left-out headings', ()
     expect(excludedSectionHeading('TREATMENT_NOT_MATCHED', 2)).toBe('2 made for other treatments')
     expect(excludedSectionHeading('OUTCOME_NOT_MATCHED', 1)).toBe('1 predicts something else')
     expect(excludedSectionHeading('OUTCOME_NOT_MATCHED', 4)).toBe('4 predict something else')
+    // Round 2b: the marker-count rule's own section ("needs more markers
+    // than your file has" with the count + its singular "needs").
+    expect(excludedSectionHeading('MARKER_COUNT_UNMET', 1)).toBe('1 needs more markers than your file has')
+    expect(excludedSectionHeading('MARKER_COUNT_UNMET', 4)).toBe('4 need more markers than your file has')
     expect(excludedSectionHeading('other', 1)).toBe('1 does not fit your files or answers')
     expect(excludedSectionHeading('other', 7)).toBe('7 do not fit your files or answers')
   })

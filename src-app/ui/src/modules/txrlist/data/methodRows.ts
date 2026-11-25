@@ -44,7 +44,9 @@ import {
   formatCoverage,
   formatMethodCoverage,
   formatReasonLines,
+  markerCountReasonFix,
   type TxrReasonLabels,
+  type TxrReasonParams,
 } from '../lib/format'
 import { isNoFixedList, plannedMarkerNames } from '../lib/markerPlan'
 
@@ -118,8 +120,14 @@ function firstMissingName(
 }
 
 /** The first reason's one-line fix (plain words, names the marker when the
- *  verdict carries one — the plan's "add a column named …"; never blank). */
-function reasonFixOf(code: string | null, missingMarkers: ReadonlyArray<{ display_name?: string }> = []): string {
+ *  verdict carries one — the plan's "add a column named …"; never blank).
+ *  `params` is the first reason's params (the count rule's `expected` /
+ *  `found` when the code is MARKER_COUNT_UNMET). */
+function reasonFixOf(
+  code: string | null,
+  params: TxrReasonParams | undefined = undefined,
+  missingMarkers: ReadonlyArray<{ display_name?: string }> = [],
+): string {
   switch (code) {
     case 'REQUIRED_MARKER_MISSING': {
       const name = firstMissingName(missingMarkers)
@@ -128,7 +136,7 @@ function reasonFixOf(code: string | null, missingMarkers: ReadonlyArray<{ displa
     case 'DETECTION_CALL_MISSING':
       return 'Add a detection-call column (present or absent)'
     case 'MARKER_COUNT_UNMET':
-      return 'Use a file with just the markers this method takes.'
+      return markerCountReasonFix(params)
     case 'MARKERS_LEFT_OUT':
       return 'Choose a marker setting for them in step 3.'
     case 'MARKER_RANKING_UNAVAILABLE':
@@ -292,7 +300,7 @@ export function buildMethodCards(
         reasonCode,
         reasonLine,
         reasonLines,
-        reasonFix: reasonFixOf(reasonCode, verdict.missing_markers),
+        reasonFix: reasonFixOf(reasonCode, verdict.reasons[0]?.params, verdict.missing_markers),
         disabled: status === 'cannot',
       },
     }

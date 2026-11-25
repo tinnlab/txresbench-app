@@ -276,15 +276,19 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(validateCall.mapping).toEqual([])
     expect(validateCall.parameters).toEqual({ decision_day: 56, baseline_max_day: 0 })
 
-    // The board-N status box (EXAMPLE-INT-3's data-filled line).
+    // The board-N status box (EXAMPLE-INT-3's data-filled facts: short
+    // lines + one marker per list line + the continuation).
     await waitFor(() => {
       expect(screen.getByText('✓ 2 patients read')).toBeTruthy()
     })
     const status = screen.getByTestId('txr-intake-file-status-measurements')
+    expect(within(status).getByText('2 rows · draws at day 0 and 14')).toBeTruthy()
+    expect(within(status).getByText('Markers (2):')).toBeTruthy()
+    expect(within(status).getByTestId('txr-intake-file-markers-measurements').textContent).toBe(
+      'ldhcea',
+    )
     expect(
-      within(status).getByText(
-        'Found 2 rows: markers ldh and cea; draws at day 0 and 14. Next you choose the models that can run on it.',
-      ),
+      within(status).getByText('Next you choose the models that can run on it.'),
     ).toBeTruthy()
     expect(continueButton().disabled).toBe(false)
   })

@@ -30,15 +30,19 @@
  *   measurements side — the board's problem detail list lives on the
  *   measurements card, and every inspect-reproducible row was already
  *   claimed by (a)/(b).
- * - `patientsStatus` / `measurementsStatus` — the green card box lines,
- *   data-filled from the validate response (board strings; the numbers are
- *   the provider's, never design examples). The counts use `lib/format.ts`'s
- *   row-label builders (`pluralize` / `rowLabel`) so the board's own
- *   "1,102 rows" grouping renders (ITEM-8's wiring); `measurementsStatus`
- *   is the C screen's box (the board-N line with the C "Ready." terminator,
+ * - `patientsStatus` / `measurementsStatus` — the green card box's
+ *   STRUCTURED facts (a `heading`, one `facts` line, the `markers`
+ *   list with `moreMarkers`, and `next` for the predict box), data-filled
+ *   from the validate response (board strings; the numbers are the
+ *   provider's, never design examples). The counts use
+ *   `lib/format.ts`'s row-label builders (`pluralize` / `rowLabel`) so the
+ *   board's own "1,102 rows" grouping renders (ITEM-8's wiring);
+ *   `measurementsStatus` is the C screen's box ("· Ready" in the heading,
  *   per ITEM-6); `predictMeasurementsStatus` is the N screen's OWN box —
- *   the same line with the board-N continuation ("Next you choose the
- *   models that can run on it.", ITEM-7).
+ *   the same facts with the board-N continuation ("Next you choose the
+ *   models that can run on it.", ITEM-7). The legacy one-line `line` is
+ *   kept on `CardStatus` but no longer rendered. `predictMeasurementsStatus`
+ *   is the doubled builder's twin; the two boxes share `measurementParts`.
  * - qa-fixes ITEM-6's own additions: `parsePickedFile` (F4 — the pick
  *   guard: spreadsheet extensions only, empty files refused, then the ONE
  *   PROV-FV-7 decode), `resolveColumnRenames` / `renamedTable` (F2 — the
@@ -485,20 +489,38 @@ export function missingColumns(
   ]
 }
 
-/** One card's green box: the heading line + the detail line (board strings). */
+/**
+ * One card's green box: the heading line + the STRUCTURED short
+ * lines the card renders — `facts` (one line), the `markers` list (one
+ * marker per line) and `next` (the predict screen's continuation). The
+ * legacy `line` (the old one-sentence summary) is still returned on the
+ * interface for any other reader; `TxrFileMessages` no longer renders it
+ * (see its render), the flow tests still pin it.
+ */
 export interface CardStatus {
   heading: string
+  /** The legacy one-line summary — no longer rendered by the card. */
   line: string
+  /** The short facts line under the heading ("285 rows · 28 draw days,
+   *  from day -14 to 69"). */
+  facts?: string
+  /** The marker names to list, one per line, at most `STATUS_MARKER_CLIP`. */
+  markers?: string[]
+  /** The markers beyond the clip — "and {moreMarkers} more". */
+  moreMarkers?: number
+  /** The next-step line (predict's "Next you choose the models …"). */
+  next?: string
 }
 
 /**
- * "✓ N patients read | Found N rows, N progressions or deaths, median
- * follow-up N days. Ready." — the patients box line, the board's words with
- * the HONEST counts (qa-fixes ITEM-6, F1): "N progressions or deaths" is the
- * validator's `primary_outcome_events` (the primary pair's indicator is 1 —
- * 82 events for a file whose 94 patients all carry an outcome), never
- * `with_primary_outcome` (patients with an outcome recorded — the old line
- * read it and reported "94 progressions or deaths").
+ * "✓ N patients read · Ready" + "N rows · N progressions or deaths · median
+ * follow-up N days" — the patients box (its short facts lines), the board's
+ * words with the HONEST counts (qa-fixes ITEM-6, F1): "N progressions or
+ * deaths" is the validator's `primary_outcome_events` (the primary pair's
+ * indicator is 1 — 82 events for a file whose 94 patients all carry an
+ * outcome), never `with_primary_outcome` (patients with an outcome recorded
+ * — the old line read it and reported "94 progressions or deaths"). The
+ * follow-up part stays conditional, as today (`formatFollowUpDays`).
  */
 export function patientsStatus(response: ValidationResponse): CardStatus {
   const patients = response.patients
@@ -515,9 +537,16 @@ export function patientsStatus(response: ValidationResponse): CardStatus {
   if (patients.median_followup_days !== undefined) {
     detail.push(`median follow-up ${formatFollowUpDays(patients.median_followup_days)} days`)
   }
+  const facts = [
+    `${rowLabel(patients.rows)} · ${patients.primary_outcome_events} progressions or deaths`,
+  ]
+  if (patients.median_followup_days !== undefined) {
+    facts.push(`median follow-up ${formatFollowUpDays(patients.median_followup_days)} days`)
+  }
   return {
-    heading: `✓ ${pluralize(patients.rows, 'patient')} read`,
+    heading: `✓ ${pluralize(patients.rows, 'patient')} read · Ready`,
     line: `${detail.join(', ')}. Ready.`,
+    facts: facts.join(' · '),
   }
 }
 
@@ -536,54 +565,87 @@ function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
-/** The maximum marker names on one status line (the board box's own clip). */
+/** The maximum marker names on the box's list: the number of markers
+ *  listed before the "and N more" line. */
 const STATUS_MARKER_CLIP = 6
 
-/** The maximum draw days spelled out on one status line (ITEM-6 F7 — the
- *  board's "draws at day 0, 14, 28 and 56" ceiling; a longer schedule reads
- *  as a count: the old line dumped all 93 days of the real file). */
+/** The maximum draw days spelled out (ITEM-6 F7 — the board's "draws at
+ *  day 0, 14, 28 and 56" ceiling; a longer schedule reads as a count: the
+ *  old line dumped all 93 days of the real file). The facts line's
+ *  spelled-out form uses the same ceiling. */
 const STATUS_DRAW_DAY_CLIP = 4
 
 /**
- * "✓ 38 patients read | Found 1,102 rows: markers ctDNA, LDH, …; draws at
- * day 0, 14, 28 and 56. Ready." — the measurements card's green box, the
- * board-N line with the C screen's Ready terminator.
- * `measurements.patients` is the distinct-patient count of the measurements
- * file, `rows` the value rows, `markers` the resolved column keys,
- * `distinct_draw_days` the schedule the file actually carries.
+ * "✓ 38 patients read · Ready" + "102 rows · draws at day 0, 14, 28 and 56"
+ * + the marker list — the measurements card's green box (short
+ * lines and one marker per line), the board-N facts with the C screen's
+ * "Ready." in the heading. `measurements.patients` is the distinct-patient
+ * count of the measurements file, `rows` the value rows, `markers` the
+ * resolved column keys, `distinct_draw_days` the schedule the file actually
+ * carries.
  */
 export function measurementsStatus(response: ValidationResponse): CardStatus {
   const measurements = response.measurements
   return {
-    heading: `✓ ${pluralize(measurements.patients, 'patient')} read`,
+    heading: `✓ ${pluralize(measurements.patients, 'patient')} read · Ready`,
     line: `${measurementsDetail(response)}. Ready.`,
+    ...measurementParts(response),
   }
 }
 
 /**
- * "✓ 38 patients read | Found 1,102 rows: markers ctDNA, LDH, …; draws at
- * day 0, 14, 28 and 56. Next you choose the models that can run on it." —
- * the N screen's green box (board PredictFiles.dc.html, ITEM-7): the same
- * data-filled detail as `measurementsStatus` with the board's own
- * continuation in place of the C screen's "Ready." terminator. The doubled
- * detail builder keeps the two boards' terminators in one place; the
- * heading ("✓ N patients read") and the marker/draw facts are the
- * provider's, never design examples.
+ * "✓ 38 patients read" + the same facts and marker list + "Next you choose
+ * the models that can run on it." — the N screen's green box (board
+ * PredictFiles.dc.html, ITEM-7): the same data-filled facts as
+ * `measurementsStatus` with the board's own continuation (`next`) in place
+ * of the C screen's "· Ready" heading terminator. The heading and the
+ * marker/draw facts are the provider's, never design examples.
  */
 export function predictMeasurementsStatus(response: ValidationResponse): CardStatus {
   const measurements = response.measurements
   return {
     heading: `✓ ${pluralize(measurements.patients, 'patient')} read`,
     line: `${measurementsDetail(response)}. Next you choose the models that can run on it.`,
+    ...measurementParts(response),
+    next: 'Next you choose the models that can run on it.',
   }
 }
 
 /**
- * The draw-days segment of the status line (ITEM-6 F7): four or fewer days
- * keep the board's spelling ("draws at day 0, 14, 28 and 56"); more read as
- * a count with the schedule's span ("draws on 93 days (0 to 799)") — the
- * fact the box never stated (the 14-line paragraph of the real file was
- * unusable). Days render whole when whole, one decimal otherwise.
+ * The measurements box's structured facts + marker list: the
+ * facts line is "N rows · 28 draw days, from day -14 to 69" (four or fewer
+ * draw days keep the spelled-out "draws at day …" form in place of the
+ * count part — ITEM-6 F7's ceiling); the markers are the file's own column
+ * keys, first `STATUS_MARKER_CLIP`, with the rest counted (`moreMarkers`),
+ * never a vocabulary lookup.
+ */
+function measurementParts(response: ValidationResponse): Pick<CardStatus, 'facts' | 'markers' | 'moreMarkers'> {
+  const measurements = response.measurements
+  const parts = [rowLabel(measurements.rows)]
+  const days = measurements.distinct_draw_days
+  if (days.length > 0) {
+    parts.push(
+      days.length > STATUS_DRAW_DAY_CLIP
+        ? `${days.length} draw days, from day ${formatDrawDay(Math.min(...days))} to ${formatDrawDay(Math.max(...days))}`
+        : drawDaysSegment(days),
+    )
+  }
+  const keys = response.markers.map(column => column.key)
+  const facts = parts.join(' · ')
+  const markers = keys.slice(0, STATUS_MARKER_CLIP)
+  const moreMarkers = keys.length > STATUS_MARKER_CLIP ? keys.length - STATUS_MARKER_CLIP : 0
+  const out: Pick<CardStatus, 'facts' | 'markers' | 'moreMarkers'> = { facts, markers }
+  if (moreMarkers > 0) out.moreMarkers = moreMarkers
+  return out
+}
+
+/**
+ * The draw-days segment (ITEM-6 F7): four or fewer days keep the board's
+ * spelling ("draws at day 0, 14, 28 and 56"); more read as a count with the
+ * schedule's span ("draws on 93 days (0 to 799)"). The spelled-out
+ * form is the facts line's short-day case; the count form exists for the
+ * legacy `line` (the facts line uses the new "93 draw days, from day 0 to
+ * 799" form instead). Days render whole when whole, one decimal otherwise.
  */
 function drawDaysSegment(days: readonly number[]): string {
   if (days.length <= STATUS_DRAW_DAY_CLIP) {
@@ -600,9 +662,10 @@ function formatDrawDay(day: number): string {
 }
 
 /**
- * The measurements detail line's body — "Found 1,102 rows: markers ctDNA,
- * LDH, …; draws at day 0, 14, 28 and 56" — the shared part of the two
- * status lines (C's "Ready." terminator, N's board continuation).
+ * The legacy one-line detail body — "Found 1,102 rows: markers ctDNA, LDH,
+ * …; draws at day 0, 14, 28 and 56" — the shared part of the two legacy
+ * `line` strings (C's "Ready." terminator, N's board continuation). It is
+ * kept only for `line`; the rendered box reads `measurementParts` instead.
  */
 function measurementsDetail(response: ValidationResponse): string {
   const measurements = response.measurements

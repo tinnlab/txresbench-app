@@ -199,22 +199,27 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     )
     await dropCsv(page, 'txr-intake-file-drop-measurements', 'measurements.csv', measurements)
 
-    // The patients card: the board's green line, data-filled by the REAL
+    // The patients card: the board's green facts, data-filled by the REAL
     // validate summary (100 rows, 100 with the primary outcome, the real
     // median follow-up of the synthetic world).
     const patientsStatus = page.getByTestId('txr-intake-file-status-patients')
-    await expect(patientsStatus).toContainText('✓ 100 patients read')
+    await expect(patientsStatus).toContainText('✓ 100 patients read · Ready')
     await expect(patientsStatus).toContainText(
-      'Found 100 rows, 61 progressions or deaths, median follow-up 207.5 days. Ready.',
+      '100 rows · 61 progressions or deaths · median follow-up 207.5 days',
     )
 
-    // The measurements card: the board-N line with the C "Ready." terminator
-    // — the real marker columns and the real draw schedule (PROV-FV-3).
+    // The measurements card: the board-N facts with the C "Ready" heading
+    // — the real marker columns as a list and the real draw schedule
+    // (PROV-FV-3).
     const measurementsStatus = page.getByTestId('txr-intake-file-status-measurements')
-    await expect(measurementsStatus).toContainText('✓ 100 patients read')
+    await expect(measurementsStatus).toContainText('✓ 100 patients read · Ready')
     await expect(measurementsStatus).toContainText(
-      'Found 2,959 rows: markers M1, M2 and M3; draws on 10 days (-28 to 336). Ready.',
+      '2,959 rows · 10 draw days, from day -28 to 336',
     )
+    await expect(measurementsStatus).toContainText('Markers (3):')
+    const markerList = measurementsStatus.getByTestId('txr-intake-file-markers-measurements')
+    await expect(markerList.locator(':scope > li')).toHaveCount(3)
+    await expect(markerList.locator(':scope > li').first()).toHaveText('M1')
 
     // The example files carry the provider's own three A04 notes (the a.u.
     // unit columns M1/M2/M3 — warning severity, never a gate; R2-6: a ready
@@ -301,8 +306,13 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     const status = page.getByTestId('txr-intake-file-status-measurements')
     await expect(status).toContainText('✓ 100 patients read')
     await expect(status).toContainText(
-      'Found 2,959 rows: markers M1, M2 and M3; draws on 10 days (-28 to 336). Next you choose the models that can run on it.',
+      '2,959 rows · 10 draw days, from day -28 to 336',
     )
+    await expect(status).toContainText('Markers (3):')
+    await expect(
+      status.getByTestId('txr-intake-file-markers-measurements').locator(':scope > li'),
+    ).toHaveCount(3)
+    await expect(status).toContainText('Next you choose the models that can run on it.')
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
 
     // Continue → the declared D route for intent `pretrained`.

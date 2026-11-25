@@ -1,6 +1,5 @@
 /**
- * txrlist marker-plan facts — single-marker-choice round 2's pure side of
- * the step-4 plan block.
+ * txrlist marker-plan facts — the pure side of the step-4 plan block.
  *
  * The step-4 page copies the ranking route's result onto the eligibility
  * request as its `marker_plan` (mode + marker + top/offered + error), so the
@@ -8,10 +7,13 @@
  * needs-line fact. This file is the client-side port of the server's
  * `marker_rank::markers_slice` + `is_no_list` (ONE slice rule, two engines —
  * the same shape the server's own `plan_markers` applies): a no-list
- * `single` method gets the top 1, a no-list `multi` k the top `min(k, 5)`,
- * no-list `any`/`panel` the top 5; `chosen` leads with the person's marker
- * and the rest follow the offered ranking without it; `leave_out` and a
- * ranking error give the method nothing (its verdict is the refusal).
+ * `single` method gets the top 1, a no-list `multi` k the top k, no-list
+ * `any`/`panel` the top 5; `chosen` leads with the person's marker and the
+ * rest follow the offered ranking without it; `leave_out` and a ranking
+ * error give the method nothing (its verdict is the refusal).
+ *
+ * The ranked slice reads the OFFERED order (the server's `top` is only the
+ * display's first five) — a multi method above 5 still gets its k.
  *
  * The planning happens at render time from the plan block (never a stored
  * copy): while the ranking is still loading the plan is absent and the
@@ -41,7 +43,7 @@ export function planLimit(kind: MarkerKind, count: number): number {
     case 'single':
       return 1
     case 'multi':
-      return Math.min(count, MARKER_TOP_N)
+      return count
     case 'any':
     case 'panel':
       return MARKER_TOP_N
@@ -114,7 +116,10 @@ export function plannedMarkerNames(
     }
     case 'ranked': {
       if (plan.error !== undefined && plan.error !== null) return null
-      markers = top.slice(0, limit)
+      // The ranked slice reads the OFFERED order (top is the display's first
+      // five; a multi k above 5 needs the full order for its k).
+      const ranked = offered.length > 0 ? offered : top
+      markers = ranked.slice(0, limit)
       break
     }
   }

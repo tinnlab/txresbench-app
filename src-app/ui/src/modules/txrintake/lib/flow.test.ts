@@ -349,13 +349,17 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
 
   it('patientsStatus fills the board box from the patients summary', () => {
     expect(patientsStatus(responseOf())).toEqual({
-      heading: '✓ 151 patients read',
+      heading: '✓ 151 patients read · Ready',
       line: 'Found 151 rows, 62 progressions or deaths, median follow-up 231 days. Ready.',
+      facts: '151 rows · 62 progressions or deaths · median follow-up 231 days',
     })
     const noMedian = responseOf()
     noMedian.patients = { rows: 4, with_primary_outcome: 1,
     primary_outcome_events: 1, median_followup_days: undefined }
     expect(patientsStatus(noMedian).line).toBe('Found 4 rows, 1 progressions or deaths. Ready.')
+    // The facts line drops the follow-up part when it is unknown.
+    expect(patientsStatus(noMedian).facts).toBe('4 rows · 1 progressions or deaths')
+    expect(patientsStatus(noMedian).heading).toBe('✓ 4 patients read · Ready')
     // The wire's `null` IS the generator's "no property" (qa-fixes RES-01):
     // a validation response with no patient summary reads the honest
     // "patients read / Ready." card — never a "reading 'rows'" crash.
@@ -366,26 +370,35 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
 
   it('measurementsStatus fills the board-N-style box from the measurements summary', () => {
     expect(measurementsStatus(responseOf())).toEqual({
-      heading: '✓ 38 patients read',
+      heading: '✓ 38 patients read · Ready',
       line: 'Found 102 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Ready.',
+      facts: '102 rows · draws at day 0, 14, 28 and 56',
+      markers: ['ldh', 'cea'],
     })
   })
 
   it('predictMeasurementsStatus fills the board-N box with the N continuation (ITEM-7)', () => {
-    // The N screen's OWN green line (PredictFiles.dc.html): the same detail
-    // body as the C box, ending with the board's "Next you choose the
-    // models…" continuation instead of "Ready."
+    // The N screen's OWN green box (PredictFiles.dc.html): the same facts
+    // as the C box — the heading WITHOUT the C "· Ready", and the board's
+    // "Next you choose the models…" continuation as its own line.
     expect(predictMeasurementsStatus(responseOf())).toEqual({
       heading: '✓ 38 patients read',
       line: 'Found 102 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Next you choose the models that can run on it.',
+      facts: '102 rows · draws at day 0, 14, 28 and 56',
+      markers: ['ldh', 'cea'],
+      next: 'Next you choose the models that can run on it.',
     })
   })
 
-  it('the two measurements status lines share ONE detail body (C terminator vs N continuation)', () => {
+  it('the two measurements statuses share ONE facts/marker body (C terminator vs N continuation)', () => {
     const c = measurementsStatus(responseOf())
     const n = predictMeasurementsStatus(responseOf())
-    expect(n.heading).toBe(c.heading)
+    expect(n.heading).toBe('✓ 38 patients read')
+    expect(c.heading).toBe('✓ 38 patients read · Ready')
     expect(n.line).toBe(c.line.replace('. Ready.', '. Next you choose the models that can run on it.'))
+    expect(n.facts).toBe(c.facts)
+    expect(n.markers).toEqual(c.markers)
+    expect(n.next).toBe('Next you choose the models that can run on it.')
   })
 
   it('the status boxes render the board grouping for counts over 999 (ITEM-8)', () => {
@@ -393,17 +406,17 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
     // row-label builders (lib/format.ts) group with the board's fixed
     // bytes; counts under 1000 are unchanged (the ITEM-6 pins above).
     const big = responseOf({ measurements: { rows: 1102, patients: 38, distinct_draw_days: [0, 14, 28, 56] } })
-    expect(measurementsStatus(big).line).toBe(
-      'Found 1,102 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Ready.',
-    )
+    expect(measurementsStatus(big).facts).toBe('1,102 rows · draws at day 0, 14, 28 and 56')
+    expect(measurementsStatus(big).heading).toBe('✓ 38 patients read · Ready')
     const bigPatients = responseOf()
     bigPatients.patients = { rows: 1234, with_primary_outcome: 62,
     primary_outcome_events: 62, median_followup_days: 231 }
-    expect(patientsStatus(bigPatients).heading).toBe('✓ 1,234 patients read')
+    expect(patientsStatus(bigPatients).heading).toBe('✓ 1,234 patients read · Ready')
+    expect(patientsStatus(bigPatients).facts).toBe('1,234 rows · 62 progressions or deaths · median follow-up 231 days')
     expect(predictMeasurementsStatus(big).heading).toBe('✓ 38 patients read')
   })
 
-  it('predictMeasurementsStatus clips long marker lists like the C box', () => {
+  it('predictMeasurementsStatus clips long marker lists like the C box (6 shown, the rest counted)', () => {
     const many = responseOf()
     many.markers = [
       markerColumn(),
@@ -414,9 +427,48 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
       markerColumn({ key: 'cyfra', spellings: ['cyfra'] }),
       markerColumn({ key: 'cea2', spellings: ['cea2'] }),
     ]
-    expect(predictMeasurementsStatus(many).line).toBe(
-      'Found 102 rows: markers ldh, cea, wbc, plt, nse and cyfra…; draws at day 0, 14, 28 and 56. Next you choose the models that can run on it.',
+    expect(predictMeasurementsStatus(many).markers).toEqual([
+      'ldh', 'cea', 'wbc', 'plt', 'nse', 'cyfra',
+    ])
+    expect(predictMeasurementsStatus(many).moreMarkers).toBe(1)
+  })
+
+  it('the facts line counts more than four draw days with the schedule span', () => {
+    const twentyEightDays = responseOf({
+      measurements: { rows: 102, patients: 38, distinct_draw_days: Array.from({ length: 28 }, (_, i) => i * 3) },
+    })
+    expect(measurementsStatus(twentyEightDays).facts).toBe(
+      '102 rows · 28 draw days, from day 0 to 81',
     )
+    expect(measurementsStatus(twentyEightDays).markers).toEqual(['ldh', 'cea'])
+    // Four or fewer keep the spelled-out board form, with the existing day
+    // formatting (negative days included, one decimal when needed).
+    const fourNegative = responseOf({
+      measurements: { rows: 102, patients: 38, distinct_draw_days: [-14, 0, 28.5, 69] },
+    })
+    expect(measurementsStatus(fourNegative).facts).toBe(
+      '102 rows · draws at day -14, 0, 28.5 and 69',
+    )
+    expect(measurementsStatus(fourNegative).line).toBe(
+      'Found 102 rows: markers ldh and cea; draws at day -14, 0, 28.5 and 69. Ready.',
+    )
+  })
+
+  it('eight markers render six list lines and "and 2 more"', () => {
+    const eight = responseOf()
+    eight.markers = [
+      markerColumn(),
+      markerColumn({ key: 'cea', spellings: ['cea'] }),
+      markerColumn({ key: 'wbc', spellings: ['wbc'] }),
+      markerColumn({ key: 'plt', spellings: ['plt'] }),
+      markerColumn({ key: 'nse', spellings: ['nse'] }),
+      markerColumn({ key: 'cyfra', spellings: ['cyfra'] }),
+      markerColumn({ key: 'm7', spellings: ['m7'] }),
+      markerColumn({ key: 'm8', spellings: ['m8'] }),
+    ]
+    expect(measurementsStatus(eight).markers).toEqual(['ldh', 'cea', 'wbc', 'plt', 'nse', 'cyfra'])
+    expect(measurementsStatus(eight).moreMarkers).toBe(2)
+    expect(predictMeasurementsStatus(eight).moreMarkers).toBe(2)
   })
 })
 
@@ -434,16 +486,24 @@ describe('ITEM-6 (global QA intake fixes) — F1 events, F2 mapping, F3 empty, F
     expect(patientsStatus(response).line).toBe(
       'Found 94 rows, 82 progressions or deaths, median follow-up 59 days. Ready.',
     )
+    // The same count on the short facts line.
+    expect(patientsStatus(response).facts).toBe(
+      '94 rows · 82 progressions or deaths · median follow-up 59 days',
+    )
   })
 
   it('the draw-days segment bounds the schedule: four spelled, more a count (F7)', () => {
     const four = responseOf({ measurements: { rows: 630, patients: 94, distinct_draw_days: [0, 14, 28, 56] } })
     expect(measurementsStatus(four).line).toContain('draws at day 0, 14, 28 and 56.')
+    // The facts line keeps the spelled-out form for four days.
+    expect(measurementsStatus(four).facts).toBe('630 rows · draws at day 0, 14, 28 and 56')
     const many = responseOf({
       measurements: { rows: 630, patients: 94, distinct_draw_days: [...Array.from({ length: 93 }, (_, i) => i * 12), 799] },
     })
     expect(measurementsStatus(many).line).not.toContain('draws at day 0, 12, 24')
     expect(measurementsStatus(many).line).toContain('draws on 94 days (0 to 1104).')
+    // The facts line reads the count with the schedule span.
+    expect(measurementsStatus(many).facts).toBe('630 rows · 94 draw days, from day 0 to 1104')
   })
 
   it('the mapping step suggests obvious renamed columns only (F2)', () => {

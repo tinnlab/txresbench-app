@@ -96,8 +96,8 @@ use crate::modules::execution_engine::envmanifest::{reuse_facts_for, ReuseFactsR
 use crate::modules::execution_engine::types::TxrTask;
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::eligibility::{
-    estimate_quality_for, estimate_seconds_for, marker_count_params, marker_count_unmet,
-    marker_matching_surface, required_marker_match, UnitMarkerRow,
+    estimate_quality_for, estimate_seconds_for, file_main_marker_count, marker_count_params,
+    marker_count_unmet, marker_matching_surface, required_marker_match, UnitMarkerRow,
 };
 use crate::modules::method_catalogue::types::{
     CovariateMode, Coverage, EligibilityStatus, InventoryEligibilityRequest, InventoryMarker,
@@ -334,7 +334,11 @@ fn model_verdict_in(
             // features keeps today's rule).
             reasons.push(ModelReason {
                 code: ModelReasonCode::MarkerCountUnmet,
-                params: marker_count_params(expected, &given),
+                params: marker_count_params(
+                    expected,
+                    &given,
+                    file_main_marker_count(inv),
+                ),
             });
         }
     }

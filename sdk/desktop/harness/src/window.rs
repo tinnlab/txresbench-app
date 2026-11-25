@@ -22,6 +22,16 @@ use crate::boot::{BootHandle, ServerBoot};
 /// Unique label counter for pop-out windows (supports multiple simultaneous pop-outs).
 static POPOUT_LABEL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/// Refuse a navigation to the `file:` scheme, allow everything else. The page
+/// already preventDefaults a stray file drop (preventStrayFileDrop,
+/// src-app/ui), but the browser's "open the dropped file" default is exactly a
+/// `file:` navigation, so the webview must refuse it too — a dropped file must
+/// never replace the app window. The app's own pages (`tauri://…`), the dev
+/// server (`http://127.0.0.1:…`) and external links (`https://…`) stay allowed.
+fn navigation_allowed(url: &tauri::Url) -> bool {
+    url.scheme() != "file"
+}
+
 /// Handle a frontend `window.open` (the portal-move pop-out): create a REAL Tauri window loading the
 /// requested url, forwarding the window features. `.window_features(features)` is MANDATORY —
 /// omitting it trips a WebKit `WindowFeatures` assertion on Linux. The frontend opens `about:blank`
@@ -38,6 +48,11 @@ fn popout_new_window_response(
         tauri::WebviewUrl::External(url),
     )
     .window_features(features)
+    // Leave Tauri's drag-drop handler off so the page's own HTML drag and
+    // drop (the upload boxes) receives drops instead of Tauri.
+    .disable_drag_drop_handler()
+    // Refuse `file:` navigations so a stray file drop can never replace the app.
+    .on_navigation(|url| navigation_allowed(url))
     .build()
     {
         Ok(window) => tauri::webview::NewWindowResponse::Create { window },
@@ -159,7 +174,12 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
         state: Some(tauri::window::EffectState::Active),
         radius: Some(config.effect_radius),
         color: None,
-    });
+    })
+    // Leave Tauri's drag-drop handler off so the page's own HTML drag and
+    // drop (the upload boxes) receives drops instead of Tauri.
+    .disable_drag_drop_handler()
+    // Refuse `file:` navigations so a stray file drop can never replace the app.
+    .on_navigation(|url| navigation_allowed(url));
 
     // Windows + Linux: native decorations. The OS draws the title bar: the
     // minimize, maximize/restore and close buttons, the drag area, and on
@@ -207,7 +227,12 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
         state: Some(tauri::window::EffectState::Active),
         radius: Some(config.effect_radius),
         color: None,
-    });
+    })
+    // Leave Tauri's drag-drop handler off so the page's own HTML drag and
+    // drop (the upload boxes) receives drops instead of Tauri.
+    .disable_drag_drop_handler()
+    // Refuse `file:` navigations so a stray file drop can never replace the app.
+    .on_navigation(|url| navigation_allowed(url));
 
     // macOS: overlay titlebar with native traffic light position (no glitch on resize)
     // x=20 matches the standard inset Apple uses in Notes / Finder /
@@ -255,6 +280,8 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
 
 #[cfg(test)]
 mod tests {
+    use super::navigation_allowed;
+
     /// This file's code without its tests (the tests below name what the
     /// code must not contain).
     fn window_code() -> &'static str {
@@ -297,5 +324,76 @@ mod tests {
                  page replaces them",
             );
         }
+    }
+
+    /// Every `WebviewWindowBuilder` in this file must disable Tauri's drag-drop
+    /// handler: the desktop page's upload boxes use the kit's own HTML drag and
+    /// drop, and on Windows Tauri's handler must be off for HTML drag and drop
+    /// to reach the page at all. Nothing in the repo listens to Tauri's
+    /// drag-drop events, so an enabled handler silently swallows every drop.
+    #[test]
+    fn every_window_builder_disables_the_drag_drop_handler() {
+        let code = window_code();
+        let builders = code.matches("WebviewWindowBuilder::new(").count();
+        let disabled = code.matches(".disable_drag_drop_handler()").count();
+        assert!(
+            builders >= 3,
+            "window.rs must build the main window (macOS + Windows/Linux) and \
+             the pop-out window, found {builders} WebviewWindowBuilder::new( calls",
+        );
+        assert_eq!(
+            builders, disabled,
+            "every WebviewWindowBuilder::new( in window.rs must be followed by \
+             .disable_drag_drop_handler() so the page's own HTML drag and drop \
+             (the step-2 upload boxes) receives drops instead of Tauri \
+             ({builders} builders, {disabled} disable calls)",
+        );
+    }
+
+    /// `navigation_allowed` is the webview half of the stray-file-drop guard:
+    /// a dropped file must never navigate the window to the file's content, but
+    /// the app's real navigation (the `tauri://` pages, the LAN dev server,
+    /// external `https://` links) must keep working.
+    #[test]
+    fn navigation_allowed_refuses_file_and_allows_the_rest() {
+        let cases = [
+            ("file:///Users/x/a.csv", false),
+            ("tauri://localhost/", true),
+            ("http://127.0.0.1:1234/", true),
+            ("https://example.org/", true),
+        ];
+        for (url, allowed) in cases {
+            let parsed = tauri::Url::parse(url).expect("test url parses");
+            assert_eq!(
+                navigation_allowed(&parsed),
+                allowed,
+                "navigation_allowed({url})",
+            );
+        }
+    }
+
+    /// Every `WebviewWindowBuilder` in this file must also install an
+    /// `on_navigation` policy refusing `file:`: the page guard preventDefaults
+    /// a dropped file, but a builder that forgets the hook still lets the
+    /// browser's "open the dropped file" default (a `file:` navigation)
+    /// replace the app window. Nothing in the repo listens for that navigation,
+    /// so an unguarded builder silently swallows the guard.
+    #[test]
+    fn every_window_builder_blocks_file_navigations() {
+        let code = window_code();
+        let builders = code.matches("WebviewWindowBuilder::new(").count();
+        let guarded = code.matches(".on_navigation(").count();
+        assert!(
+            builders >= 3,
+            "window.rs must build the main window (macOS + Windows/Linux) and \
+             the pop-out window, found {builders} WebviewWindowBuilder::new( calls",
+        );
+        assert_eq!(
+            builders, guarded,
+            "every WebviewWindowBuilder::new( in window.rs must be followed by \
+             an on_navigation policy that refuses file: navigations, so a stray \
+             file drop can never replace the app window \
+             ({builders} builders, {guarded} on_navigation calls)",
+        );
     }
 }

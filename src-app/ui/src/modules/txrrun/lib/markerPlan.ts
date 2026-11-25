@@ -143,25 +143,29 @@ function joinList(parts: ReadonlyArray<string>): string {
 }
 
 /** The fragment after "use " in the ranked sentence, by the shown kinds. */
-function rankedUsePart(kinds: ShownMarkerKinds, top: ReadonlyArray<string>): string | null {
-  const m1 = top[0]
+function rankedUsePart(
+  kinds: ShownMarkerKinds,
+  ranked: ReadonlyArray<string>,
+): string | null {
+  const m1 = ranked[0]
   if (m1 === undefined) return null
   if (kinds.single && kinds.many) {
-    const rest = top.slice(0, MARKER_TOP_N)
-    return `use ${m1} (one marker) and up to the top 5: ${joinList(rest)}`
+    const k = markerTopK(kinds)
+    const rest = ranked.slice(0, k)
+    return `use ${m1} (one marker) and up to the top ${k}: ${joinList(rest)}`
   }
   if (kinds.single) return `use ${m1}`
   const k = markerTopK(kinds)
-  const names = top.slice(0, k)
+  const names = ranked.slice(0, k)
   if (names.length === 0) return null
   return `use the top ${k}: ${joinList(names)}`
 }
 
 /** The "top k" the many-only sentence names: 5 for an `any`/`panel` card,
- *  the largest `multi` count otherwise. */
+ *  the largest `multi` count otherwise (a declared k is given exactly k —
+ *  never capped at 5). */
 function markerTopK(kinds: ShownMarkerKinds): number {
-  if (kinds.anyLike) return MARKER_TOP_N
-  return Math.min(Math.max(1, kinds.multiCount), MARKER_TOP_N)
+  return Math.max(kinds.anyLike ? MARKER_TOP_N : 0, Math.max(1, kinds.multiCount))
 }
 
 /**
@@ -174,7 +178,9 @@ function markerTopK(kinds: ShownMarkerKinds): number {
  * - the route's no-ranking message when the ranking has none (the three
  *   texts; even a `chosen` plan reads it — the reasons replace the fallback);
  * - otherwise the mode's sentence ("ranked" / "chosen" / "left out"), with
- *   the "(one marker)" and "up to the top 5" parts only for the kinds shown.
+ *   the "(one marker)" and "up to the top N" parts only for the kinds shown
+ *   (N = the largest count a shown kind receives — 5 for an `any`/`panel`
+ *   card, the largest `multi` count otherwise).
  *
  * The sentence part carries no "Change it in step 3" tail — the renderer
  * appends it as the registered step-navigation link (`changeable: true`).
@@ -203,6 +209,9 @@ export function markerLineText(
     }
   }
   const top = response.top
+  // The ranked slice reads the OFFERED order (a multi k above 5 gets its k;
+  // the route's `top` is only the display's first five).
+  const ranked = response.offered.length > 0 ? response.offered : response.top
   if (choice.mode === 'chosen') {
     const chosen = choice.marker
     if (chosen === undefined) return null
@@ -212,14 +221,14 @@ export function markerLineText(
         changeable: true,
       }
     }
-    const rest = top.filter(marker => marker !== chosen)
+    const rest = ranked.filter(marker => marker !== chosen)
     const ranking = rest.length > 0 ? `, then the ranking: ${joinList(rest)}` : ''
     return {
       text: `Methods that pick markers from your file use ${chosen}, your choice${ranking}.`,
       changeable: true,
     }
   }
-  const usePart = rankedUsePart(kinds, top)
+  const usePart = rankedUsePart(kinds, ranked)
   if (usePart === null) return null
   return {
     text: `Methods that pick markers from your file ${usePart}, ranked by how well each separates ${outcomeWord} in your patients.`,

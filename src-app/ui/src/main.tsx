@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client'
 import App from '@/App'
 import { AppErrorBoundary } from '@txresbench/shell'
 import { installChunkLoadRecovery } from '@txresbench/framework/chunk-recovery'
+import { preventStrayFileDrop } from '@/core/dom/preventStrayFileDrop'
 import '@/index.css'
 
 // Code-split chunk failure recovery. A deploy while this tab is open invalidates
@@ -17,6 +18,14 @@ import '@/index.css'
 // would be actively harmful (preventDefault makes the failed import RESOLVE with
 // `undefined`; auto-reload destroys unsent in-progress work).
 installChunkLoadRecovery()
+
+// Keep the browser's default file-drop navigation out of the app: with Tauri's
+// drag-drop handler off (the upload boxes use the page's own HTML drag and
+// drop), a file dropped anywhere outside an upload box made the webview — and
+// the tab on the website — navigate to the file and show its content, replacing
+// the whole app with no way back. The guard runs its `dragover`/`drop` window
+// listeners for the page's lifetime, exactly like `installChunkLoadRecovery`.
+preventStrayFileDrop()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

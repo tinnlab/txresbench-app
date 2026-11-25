@@ -260,7 +260,9 @@ describe('the ITEM-2 settings card copy (qa-fixes3 ITEM-2 b)', () => {
 
   it('the four rows carry their one-line helps, and the absent-file reason names the file fact', () => {
     expect(SETTING_HELP.endpoint).toBeTruthy()
-    expect(SETTING_HELP.decision_day).toBe('The day you decide, counted from the start of treatment.')
+    expect(SETTING_HELP.decision_day).toBe(
+      'The day you make the prediction, counted from the start of treatment. Predictions use only blood draws up to this day.',
+    )
     expect(SETTING_HELP.look_ahead_day).toBe(
       'The day the prediction is for, counted from the start of treatment.',
     )

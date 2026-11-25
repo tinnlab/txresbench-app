@@ -719,7 +719,7 @@ pub fn method_marker_set(
 
 /// [`method_marker_set`] with the run's marker plan (single-marker-choice
 /// round 1a): a no-list method of a learn run gets its markers from the
-/// ranking — `single` → the top 1, `multi` k → the top `min(k, 5)`, `any` →
+/// ranking — `single` → the top 1, `multi` k → the top k, `any` →
 /// the top 5 — or from the person's choice (the chosen marker leads, then the
 /// offered ranking without it); no ranking result → the run's `BUNDLE_MARKER_*`
 /// refusal; `LeaveOut` → `BUNDLE_MARKERS_LEFT_OUT`. With `None` (reuse /
@@ -2704,7 +2704,7 @@ mod tests {
         .expect("single gets the top 1");
         assert_eq!(sel.mains, vec!["LDH"]);
 
-        // multi k slices the top min(k, 5).
+        // multi k slices the top k.
         let sel = method_marker_set_with_plan(
             &b,
             &declared(MarkerKind::Multi, 2),

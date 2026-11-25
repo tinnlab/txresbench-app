@@ -115,7 +115,6 @@ describe('singleMarkerFacts', () => {
       visible: true,
       n: 1,
       k: 2,
-      onlyKind: 'single',
     })
     // No file: hidden.
     expect(singleMarkerFacts(null, [single], mapOf([verdict('one')]))).toMatchObject({
@@ -150,34 +149,76 @@ describe('singleMarkerFacts', () => {
     )
   })
 
-  it('counts single and multi no-list methods together and names the one kind at n = 1', () => {
-    const inv = inventory([marker('M1'), marker('M2')])
+  it('counts single and multi no-list methods together', () => {
+    const inv = inventory([marker('M1'), marker('M2'), marker('M3')])
     const facts = singleMarkerFacts(
       inv,
       [method('s', 'single'), method('m', 'multi', 2)],
       mapOf([verdict('s'), verdict('m')]),
     )
-    expect(facts).toMatchObject({ n: 2, onlyKind: null })
+    expect(facts).toMatchObject({ n: 2 })
     expect(singleMarkerFacts(inv, [method('m', 'multi', 2)], mapOf([verdict('m')]))).toMatchObject({
       n: 1,
-      onlyKind: 'multi',
+    })
+  })
+
+  it('counts only the methods that take FEWER markers than the file has', () => {
+    const inv = inventory([marker('M1'), marker('M2'), marker('M3')])
+    const single = method('s', 'single')
+    const two = method('two', 'multi', 2)
+    // Single and multi 2 take fewer than the file's 3 markers → counted.
+    expect(
+      singleMarkerFacts(inv, [single, two], mapOf([verdict('s'), verdict('two')])),
+    ).toMatchObject({ visible: true, n: 2, k: 3 })
+    // multi 3 takes exactly the file's count: it fits, but needs no choice.
+    expect(singleMarkerFacts(inv, [method('three', 'multi', 3)], mapOf([verdict('three')]))).toMatchObject({
+      visible: false,
+      n: 0,
+    })
+    // A multi 2 on a file with exactly two markers is not counted either.
+    expect(
+      singleMarkerFacts(
+        inventory([marker('M1'), marker('M2')]),
+        [two],
+        mapOf([verdict('two')]),
+      ),
+    ).toMatchObject({ visible: false, n: 0 })
+    // multi 5 needs MORE markers than the file has: the step-3 preview
+    // refuses it (MARKER_COUNT_UNMET — an answer cause, so it is left out),
+    // and it is never in the question's count.
+    const five: MethodEligibility = {
+      ...verdict('five'),
+      status: 'cannot_run',
+      reasons: [
+        {
+          code: 'MARKER_COUNT_UNMET',
+          params: { expected: 5, found: 3, markers: ['M1', 'M2', 'M3'] },
+        },
+      ],
+    }
+    expect(singleMarkerFacts(inv, [method('five', 'multi', 5)], mapOf([five]))).toMatchObject({
+      visible: false,
+      n: 0,
     })
   })
 })
 
 describe('singleMarkerQuestion', () => {
-  it('spells the n=1 sentence by the one method (one marker vs a set number)', () => {
-    expect(singleMarkerQuestion({ visible: true, n: 1, onlyKind: 'single', k: 3, markers: [] })).toBe(
-      '1 of the methods that fit takes one marker, and your file has 3 markers. Which should it use?',
-    )
-    expect(singleMarkerQuestion({ visible: true, n: 1, onlyKind: 'multi', k: 3, markers: [] })).toBe(
-      '1 of the methods that fit takes a set number of markers, and your file has 3 markers. Which should it use?',
+  it('spells the n = 1 sentence with k = 3: the one method uses fewer', () => {
+    expect(singleMarkerQuestion({ visible: true, n: 1, k: 3, markers: [] })).toBe(
+      'Your file has 3 markers, but 1 of the methods that fit uses fewer. Which markers should it use?',
     )
   })
 
-  it('spells the general sentence for n > 1', () => {
-    expect(singleMarkerQuestion({ visible: true, n: 3, onlyKind: null, k: 3, markers: [] })).toBe(
-      '3 of the methods that fit take one marker or a set number of markers, and your file has 3 markers. Which should they use?',
+  it('spells the n > 1 sentence for n = 3 with k = 3', () => {
+    expect(singleMarkerQuestion({ visible: true, n: 3, k: 3, markers: [] })).toBe(
+      'Your file has 3 markers, but 3 of the methods that fit use fewer. Which markers should they use?',
+    )
+  })
+
+  it('spells the n = 2 sentence with k = 3', () => {
+    expect(singleMarkerQuestion({ visible: true, n: 2, k: 3, markers: [] })).toBe(
+      'Your file has 3 markers, but 2 of the methods that fit use fewer. Which markers should they use?',
     )
   })
 })

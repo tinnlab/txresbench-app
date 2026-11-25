@@ -37,6 +37,8 @@ import {
   formatReasonLines,
   formatRunHeadline,
   formatTotalTime,
+  markerCountReasonFix,
+  markerCountReasonLine,
   pluralize,
   runLabel,
   type TxrCoverageFacts,
@@ -183,6 +185,58 @@ describe('formatReasonLine', () => {
     )
     expect(formatReasonLine('cannot', SOME('ASSET_NOT_AVAILABLE'), COVERAGE(38, 38), minDraws, [])).toBe(
       "the model file isn't available",
+    )
+  })
+
+  it('renders MARKER_COUNT_UNMET with the two counts only when the FILE has FEWER markers', () => {
+    const count = (expected: number, file_markers: number) =>
+      formatReasonLine(
+        'cannot',
+        [{ code: 'MARKER_COUNT_UNMET', params: { expected, found: 1, file_markers } }],
+        COVERAGE(38, 38),
+        minDraws,
+        [],
+      )
+    // file_markers < expected (the file's own count, never the planned
+    // slice's `found`): the method needs more markers than the file has.
+    expect(count(5, 3)).toBe('needs 5 markers; your file has 3')
+    // File gives more than the method takes: today's constant (the
+    // fixed-list/legacy direction, and a planned slice smaller than a big
+    // file never lies about the file's count).
+    expect(count(1, 3)).toBe('takes a set number of markers; your file has a different number')
+    expect(count(6, 10)).toBe('takes a set number of markers; your file has a different number')
+    // Params missing (old saved data): today's constant.
+    expect(formatReasonLine('cannot', SOME('MARKER_COUNT_UNMET'), COVERAGE(38, 38), minDraws, [])).toBe(
+      'takes a set number of markers; your file has a different number',
+    )
+  })
+
+  it('pluralises the marker-count reason and fix on 1', () => {
+    const count = (expected: number, file_markers: number) =>
+      formatReasonLine(
+        'cannot',
+        [{ code: 'MARKER_COUNT_UNMET', params: { expected, found: 0, file_markers } }],
+        COVERAGE(38, 38),
+        minDraws,
+        [],
+      )
+    expect(count(1, 0)).toBe('needs 1 marker; your file has 0')
+    expect(count(5, 1)).toBe('needs 5 markers; your file has 1 marker')
+    expect(count(1, 1)).toBe('takes a set number of markers; your file has a different number')
+    expect(markerCountReasonLine({ expected: 1, file_markers: 0 })).toBe(
+      'needs 1 marker; your file has 0',
+    )
+    expect(markerCountReasonLine({ expected: 512, file_markers: 1 })).toBe(
+      'needs 512 markers; your file has 1 marker',
+    )
+    expect(markerCountReasonFix({ expected: 1, file_markers: 0 })).toBe(
+      'Use a file with at least 1 marker.',
+    )
+    expect(markerCountReasonFix({ expected: 5, file_markers: 1 })).toBe(
+      'Use a file with at least 5 markers.',
+    )
+    expect(markerCountReasonFix(undefined)).toBe(
+      'Use a file with just the markers this method takes.',
     )
   })
 

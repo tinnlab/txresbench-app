@@ -27,6 +27,11 @@
 //!    ([`unit_mismatch_problem`]): the closed problem-code set carries ONE
 //!    unit-difference code (A04), so the mixed case is A04-error and the
 //!    mismatch case is A04-warning, distinguished by severity and message.
+//!    The note is produced only for a REAL difference: exact match, a
+//!    same-kind file unit against an entry that records no canonical unit,
+//!    and an entry that records no kind at all are all silent — a
+//!    different known kind warns, and an unclassifiable file unit against a
+//!    known entry kind keeps the "not a unit we recognise" note.
 //! 4. **Unclassifiable unit.** An unmapped marker whose unit the classifier
 //!    cannot place gets family `none` + the A04 warning
 //!    ([`unit_unclassified_problem`]) — no scale is assumed, so no false
@@ -75,6 +80,13 @@ const RATIO_SPELLINGS: &[&str] = &[
     "relative",
     "unitless",
     "dimensionless",
+    // A fraction (and its synonym proportion) is a unitless share of one,
+    // like a ratio — a mutant-allele-fraction column must not read "not a
+    // unit we recognise". The classifier sees the normalized
+    // (gloss-stripped) spelling, so "fraction (0-1)" and "Fraction" match
+    // here too.
+    "fraction",
+    "proportion",
     // ITEM-6 (G6): arbitrary units — the example family's own unit
     // (a.u.), a dimensionless scale that never warned the app's bundled
     // data before.
@@ -354,46 +366,107 @@ pub fn unit_mixed_problem(column: &str, facts: &MarkerUnitFacts) -> Option<FileP
     ))
 }
 
-/// The A04 WARNING for a vocabulary-matched marker whose unit does not match
+/// The plain-words reading of a unit family for the mismatch note (the
+/// "… is a mass concentration, but this marker is measured as a percent"
+/// sentence — R3-intake-4 plain words). `None` for [`UnitFamily::None`]:
+/// the honest no-claim family has no words to say.
+fn unit_family_words(family: UnitFamily) -> Option<&'static str> {
+    match family {
+        UnitFamily::Count => Some("a count"),
+        UnitFamily::Percent => Some("a percent"),
+        UnitFamily::Ratio => Some("a ratio"),
+        UnitFamily::ConcentrationMass => Some("a mass concentration"),
+        UnitFamily::ConcentrationMolar => Some("a molar concentration"),
+        UnitFamily::Detection => Some("a detection call"),
+        UnitFamily::None => None,
+    }
+}
+
+/// The A04 WARNING for a vocabulary-matched marker whose unit differs from
 /// the vocabulary's unit (DEC-10: `family` and no-agreement verdicts are
 /// warnings; the message says which). The wording is plain words
-/// (R3-intake-4): the old "differs from the vocabulary unit" / "recognizable
-/// unit family" phrasing was clinician jargon on a green-adjacent card — the
-/// fact is one sentence: the unit is not the known one, so scales are not
-/// compared.
+/// (R3-intake-4): a fact in one sentence.
+///
+/// The rule (file_kind = `infer_unit_family(user_unit)`, entry_kind = the
+/// entry's `unit_family`, or `infer_unit_family(canonical_unit)` when it is
+/// `None`, exactly as [`compare_unit_to_canonical`] computes):
+///
+/// 1. Exact match of the units (normalized), or the same kind against an
+///    entry that records NO canonical unit → `None` (there is no known unit
+///    to compare against, so the note would claim a non-fact). The unit
+///    value itself is carried as is; only the note is suppressed.
+/// 2. Same kind, canonical unit recorded, different spelling → the
+///    "not the known unit" note, unchanged.
+/// 3. Both kinds known and different → the kind words sentence, quoting the
+///    canonical unit when one is recorded.
+/// 4. File unit unclassifiable, entry kind known → the
+///    [`unit_unclassified_problem`] wording.
+/// 5. The entry records no kind → `None`.
 pub fn unit_mismatch_problem(
     column: &str,
     user_unit: &str,
     canonical_unit: &str,
-    agreement: UnitAgreement,
-) -> FileProblem {
-    let agreement_text = match agreement {
-        UnitAgreement::Family(_) => {
-            "it is the same kind of unit but not the same one, so scales are not compared"
-        }
-        UnitAgreement::Unknown => "we do not recognise this unit, so scales are not compared",
-        UnitAgreement::Matches => {
-            "the unit matches — no problem"
-        }
+    canonical_family: UnitFamily,
+) -> Option<FileProblem> {
+    let normalized_user = normalize_unit(user_unit);
+    let normalized_canonical = normalize_unit(canonical_unit);
+    let file_kind = infer_unit_family(user_unit);
+    let entry_kind = if canonical_family != UnitFamily::None {
+        canonical_family
+    } else {
+        infer_unit_family(canonical_unit)
     };
-    // The vocabulary entry's canonical unit is not always recorded: an empty
-    // string rendered inside the quotes would read "the known unit ''" — a
-    // bug-shaped blank (qa-fixes ITEM-5, RES-24). The empty case names the
-    // known unit without quoting a non-fact.
-    let message = if canonical_unit.trim().is_empty() {
-        format!("column `{column}` unit '{user_unit}' is not the known unit: {agreement_text}")
+    // Rule 1: exact match, or the same kind with nothing recorded to compare
+    // to.
+    if !normalized_user.is_empty()
+        && !normalized_canonical.is_empty()
+        && normalized_user == normalized_canonical
+    {
+        return None;
+    }
+    if normalized_canonical.is_empty() && file_kind != UnitFamily::None && file_kind == entry_kind {
+        return None;
+    }
+    // Rule 5: no entry kind → no claim, whatever the file unit is.
+    if entry_kind == UnitFamily::None {
+        return None;
+    }
+    // Rule 4: the file's unit is one we cannot place.
+    if file_kind == UnitFamily::None {
+        return Some(unit_unclassified_problem(column, user_unit));
+    }
+    // Rule 2: same kind, recorded canonical unit, different spelling — the
+    // unchanged "not the known unit" wording.
+    if file_kind == entry_kind {
+        return Some(FileProblem::new(
+            ProblemCode::A04UnitDiffers,
+            ProblemSeverity::Warning,
+            None,
+            Some(column.to_string()),
+            format!(
+                "column `{column}` unit '{user_unit}' is not the known unit '{canonical_unit}': it is the same kind of unit but not the same one, so scales are not compared"
+            ),
+        ));
+    }
+    // Rule 3: both kinds known and different.
+    let file_words = unit_family_words(file_kind).expect("a known family has words");
+    let entry_words = unit_family_words(entry_kind).expect("a known family has words");
+    let message = if normalized_canonical.is_empty() {
+        format!(
+            "column `{column}` unit '{user_unit}' is {file_words}, but this marker is measured as {entry_words}: the values are used as written, so check them"
+        )
     } else {
         format!(
-            "column `{column}` unit '{user_unit}' is not the known unit '{canonical_unit}': {agreement_text}"
+            "column `{column}` unit '{user_unit}' is {file_words}, but this marker is measured as {entry_words} ('{canonical_unit}'): the values are used as written, so check them"
         )
     };
-    FileProblem::new(
+    Some(FileProblem::new(
         ProblemCode::A04UnitDiffers,
         ProblemSeverity::Warning,
         None,
         Some(column.to_string()),
         message,
-    )
+    ))
 }
 
 /// The A04 WARNING for a unit the classifier cannot place (the unmapped-marker
@@ -458,6 +531,9 @@ mod tests {
             ("percent", Percent),
             ("ratio", Ratio),
             ("fold change", Ratio),
+            ("fraction", Ratio),
+            ("Fraction", Ratio),
+            ("proportion", Ratio),
             ("detected", Detection),
             ("positive", Detection),
             // ITEM-6 (G6): the example family's arbitrary-unit column and a
@@ -589,12 +665,15 @@ mod tests {
 
     #[test]
     fn test_fv8_mismatch_and_unclassified_warnings_are_a04_warning() {
+        // Rule 2: same kind, recorded canonical unit, different spelling —
+        // the unchanged "not the known unit" wording.
         let family = unit_mismatch_problem(
             "unit",
             "U/mL",
             "U/L",
-            UnitAgreement::Family(UnitFamily::Count),
-        );
+            UnitFamily::None,
+        )
+        .expect("a recorded canonical unit produces the note");
         assert_eq!(family.code, ProblemCode::A04UnitDiffers);
         assert_eq!(family.severity, ProblemSeverity::Warning);
         assert!(family.message.contains("U/mL"), "{}", family.message);
@@ -604,17 +683,36 @@ mod tests {
             family.message
         );
 
-        let unknown = unit_mismatch_problem(
+        // Rule 3: both kinds known and different — the kind words sentence,
+        // quoting the recorded canonical unit (the '%'-file /
+        // ng/mL-entry case).
+        let other_kind = unit_mismatch_problem(
             "unit",
             "%",
             "ng/mL",
-            UnitAgreement::Unknown,
+            UnitFamily::ConcentrationMass,
+        )
+        .expect("a different known kind still notes");
+        assert_eq!(other_kind.code, ProblemCode::A04UnitDiffers);
+        assert_eq!(other_kind.severity, ProblemSeverity::Warning);
+        assert_eq!(
+            other_kind.message,
+            "column `unit` unit '%' is a percent, but this marker is measured as a mass concentration ('ng/mL'): the values are used as written, so check them"
         );
-        assert_eq!(unknown.code, ProblemCode::A04UnitDiffers);
-        assert!(
-            unknown.message.contains("we do not recognise this unit"),
-            "{}",
-            unknown.message
+
+        // Rule 4: the file unit is unclassifiable, the entry kind is known —
+        // the existing "not a unit we recognise" wording.
+        let unrecognised = unit_mismatch_problem(
+            "unit",
+            "furlongs",
+            "U/L",
+            UnitFamily::None,
+        )
+        .expect("a known entry kind keeps the unclassified wording");
+        assert_eq!(unrecognised.code, ProblemCode::A04UnitDiffers);
+        assert_eq!(
+            unrecognised.message,
+            "column `unit` unit 'furlongs' is not a unit we recognise — scales are not compared"
         );
 
         let unclassified = unit_unclassified_problem("unit", "furlongs");
@@ -629,25 +727,139 @@ mod tests {
     }
 
     #[test]
-    fn test_fv8_mismatch_with_unrecorded_canonical_unit_quotes_nothing() {
+    fn test_fv8_mismatch_with_unrecorded_canonical_unit_is_no_note() {
         // A vocabulary-matched marker whose vocabulary entry records no
-        // canonical unit: the message must not quote a blank ('' — the
-        // qa-fixes ITEM-5 RES-24 shape); it names the vocabulary without
-        // a non-fact and keeps the agreement verdict.
-        let problem = unit_mismatch_problem("ctdna", "ng/mL", "", UnitAgreement::Unknown);
-        assert_eq!(problem.code, ProblemCode::A04UnitDiffers);
-        assert_eq!(problem.severity, ProblemSeverity::Warning);
+        // canonical unit has no known unit to compare against — no note when
+        // the file unit is the same kind (the count-family ctDNA_TP53_MAC
+        // entry vs AC/mL) and no note when the entry records no kind at all
+        // (ctDNA_TP53_MAF vs fraction); the recorded value may be empty or
+        // whitespace. The user unit is not refused or rewritten — it is used
+        // as is, only the note is gone.
         assert!(
-            problem.message.contains("is not the known unit"),
-            "{}",
-            problem.message
+            unit_mismatch_problem("ctdna", "AC/mL", "", UnitFamily::Count).is_none(),
+            "same kind with no canonical unit → no note"
         );
         assert!(
-            problem.message.contains("we do not recognise this unit"),
-            "{}",
-            problem.message
+            unit_mismatch_problem("ctdna", "AC/mL", "  ", UnitFamily::Count).is_none(),
+            "same kind with a whitespace canonical unit → no note"
         );
-        assert!(!problem.message.contains("''"), "{}", problem.message);
+        assert!(
+            unit_mismatch_problem("ctdna", "fraction", "", UnitFamily::None).is_none(),
+            "no entry kind → no note"
+        );
+        assert!(
+            unit_mismatch_problem("ctdna", "fraction", "  ", UnitFamily::None).is_none(),
+            "no entry kind, whitespace canonical → no note"
+        );
+        // A recorded canonical unit still notes (a different known kind →
+        // the kind words sentence).
+        let problem = unit_mismatch_problem("ctdna", "ng/mL", "U/L", UnitFamily::None)
+            .expect("a recorded canonical unit keeps the note");
+        assert_eq!(
+            problem.message,
+            "column `ctdna` unit 'ng/mL' is a mass concentration, but this marker is measured as a count ('U/L'): the values are used as written, so check them"
+        );
+    }
+
+    #[test]
+    fn test_fv8_known_kind_cases_follow_the_rule() {
+        // A percent entry that records NO canonical unit: "%" is the same
+        // kind → no note; "ng/mL" (mass) and "fraction" (ratio) are
+        // different known kinds → the kind words sentence without a quoted
+        // canonical unit; "furlongs" is unclassifiable → the unclassified
+        // warning.
+        assert!(
+            unit_mismatch_problem("unit", "%", "", UnitFamily::Percent).is_none(),
+            "same kind, no canonical unit → no note"
+        );
+        let mass_note = unit_mismatch_problem("unit", "ng/mL", "", UnitFamily::Percent)
+            .expect("different known kinds note");
+        assert_eq!(
+            mass_note.message,
+            "column `unit` unit 'ng/mL' is a mass concentration, but this marker is measured as a percent: the values are used as written, so check them"
+        );
+        let ratio_note = unit_mismatch_problem("unit", "fraction", "", UnitFamily::Percent)
+            .expect("different known kinds note");
+        assert_eq!(
+            ratio_note.message,
+            "column `unit` unit 'fraction' is a ratio, but this marker is measured as a percent: the values are used as written, so check them"
+        );
+        let unclassified = unit_mismatch_problem("unit", "furlongs", "", UnitFamily::Percent)
+            .expect("a known entry kind keeps the unclassified wording");
+        assert_eq!(
+            unclassified.message,
+            "column `unit` unit 'furlongs' is not a unit we recognise — scales are not compared"
+        );
+
+        // An entry that records neither a kind nor a unit (the two ctDNA TP53
+        // entries): no note for a known file unit, an unclassifiable one or a
+        // same-kind one.
+        for unit in ["fraction", "AC/mL", "furlongs"] {
+            assert!(
+                unit_mismatch_problem("ctdna", unit, "", UnitFamily::None).is_none(),
+                "no entry kind → no note for {unit}"
+            );
+        }
+
+        // Rule 2 unchanged text: canonical "U/mL" (count) vs "kU/L" (count).
+        let same_kind = unit_mismatch_problem("unit", "kU/L", "U/mL", UnitFamily::Count)
+            .expect("same kind, recorded canonical, different spelling notes");
+        assert_eq!(
+            same_kind.message,
+            "column `unit` unit 'kU/L' is not the known unit 'U/mL': it is the same kind of unit but not the same one, so scales are not compared"
+        );
+
+        // Rule 3 with a quoted canonical: "ng/mL" against canonical "%".
+        let quoted = unit_mismatch_problem("unit", "ng/mL", "%", UnitFamily::Percent)
+            .expect("different known kinds note");
+        assert_eq!(
+            quoted.message,
+            "column `unit` unit 'ng/mL' is a mass concentration, but this marker is measured as a percent ('%'): the values are used as written, so check them"
+        );
+
+        // Rule 1 exact match → no note (the callers normally separate
+        // `Matches` before calling; the function is safe on its own).
+        assert!(
+            unit_mismatch_problem("unit", "U/L", "U/L", UnitFamily::None).is_none(),
+            "exact match → no note"
+        );
+        assert!(
+            unit_mismatch_problem("unit", "u/l", " U/L ", UnitFamily::None).is_none(),
+            "normalized exact match → no note"
+        );
+    }
+
+    #[test]
+    fn test_fv8_every_unit_family_except_none_has_kind_words() {
+        for family in [
+            UnitFamily::ConcentrationMass,
+            UnitFamily::ConcentrationMolar,
+            UnitFamily::Count,
+            UnitFamily::Percent,
+            UnitFamily::Ratio,
+            UnitFamily::Detection,
+        ] {
+            assert!(
+                unit_family_words(family).is_some(),
+                "{family:?} must have kind words"
+            );
+        }
+        assert_eq!(unit_family_words(UnitFamily::None), None);
+        assert_eq!(
+            unit_family_words(UnitFamily::ConcentrationMass),
+            Some("a mass concentration")
+        );
+        assert_eq!(
+            unit_family_words(UnitFamily::ConcentrationMolar),
+            Some("a molar concentration")
+        );
+        assert_eq!(unit_family_words(UnitFamily::Count), Some("a count"));
+        assert_eq!(unit_family_words(UnitFamily::Percent), Some("a percent"));
+        assert_eq!(unit_family_words(UnitFamily::Ratio), Some("a ratio"));
+        assert_eq!(
+            unit_family_words(UnitFamily::Detection),
+            Some("a detection call")
+        );
     }
 
     #[test]

@@ -66,6 +66,12 @@ export interface TxrReasonParams {
   made_for?: string
   /** OUTCOME_NOT_MATCHED: the method's group (the `MethodGroup` wire code). */
   predicts?: string
+  /** MARKER_COUNT_UNMET: the declared marker count the method takes. */
+  expected?: number
+  /** MARKER_COUNT_UNMET: the markers the file would give it (the found count). */
+  found?: number
+  /** MARKER_COUNT_UNMET: the file's own main-marker count (companions excluded). */
+  file_markers?: number
   /** The answered ids (not rendered; the sentence speaks the method's side). */
   answer?: unknown
 }
@@ -206,9 +212,14 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - `TASK_INCOMPATIBLE` → "needs an outcome column your file lacks";
  * - `RESPONSE_LABEL_MISSING` → "needs a response label in your file";
  * - `SURVIVAL_OUTCOME_MISSING` → "needs survival times in your file";
- * - `MARKER_COUNT_UNMET` → "takes a set number of markers; your file has a
- *   different number" (the run engine's marker-count rule; a constant line,
- *   since the templates never read `params`);
+ * - `MARKER_COUNT_UNMET` → "needs 5 markers; your file has 3" when the
+ *   reason's params say the FILE has FEWER main markers than the method
+ *   takes (`file_markers < expected` — the file's own count, never the
+ *   planned slice's `found`; a method that needs more than the file has can
+ *   never run on it); with the file giving the method MORE markers than it
+ *   takes, or with `file_markers` missing (old saved data), the constant
+ *   "takes a set number of markers; your file has a different number" (the
+ *   run engine's marker-count rule);
  * - `MARKERS_LEFT_OUT` → "left out: it picks its markers from your file,
  *   and you chose to leave these out" (single-marker-choice round 1b);
  * - `MARKER_RANKING_UNAVAILABLE` → "its markers cannot be ranked on this
@@ -247,6 +258,62 @@ export const NO_PUBLISHED_ENVIRONMENT_REASON = 'no published environment availab
  */
 export const RUNNER_UNAVAILABLE_FIX =
   'Do what the notice at the top of the app says, then open TxResBench again.'
+
+/**
+ * Whether a `MARKER_COUNT_UNMET` reason is the "the file has FEWER markers
+ * than the method takes" case — the decision reads the FILE's own count
+ * (`file_markers < expected`), never the reason's `found`: with a plan,
+ * `found` is the planned slice, not the file's count, so "your file has N"
+ * would be false. `file_markers` missing (old saved data) is never the
+ * needs-more case.
+ */
+export function markerCountNeedsMoreMarkers(params: TxrReasonParams | undefined): boolean {
+  const expected = params?.expected
+  const fileMarkers = params?.file_markers
+  return (
+    typeof expected === 'number' &&
+    typeof fileMarkers === 'number' &&
+    fileMarkers < expected
+  )
+}
+
+/** The board plural of a marker count ("1 marker" / "5 markers"). */
+function markerWord(n: number): string {
+  return n === 1 ? 'marker' : 'markers'
+}
+
+/**
+ * The `MARKER_COUNT_UNMET` reason sentence: "needs 5 markers; your file has
+ * 3" when the file has fewer main markers than the method takes (the
+ * file's own count, `file_markers`; at 1 it reads "your file has 1
+ * marker"); today's constant "takes a set number of markers; your file has
+ * a different number" otherwise (the file gives more, or `file_markers` is
+ * missing).
+ */
+export function markerCountReasonLine(params: TxrReasonParams | undefined): string {
+  if (!markerCountNeedsMoreMarkers(params)) {
+    return 'takes a set number of markers; your file has a different number'
+  }
+  const expected = params!.expected!
+  const fileMarkers = params!.file_markers!
+  // "Needs 5 markers; your file has 3" — the noun is elided in the file
+  // clause; at 1 it must be spelled ("your file has 1 marker").
+  const filePart = fileMarkers === 1 ? '1 marker' : `${fileMarkers}`
+  return `needs ${expected} ${markerWord(expected)}; your file has ${filePart}`
+}
+
+/**
+ * The `MARKER_COUNT_UNMET` fix: "Use a file with at least 5 markers." when
+ * the file has fewer main markers than the method takes ("at least 1
+ * marker" on 1); today's "Use a file with just the markers this method
+ * takes." otherwise.
+ */
+export function markerCountReasonFix(params: TxrReasonParams | undefined): string {
+  if (!markerCountNeedsMoreMarkers(params)) {
+    return 'Use a file with just the markers this method takes.'
+  }
+  return `Use a file with at least ${params!.expected} ${markerWord(params!.expected!)}.`
+}
 
 /**
  * The row's one reason line (the FIRST reason only, fine-print plain).
@@ -298,7 +365,7 @@ export function formatReasonLine(
     case 'SURVIVAL_OUTCOME_MISSING':
       return 'needs survival times in your file'
     case 'MARKER_COUNT_UNMET':
-      return 'takes a set number of markers; your file has a different number'
+      return markerCountReasonLine(reasons[0]?.params)
     case 'MARKERS_LEFT_OUT':
       return 'left out: it picks its markers from your file, and you chose to leave these out'
     case 'MARKER_RANKING_UNAVAILABLE':

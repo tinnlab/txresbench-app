@@ -262,11 +262,20 @@ test.describe('txr-intake-c — the shared file-card flow (TEST-INT-15)', () => 
       fixtures.measurementsFixed,
     )
     await expect(page.getByTestId('txr-intake-file-status-measurements')).toContainText(
-      '✓ 24 patients read',
+      '✓ 24 patients read · Ready',
     )
     await expect(page.getByTestId('txr-intake-file-status-measurements')).toContainText(
-      'Found 120 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Ready.',
+      '120 rows · draws at day 0, 14, 28 and 56',
     )
+    await expect(page.getByTestId('txr-intake-file-status-measurements')).toContainText(
+      'Markers (2):',
+    )
+    await expect(
+      page
+        .getByTestId('txr-intake-file-status-measurements')
+        .getByTestId('txr-intake-file-markers-measurements')
+        .locator(':scope > li'),
+    ).toHaveCount(2)
     // The warning-only resolution: the remaining question is the A03 offer
     // row again (warnings never block — DEC-10), and Continue enables.
     await expect(page.getByTestId('txr-intake-join-offer-ldh')).toBeVisible()
@@ -356,12 +365,25 @@ test.describe('txr-intake-n — predict mode (TEST-INT-16)', () => {
 
     await dropCsv(page, 'txr-intake-file-drop-measurements', 'fixture-predict.csv', fixtures.predict)
 
-    // The board-N green box (EXAMPLE-INT-3's shape, data-filled).
+    // The board-N green box (EXAMPLE-INT-3's shape, data-filled) — the
+    // predict heading carries no "· Ready"; the continuation is its own line.
     await expect(page.getByTestId('txr-intake-file-status-measurements')).toContainText(
       '✓ 24 patients read',
     )
     await expect(page.getByTestId('txr-intake-file-status-measurements')).toContainText(
-      'Found 96 rows: markers ldh; draws at day 0, 14, 28 and 56. Next you choose the models that can run on it.',
+      '96 rows · draws at day 0, 14, 28 and 56',
+    )
+    await expect(page.getByTestId('txr-intake-file-status-measurements')).toContainText(
+      'Markers (1):',
+    )
+    await expect(
+      page
+        .getByTestId('txr-intake-file-status-measurements')
+        .getByTestId('txr-intake-file-markers-measurements')
+        .locator(':scope > li'),
+    ).toHaveCount(1)
+    await expect(page.getByTestId('txr-intake-file-status-measurements')).toContainText(
+      'Next you choose the models that can run on it.',
     )
 
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()

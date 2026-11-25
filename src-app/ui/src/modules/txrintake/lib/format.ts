@@ -235,13 +235,15 @@ export const TREATMENT_MULTI_HINT =
   'A combination is several ticks. Tick none to keep every treatment.'
 
 /**
- * One grouped left-out section's heading (step2-filters, brief 5b): the
- * excluded methods are grouped by their first reason's code — the three
- * answer-caused codes get their own section, every other code one section
- * with "do not fit" — the count is live, and the singular forms are the
- * section's own ("1 made for another disease", "1 predicts something else",
- * "1 does not fit your files or answers"). `code` is the raw reason code
- * (or the grouping key's `'other'`); the mapping is the board's own words.
+ * One grouped left-out section's heading (step2-filters, brief 5b / round
+ * 2b): the excluded methods are grouped by their first reason's code — the
+ * three answer-caused codes get their own section, the marker-count rule's
+ * "needs more markers" section, every other code one section with "do not
+ * fit" — the count is live, and the singular forms are the section's own
+ * ("1 made for another disease", "1 predicts something else", "1 needs more
+ * markers than your file has", "1 does not fit your files or answers").
+ * `code` is the raw reason code (or the grouping key's `'other'`); the
+ * mapping is the board's own words.
  */
 export function excludedSectionHeading(code: string, count: number): string {
   switch (code) {
@@ -251,6 +253,10 @@ export function excludedSectionHeading(code: string, count: number): string {
       return `${count} made for other treatments`
     case 'OUTCOME_NOT_MATCHED':
       return count === 1 ? '1 predicts something else' : `${count} predict something else`
+    case 'MARKER_COUNT_UNMET':
+      return count === 1
+        ? '1 needs more markers than your file has'
+        : `${count} need more markers than your file has`
     default:
       return count === 1
         ? '1 does not fit your files or answers'

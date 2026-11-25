@@ -22,7 +22,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import type { FileInspection, ValidationResponse } from '@/api-client/types'
+import type { FileInspection, MarkerColumn, ValidationResponse } from '@/api-client/types'
 import { TxrFileMessages } from './TxrFileMessages'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import type { JoinOffer, LoadedFile } from '../types'
@@ -81,6 +81,23 @@ function validation(overrides: Partial<ValidationResponse> = {}): ValidationResp
   }
 }
 
+/** A vocabulary-less marker column of the given key (the box's list names). */
+function markerColumn(key: string): MarkerColumn {
+  return {
+    key,
+    spellings: [key],
+    n_rows: 40,
+    unit: 'U/L',
+    unit_status: 'matches',
+    coverage: {
+      patients_with_value: 12,
+      patients_with_baseline: 12,
+      patients_with_ontreatment: 11,
+    },
+    vocabulary: [],
+  }
+}
+
 function seedValidation(response: ValidationResponse) {
   useTxrIntakeStore.getState().applyValidation(response, {
     joins: [],
@@ -127,6 +144,64 @@ describe('TxrFileMessages (step3-file-cards A — one file\'s messages)', () => 
   it('renders nothing before a file is adopted', () => {
     renderMessages('patients', null)
     expect(screen.getByTestId('host').childElementCount).toBe(0)
+  })
+
+  it('the measurements box renders the facts line and one clipped marker line each', () => {
+    const longName = 'ctDNA TP53 mutant allele count (amplifiable copies per ml plasma)'
+    seedValidation(
+      validation({
+        measurements: {
+          rows: 285,
+          patients: 37,
+          distinct_draw_days: [-14, -1, 0, 3, 7, 14, 21, 28, 35, 42, 49, 56, 63, 69],
+        },
+        markers: [
+          markerColumn('10334-1'),
+          markerColumn(longName),
+          markerColumn('ctDNA TP53 mutant allele fraction, tumour-informed digital PCR'),
+        ],
+      }),
+    )
+    renderMessages('measurements', loaded('measurements', 'm.csv'))
+    const status = screen.getByTestId('txr-intake-file-status-measurements')
+    expect(within(status).getByText('✓ 37 patients read · Ready')).toBeTruthy()
+    expect(
+      within(status).getByText('285 rows · 14 draw days, from day -14 to 69'),
+    ).toBeTruthy()
+    expect(within(status).getByText('Markers (3):')).toBeTruthy()
+    const list = within(status).getByTestId('txr-intake-file-markers-measurements')
+    expect(list.tagName).toBe('UL')
+    const items = list.querySelectorAll(':scope > li')
+    expect(items).toHaveLength(3)
+    expect(items[0].textContent).toBe('10334-1')
+    // ONE line per marker: clipped by CSS, the FULL name stays in the DOM
+    // (screen readers and search read it) and in a `title` for hover.
+    const long = items[1] as HTMLElement
+    expect(long.textContent).toBe(longName)
+    expect(long.title).toBe(longName)
+    expect(long.style.overflow).toBe('hidden')
+    expect(long.style.textOverflow).toBe('ellipsis')
+    expect(long.style.whiteSpace).toBe('nowrap')
+    expect(items[2].textContent).toBe(
+      'ctDNA TP53 mutant allele fraction, tumour-informed digital PCR',
+    )
+  })
+
+  it('more than six markers render six lines and a last "and N more"', () => {
+    seedValidation(
+      validation({
+        markers: Array.from({ length: 8 }, (_, i) => markerColumn(`m${i + 1}`)),
+      }),
+    )
+    renderMessages('measurements', loaded('measurements', 'm.csv'))
+    const status = screen.getByTestId('txr-intake-file-status-measurements')
+    expect(within(status).getByText('Markers (8):')).toBeTruthy()
+    const items = within(status)
+      .getByTestId('txr-intake-file-markers-measurements')
+      .querySelectorAll(':scope > li')
+    expect(items).toHaveLength(7)
+    expect(items[6].textContent).toBe('and 2 more')
+    expect(items[6].getAttribute('title')).toBeNull()
   })
 
   it('the offers report the OFFER OBJECT to the host callbacks', () => {

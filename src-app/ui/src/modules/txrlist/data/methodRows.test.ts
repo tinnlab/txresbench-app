@@ -165,7 +165,7 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
         verdict('kelim', {
           status: 'cannot_run',
           estimated_seconds: 3,
-          reasons: [{ code: 'MARKER_COUNT_UNMET', params: { expected: 1, found: 3, markers: ['M1', 'M2', 'M3'] } }],
+          reasons: [{ code: 'MARKER_COUNT_UNMET', params: { expected: 1, found: 3, file_markers: 3, markers: ['M1', 'M2', 'M3'] } }],
           coverage: { eligible: 151, total: 151, fraction: 1 },
         }),
       ]),
@@ -174,6 +174,45 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
     expect(cards[0].run.disabled).toBe(true)
     expect(cards[0].estimate).toBeNull()
     expect(cards[0].run.reasonCode).toBe('MARKER_COUNT_UNMET')
+    expect(cards[0].run.reasonLine).toBe('takes a set number of markers; your file has a different number')
+    expect(cards[0].run.reasonFix).toBe('Use a file with just the markers this method takes.')
+  })
+
+  it('a method needing MORE markers than the file has reads the two counts and the at-least fix', () => {
+    const m = summary({ id: 'needs-five', year: 2021, language: 'R', markers: { kind: 'multi', count: 5 } })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('needs-five', {
+          status: 'cannot_run',
+          estimated_seconds: 3,
+          reasons: [{ code: 'MARKER_COUNT_UNMET', params: { expected: 5, found: 3, file_markers: 3, markers: ['M1', 'M2', 'M3'] } }],
+          coverage: { eligible: 151, total: 151, fraction: 1 },
+        }),
+      ]),
+    )
+    expect(cards[0].run.status).toBe('cannot')
+    expect(cards[0].run.reasonCode).toBe('MARKER_COUNT_UNMET')
+    expect(cards[0].run.reasonLine).toBe('needs 5 markers; your file has 3')
+    expect(cards[0].run.reasonFix).toBe('Use a file with at least 5 markers.')
+  })
+
+  it('a planned slice on a big file never lies about the file count (file_markers, not found)', () => {
+    // A ranked plan's slice (found = 1) can be smaller than a file that has
+    // enough markers (file_markers = 10): the reason must NOT say "your file
+    // has 1" or "Use a file with at least 6 markers".
+    const m = summary({ id: 'needs-six', year: 2021, language: 'R', markers: { kind: 'multi', count: 6 } })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('needs-six', {
+          status: 'cannot_run',
+          estimated_seconds: 3,
+          reasons: [{ code: 'MARKER_COUNT_UNMET', params: { expected: 6, found: 1, file_markers: 10, markers: ['M1'] } }],
+          coverage: { eligible: 151, total: 151, fraction: 1 },
+        }),
+      ]),
+    )
     expect(cards[0].run.reasonLine).toBe('takes a set number of markers; your file has a different number')
     expect(cards[0].run.reasonFix).toBe('Use a file with just the markers this method takes.')
   })

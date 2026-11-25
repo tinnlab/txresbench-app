@@ -303,7 +303,7 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     // pending action — R2-4: the offer rows come FIRST and the problem list
     // is hidden until they are resolved (the red box's heading stays).
     await waitFor(() => {
-      expect(screen.getByText('✓ 2 patients read')).toBeTruthy()
+      expect(screen.getByText('✓ 2 patients read · Ready')).toBeTruthy()
     })
     const measurementsStatus = screen.getByTestId('txr-intake-file-status-measurements')
     expect(
@@ -614,7 +614,7 @@ describe("step3-file-cards — each card holds its own file's messages, files ca
     expect(document.querySelectorAll('[data-testid="txr-intake-file-messages"]')).toHaveLength(0)
     expect(document.querySelectorAll('[data-testid^="txr-intake-file-messages-"]')).toHaveLength(0)
     await pickBoth()
-    await waitFor(() => expect(screen.getByText('✓ 2 patients read')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('✓ 2 patients read · Ready')).toBeTruthy())
 
     const patientsCard = screen.getByTestId('txr-intake-file-card-patients')
     const measurementsCard = screen.getByTestId('txr-intake-file-card-measurements')

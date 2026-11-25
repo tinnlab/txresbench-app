@@ -2,8 +2,10 @@
  * TxrFileMessages — what the check says about ONE adopted file
  * (step3-file-cards): the join / vocabulary / column-rename offer rows
  * (`TxrJoinOffer` / `TxrVocabOffer` / `TxrColumnOffer`), the status box
- * (green board line / red "N problems in N rows" / the neutral "rows read"
- * state) and the per-row problem list (`TxrProblemList`).
+ * (green box — the heading, the short facts line, the one-marker-per-line
+ * list, the predict continuation — / red "N problems in N rows" /
+ * the neutral "rows read" state) and the per-row problem list
+ * (`TxrProblemList`).
  *
  * The card host (`TxrFileCard`) places these parts in a full-width row
  * INSIDE the card — the card's own last child, after its two halves, with
@@ -109,6 +111,29 @@ const STATUS_HEADING: CSSProperties = { fontWeight: 700, margin: 0 }
 const STATUS_GOOD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-success)' }
 const STATUS_BAD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-danger)' }
 const STATUS_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)', margin: 0 }
+
+/** The "Markers (N):" label — the same small text style as the facts line. */
+const STATUS_MARKER_LABEL: CSSProperties = { ...STATUS_LINE }
+
+/** The marker list — the kit reset removed `list-style`, so the board's
+ *  dots are restored here (the StartPage card-bullets precedent), same text
+ *  styles as the lines, no new colours. */
+const STATUS_MARKER_LIST: CSSProperties = {
+  margin: 0,
+  paddingLeft: 20,
+  listStyle: 'disc',
+  color: 'var(--txr-text-2)',
+  fontSize: 13.5,
+}
+
+/** One marker per line, clipped to the box's width: the FULL name stays in
+ *  the DOM (screen readers and search read it) and in the `title` for
+ *  hover, while the visible line clips. */
+const STATUS_MARKER_ITEM: CSSProperties = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
 
 /** The checking line's row (R2-7: an explicit progress state between the
  *  pick and the check finishing — the old neutral box repeated the page's
@@ -303,7 +328,29 @@ export function TxrFileMessages(props: TxrFileMessagesProps) {
         ) : status !== null ? (
           <>
             <div style={STATUS_GOOD_HEADING}>{status.heading}</div>
-            <p style={STATUS_LINE}>{status.line}</p>
+            {/* The box renders the STRUCTURED short lines — the
+                facts line, the marker list (one per line, clipped), and the
+                predict continuation — never the old one-sentence `line`
+                (which is still returned on `CardStatus` for other readers). */}
+            {status.facts !== undefined ? <p style={STATUS_LINE}>{status.facts}</p> : null}
+            {status.markers !== undefined && status.markers.length > 0 ? (
+              <>
+                <p style={STATUS_MARKER_LABEL}>
+                  Markers ({status.markers.length + (status.moreMarkers ?? 0)}):
+                </p>
+                <ul data-testid={`txr-intake-file-markers-${kind}`} style={STATUS_MARKER_LIST}>
+                  {status.markers.map((name, index) => (
+                    <li key={`${index}:${name}`} style={STATUS_MARKER_ITEM} title={name}>
+                      {name}
+                    </li>
+                  ))}
+                  {status.moreMarkers !== undefined ? (
+                    <li style={STATUS_MARKER_ITEM}>and {status.moreMarkers} more</li>
+                  ) : null}
+                </ul>
+              </>
+            ) : null}
+            {status.next !== undefined ? <p style={STATUS_LINE}>{status.next}</p> : null}
             {showProblemDetails && warnings.length > 0 ? (
               <div style={WARNING_GROUP}>
                 <div style={WARNING_TITLE}>

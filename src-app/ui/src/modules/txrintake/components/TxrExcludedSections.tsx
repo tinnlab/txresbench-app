@@ -95,6 +95,8 @@ export function excludedSectionKey(code: ExcludedGroupCode): string {
       return 'treatment'
     case 'OUTCOME_NOT_MATCHED':
       return 'outcome'
+    case 'MARKER_COUNT_UNMET':
+      return 'marker-count'
     default:
       return 'other'
   }
