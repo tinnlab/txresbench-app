@@ -60,7 +60,7 @@ use super::runtime::RunRuntime;
 use super::types::{
     CreateRunRequest, EngineReasonCode, RunConfig, TxrCoverage, TxrLimits, TxrLogStream,
     TxrMethodState, TxrPhase, TxrProbSource, TxrRequestError, TxrRunCounts, TxrRunEstimate,
-    TxrRunInputSummary, TxrRunReason, TxrRunStatus, TxrRunSummary, TxrTask,
+    TxrRunInputSummary, TxrRunMode, TxrRunReason, TxrRunStatus, TxrRunSummary, TxrTask,
 };
 use crate::modules::file_validator::types::{
     CanonicalBundle, CanonicalPatient, JoinOffer, MarkerMapping, ParsedTable, ValidationMode,
@@ -4245,6 +4245,11 @@ pub(crate) struct CanonicalRun {
 /// The prepared facts of a run: the canonical sides + the classified plans +
 /// the validator's marker count.
 pub struct PreparedRun {
+    /// The run's own mode (the create request's — crosschecked-chances: the
+    /// sample record and the estimate both branch on it; a reuse run carries
+    /// the cohort in [`PreparedRun::train`] too, so the mode, never the
+    /// presence of the train side, is what "a train run" means).
+    pub mode: TxrRunMode,
     pub train: Option<Arc<CanonicalBundle>>,
     pub predict: Option<Arc<CanonicalBundle>>,
     pub predict_patients: Option<Arc<[CanonicalPatient]>>,
@@ -4371,6 +4376,7 @@ fn prepare_run_with(
         envmanifest::EnvArch::host(),
     )?;
     Ok(PreparedRun {
+        mode: run_mode,
         markers: canonical.validated.markers.len(),
         train: canonical.train,
         predict: canonical.predict,
@@ -5450,9 +5456,11 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
             // qa-fixes2 ITEM-6 (R2-3): a finished TRAIN-mode method records
             // its measured seconds for the estimate calibration — the next
             // run's per-method estimate uses this app's own median. A reuse
-            // run measures the predict half alone (no fit) and is excluded;
-            // a record write failure is a warn, never a method failure (the
-            // calibration is a display fact).
+            // run is excluded (its seconds are the predict half alone, and a
+            // Files-mode reuse with a cohort carries that cohort in
+            // `prepared.train` — the guard is the run's MODE, never the
+            // presence of the train side); a record write failure is a warn,
+            // never a method failure (the calibration is a display fact).
             //
             // crosschecked-chances: the flag marks whether this run's
             // measured seconds INCLUDE the cross-check folds — yes for a
@@ -5461,7 +5469,7 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
             // not change). The estimate's train-mode median for a method
             // that learns reads this flag, so a pre-cross-check sample (flag
             // 0, written before it existed) never mixes into it.
-            if outcome.state == TxrMethodState::Finished && prepared.train.is_some() {
+            if outcome.state == TxrMethodState::Finished && prepared.mode == TxrRunMode::Train {
                 if let Some(ms) = outcome.duration_ms {
                     let crosschecked = drive
                         .list
@@ -7239,6 +7247,34 @@ mod tests {
         assert!(learnt.crosschecked, "a fitted method's run included the folds");
         let fixed = samples.iter().find(|s| s.method_id == "ctdna-tf-four-group").expect("fixed-rule");
         assert!(!fixed.crosschecked, "a fixed-rule method's cost never changed");
+    }
+
+    #[tokio::test]
+    async fn a_reuse_run_with_a_cohort_records_no_timing_sample() {
+        // crosschecked-chances (audit 7): a Files-mode REUSE run carries the
+        // cohort in `prepared.train`, so the record guard must be the run's
+        // MODE — a reuse run never records (its seconds are the predict half,
+        // never the train-mode cost; a tagged sample would feed the
+        // train-mode median for a `fitted` method wrongly).
+        let _g = rootfs::scoped_data_root(test_data_dir("timing-sample-reuse"));
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(20)));
+        let executor = Arc::new(FakeExecutor::new(Duration::from_millis(30)));
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        let req = cohort_reuse_request(&asset_dir, &digest, "landmark-cox-current");
+        let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
+            .await
+            .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let row = wait_terminal(&repo, summary.id).await;
+        assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished, "the reuse method ran");
+        let samples = repo.timing_samples().await.expect("samples read");
+        assert!(
+            samples.is_empty(),
+            "a reuse run records NO sample, even with a cohort: {samples:?}"
+        );
     }
 
     #[tokio::test]

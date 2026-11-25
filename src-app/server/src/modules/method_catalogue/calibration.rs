@@ -304,7 +304,10 @@ pub fn calibrated_estimate_quality_for(
 /// [`calibrated_estimate_seconds_for_mode`]): a train-mode `fitted` method
 /// is only "measured" when a CROSS-CHECKED sample backs the number — an
 /// untagged (pre-cross-check) measurement is not the run's cost and must not
-/// wear the measured label.
+/// wear the measured label. Without a cross-checked sample the seconds are
+/// the generated base × [`CROSSCHECK_TIME_FACTOR`] — a GENERATED number, so
+/// the quality reads `estimate` even when the benchmark's own per-fold fact
+/// is `measured` (the benchmark never measured the ×3 run).
 pub fn calibrated_estimate_quality_for_mode(
     method: &Method,
     calibration: &TimingCalibration,
@@ -317,7 +320,7 @@ pub fn calibrated_estimate_quality_for_mode(
                 if calibration.crosschecked_reference_seconds_of(&method.id).is_some() {
                     TimingQuality::Measured
                 } else {
-                    method.timing.quality
+                    TimingQuality::Estimate
                 }
             } else {
                 calibrated_estimate_quality_for(method, calibration)
@@ -487,8 +490,9 @@ mod tests {
         );
 
         // Untagged-only (pre-cross-check) measurement: train mode ignores it
-        // (never deletes) and falls back to the generated base × 3, and the
-        // quality is not allowed to claim Measured.
+        // (never deletes) and falls back to the generated base × 3 — a
+        // GENERATED number, so the quality reads `estimate` (never the
+        // benchmark's `measured` label).
         let old = TimingCalibration::from_samples(&[sample("landmark-cox-current", 15_000, 150, 4)]);
         assert_eq!(
             calibrated_estimate_seconds_for_mode(learner, 150, 4, &old, Some(EstimateMode::Train)),
@@ -497,8 +501,8 @@ mod tests {
         );
         assert_eq!(
             calibrated_estimate_quality_for_mode(learner, &old, Some(EstimateMode::Train)),
-            learner.timing.quality,
-            "an untagged sample does not claim Measured in train mode"
+            TimingQuality::Estimate,
+            "an uncalibrated learner's ×3 number is an estimate, not the benchmark's measured"
         );
         // The same old sample still calibrates the absent-mode and fixed-rule
         // numbers (today's behavior).
@@ -511,6 +515,69 @@ mod tests {
             calibrated_estimate_seconds_for_mode(fixed, 150, 4, &old, Some(EstimateMode::Train)),
             fixed.timing.base_seconds_per_fold,
             "a fixed-rule method never reads a learner's sample anyway"
+        );
+    }
+
+    #[test]
+    fn an_uncalibrated_learner_in_train_mode_reads_estimate_not_measured() {
+        // crosschecked-chances (audit 7): with NO crosschecked sample the
+        // train-mode seconds are the generated base × 3 — the benchmark's
+        // `measured` fact (measured once, at the one-fit cost) does NOT back
+        // that number, so the quality must read `estimate`.
+        let cat = &crate::modules::method_list::builtin().catalogue;
+        let learner = cat.method("landmark-cox-current").expect("a fitted method");
+        assert!(learner.fitted, "the fixture is a learning method");
+        assert_eq!(
+            learner.timing.quality,
+            TimingQuality::Measured,
+            "the fixture's benchmark fact is 'measured' — the case the audit called out"
+        );
+
+        // No samples at all: the generated base × 3, quality `estimate`.
+        let empty = TimingCalibration::empty();
+        assert_eq!(
+            calibrated_estimate_quality_for_mode(learner, &empty, Some(EstimateMode::Train)),
+            TimingQuality::Estimate,
+            "an empty calibration never claims Measured for a ×3 generated number"
+        );
+        // Unmeasured (untagged sample only): same verdict.
+        let old = TimingCalibration::from_samples(&[sample("landmark-cox-current", 15_000, 150, 4)]);
+        assert_eq!(
+            calibrated_estimate_quality_for_mode(learner, &old, Some(EstimateMode::Train)),
+            TimingQuality::Estimate,
+            "an untagged sample does not claim Measured either"
+        );
+        // A crosschecked sample is what earns Measured (the app measured the
+        // real run cost, folds included).
+        let measured = TimingCalibration::from_samples(&[crosschecked_sample(
+            "landmark-cox-current",
+            45_000,
+            150,
+            4,
+        )]);
+        assert_eq!(
+            calibrated_estimate_quality_for_mode(learner, &measured, Some(EstimateMode::Train)),
+            TimingQuality::Measured
+        );
+        // Outside train mode the generated/benchmark fact still stands (the
+        // number is today's, no factor).
+        assert_eq!(
+            calibrated_estimate_quality_for_mode(learner, &empty, None),
+            learner.timing.quality,
+            "absent mode keeps the benchmark quality"
+        );
+        assert_eq!(
+            calibrated_estimate_quality_for_mode(learner, &empty, Some(EstimateMode::Reuse)),
+            learner.timing.quality,
+            "reuse mode keeps the benchmark quality"
+        );
+        // A fixed-rule method in train mode is unchanged (its seconds never
+        // factor).
+        let fixed = cat.method("asm-best-change-rule").expect("a fixed-rule method");
+        assert_eq!(
+            calibrated_estimate_quality_for_mode(fixed, &empty, Some(EstimateMode::Train)),
+            fixed.timing.quality,
+            "a fixed-rule method's number is the benchmark fact itself"
         );
     }
 }

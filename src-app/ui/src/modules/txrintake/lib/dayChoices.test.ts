@@ -328,7 +328,7 @@ describe('the cross-check size warning (the methods-step notice)', () => {
     return facts(Array.from({ length: known }, () => [28]), outcomes)
   }
   const EXACT =
-    'This file has too few patients to check the chances: it needs at least 15 patients, with at least 3 who had the outcome and 3 who did not. Methods that learn from the outcomes will not run on it; methods with a fixed rule that return their own chance still do.'
+    'This file has too few patients to check the chances: it needs at least 15 patients, with at least 3 who had the outcome and 3 who did not. Methods that learn from the outcomes, or that need a conversion to a chance, will not run on it; methods that return their own chance with a fixed rule still do.'
 
   it('warns below the patient minimum: 14 known patients (7/7) are too few', () => {
     const warning = crosscheckSizeWarning(cohort(14, 7), 56, 200, 'pfs')
@@ -360,7 +360,7 @@ describe('the cross-check size warning (the methods-step notice)', () => {
     f.limits = { ...f.limits, crosscheck_min_patients: 20, crosscheck_min_per_class: 4 }
     const warning = crosscheckSizeWarning(f, 56, 200, 'pfs')
     expect(warning).toBe(
-      'This file has too few patients to check the chances: it needs at least 20 patients, with at least 4 who had the outcome and 4 who did not. Methods that learn from the outcomes will not run on it; methods with a fixed rule that return their own chance still do.',
+      'This file has too few patients to check the chances: it needs at least 20 patients, with at least 4 who had the outcome and 4 who did not. Methods that learn from the outcomes, or that need a conversion to a chance, will not run on it; methods that return their own chance with a fixed rule still do.',
     )
   })
 

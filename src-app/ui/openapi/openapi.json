@@ -8920,7 +8920,7 @@
             "type": "string"
           },
           "env_id": {
-            "description": "The env this artifact is: the method's env id for a layer, `base-py` /\n `base-r` for a base. Every layer shares ONE package (and both bases\n another), so the reference no longer names the env; the caller does,\n and the download manager keys its ledger by it. A tag, when present,\n must start with `<env_id>-` (the published tag shapes\n `<env_id>-<version>-<arch>-<sha12>` and\n `<base_id>-<contract>-<arch>-<sha12>`).",
+            "description": "The env this artifact is: the method's env id for a layer, `base-py` /\n `base-r` for a base. Every layer shares ONE package (and both bases\n another), so the reference no longer names the env; the caller does,\n and the download manager keys its ledger by it. A tag, when present,\n must start with `<env_id>-` (the published tag shapes\n `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).",
             "type": "string"
           },
           "oci_ref": {

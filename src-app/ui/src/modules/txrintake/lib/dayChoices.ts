@@ -223,7 +223,7 @@ export function crosscheckSizeWarning(
   if (known >= minPatients && events >= minPerClass && known - events >= minPerClass) {
     return null
   }
-  return `This file has too few patients to check the chances: it needs at least ${minPatients} patients, with at least ${minPerClass} who had the outcome and ${minPerClass} who did not. Methods that learn from the outcomes will not run on it; methods with a fixed rule that return their own chance still do.`
+  return `This file has too few patients to check the chances: it needs at least ${minPatients} patients, with at least ${minPerClass} who had the outcome and ${minPerClass} who did not. Methods that learn from the outcomes, or that need a conversion to a chance, will not run on it; methods that return their own chance with a fixed rule still do.`
 }
 
 /**

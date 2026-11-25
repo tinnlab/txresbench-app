@@ -648,8 +648,7 @@ export interface EnvRef {
    *  another), so the reference no longer names the env; the caller does,
    *  and the download manager keys its ledger by it. A tag, when present,
    *  must start with `<env_id>-` (the published tag shapes
-   *  `<env_id>-<version>-<arch>-<sha12>` and
-   *  `<base_id>-<contract>-<arch>-<sha12>`).
+   *  `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).
    */
   env_id: string
   /**
