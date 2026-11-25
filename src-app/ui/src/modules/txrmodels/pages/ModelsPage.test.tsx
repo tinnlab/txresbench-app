@@ -1023,15 +1023,17 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(borderByte(screen.getByTestId('txr-models-set-row-set-a'))).toBe(SEPARATOR)
     expect(borderByte(screen.getByTestId('txr-models-set-row-set-b'))).toBe(SEPARATOR)
     const imported = screen.getByTestId(`txr-models-row-${IMPORTED_ROW.id}`)
-    // jsdom serializes the `none` shorthand's width as its initial value
-    // (`medium`); the honest byte is the STYLE, which reads `none`.
-    expect(borderByte(imported)).toBe('medium')
-    expect((imported.querySelector('td') as HTMLElement).style.borderBottomStyle).toBe('none')
+    // The only border-less row is the whole table's very last: its bottom
+    // border is `none`. The honest byte is the STYLE — never the shorthand's
+    // serialized WIDTH, which differs between jsdom versions (the gate image
+    // reads `''`, the dev container `medium`).
+    expect(
+      (imported.querySelector('th, td') as HTMLElement).style.borderBottomStyle,
+    ).toBe('none')
     // Expanding set-a inserts model rows with THEIR separator; the imported
     // row stays the last row of the whole table.
     await toggleSet('set-a')
     expect(borderByte(screen.getByTestId(`txr-models-row-${RUN_ROW.id}`))).toBe(SEPARATOR)
-    expect(borderByte(imported)).toBe('medium')
     // Expand set-b too: its model rows land BEFORE the imported no-set row
     // (folders on top — the loose row is the whole table's last), so the
     // one border-less row is still the imported row and set-b's own set
@@ -1040,8 +1042,9 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(borderByte(screen.getByTestId(`txr-models-row-${fixtureModelId(15)}`))).toBe(SEPARATOR)
     expect(borderByte(screen.getByTestId(`txr-models-row-${fixtureModelId(12)}`))).toBe(SEPARATOR)
     expect(borderByte(screen.getByTestId('txr-models-set-row-set-b'))).toBe(SEPARATOR)
-    expect(borderByte(imported)).toBe('medium')
-    expect((imported.querySelector('td') as HTMLElement).style.borderBottomStyle).toBe('none')
+    expect(
+      (imported.querySelector('th, td') as HTMLElement).style.borderBottomStyle,
+    ).toBe('none')
   })
 
   it('posts the multipart import and refreshes the list (success), and surfaces a failure inline', async () => {
