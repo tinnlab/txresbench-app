@@ -43,6 +43,11 @@ export interface UsePredictModelCountsResult {
   imported: number | null
   /** True once EITHER fetch has failed — a failed count is never shown as zero. */
   failed: boolean
+  /** True once THIS mount's own fetches have settled (round-1 audit item
+   *  6): the first frame of a revisit is seeded from the cache, so a
+   *  cached 0 must not flash the "no model anywhere" state before the
+   *  mount's own answers land. */
+  settled: boolean
 }
 
 /** The `provenance === 'run'` count of the store's list response. */
@@ -64,6 +69,8 @@ export function usePredictModelCounts(): UsePredictModelCountsResult {
   )
   const [labFailed, setLabFailed] = useState(false)
   const [modelsFailed, setModelsFailed] = useState(false)
+  const [labSettled, setLabSettled] = useState(false)
+  const [modelsSettled, setModelsSettled] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -84,6 +91,9 @@ export function usePredictModelCounts(): UsePredictModelCountsResult {
           setLabFailed(true)
         }
       })
+      .finally(() => {
+        if (!cancelled) setLabSettled(true)
+      })
     void fetchCached(SAVED_COUNT_KEY, async () => ApiClient.Models.listModels({}))
       .then(response => {
         if (cancelled) return
@@ -97,10 +107,13 @@ export function usePredictModelCounts(): UsePredictModelCountsResult {
           setModelsFailed(true)
         }
       })
+      .finally(() => {
+        if (!cancelled) setModelsSettled(true)
+      })
     return () => {
       cancelled = true
     }
   }, [])
 
-  return { lab, saved, imported, failed: labFailed || modelsFailed }
+  return { lab, saved, imported, failed: labFailed || modelsFailed, settled: labSettled && modelsSettled }
 }

@@ -539,6 +539,31 @@ describe('loading, failed and the badge rule', () => {
     await Promise.resolve()
     expect(screen.getByTestId('txr-intake-start-card-train-badge')).toBeTruthy()
   })
+
+  it('a released model brings the badge back on the next visit (a cached 0 never flashes state B)', async () => {
+    // Visit 1: no lab model and no saved or imported models — state B.
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    api.saved.mockResolvedValue({ models: [], total: 0 })
+    const first = renderStart()
+    await screen.findByTestId('txr-intake-start-card-predict-note')
+    expect(screen.getByTestId('txr-intake-start-card-train-badge').textContent).toBe(
+      'Recommended to start',
+    )
+    first.unmount()
+    // Visit 2 (a new mount of the same session — the count cache still holds
+    // the first visit's settled 0s): the catalogue is asked again (item 6:
+    // state B never shows over the cached 0 before this mount's own answers
+    // land), and the released lab model restores state A + the badge.
+    api.pretrained.mockResolvedValue({ models: [{ id: 'rel-1' }], origin: 'live' })
+    renderStart()
+    expect(await screen.findByTestId('txr-intake-start-card-predict-cta')).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-start-card-predict-badge').textContent).toBe(
+      'Recommended to start',
+    )
+    expect(screen.queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-train-badge')).toBeNull()
+    expect(api.pretrained).toHaveBeenCalledTimes(2)
+  })
 })
 
 /** A long failure line: the case that broke the card's button row. */
@@ -662,6 +687,20 @@ describe('demo mode (ITEM-6) — the card example actions are the primary', () =
     expect(within(predict).getByText('Uses a trained model')).toBeTruthy()
     expect(await within(predict).findByText('Recommended to start')).toBeTruthy()
     expect(within(predict).queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
+  })
+
+  it('the demo Learn card stays state A with zero counts (the state-B copy never shows in demo)', async () => {
+    // All three counts settle at 0 (the demo has no stored models): outside
+    // the demo that is state B; in the demo both cards stay state A — the
+    // recorded lab models are the demo's "some model".
+    seedDemoMode('demo')
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    api.saved.mockResolvedValue({ models: [], total: 0 })
+    renderStart()
+    const learn = screen.getByTestId('txr-intake-start-card-train')
+    expect(await within(learn).findByText('Most flexible')).toBeTruthy()
+    expect(within(learn).queryByText('Start here: train your first models')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-predict-note')).toBeNull()
   })
 
   it("the demo primary action fills the flow and lands on the path's file step", async () => {

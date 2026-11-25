@@ -41,7 +41,7 @@ export const VALIDATOR_CATALOG: readonly ValidatorCatalogEntry[] =
   validatorCatalogJson as unknown as readonly ValidatorCatalogEntry[]
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Quick start (the top-of-page row mirroring the Start screen's three ways)
+// Quick start (the top-of-page row mirroring the Start screen's two ways)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const QUICK_START: readonly QuickStartCard[] = [
@@ -59,26 +59,13 @@ export const QUICK_START: readonly QuickStartCard[] = [
     },
   },
   {
-    id: 'pretrained',
-    eyebrow: 'No training needed',
-    title: 'Predict with a ready-made model',
-    text: 'Add the blood measurements of the patients you want predictions for. The app shows which ready-made models can run on them. Ready-made models are already trained by the TxResBench team, so they predict without learning from your data.',
+    id: 'predict',
+    eyebrow: 'Uses a trained model',
+    title: 'Predict new patients',
+    text: 'Add the blood measurements of the patients you want predictions for, then pick any models that can run on them: ready-made models from the lab, models you saved, or models opened from a file.',
     screen: 'Predict files',
     route: FLOW_ROUTES.predictFiles,
     cta: 'Add the patients to predict',
-    tryExample: {
-      label: 'Try it with example data',
-      path: 'predict',
-    },
-  },
-  {
-    id: 'saved',
-    eyebrow: 'Repeat a past analysis',
-    title: 'Use a model I saved',
-    text: 'Add the patients to predict, then pick any of the models you trained before. No need to upload the training data again.',
-    screen: 'Predict files',
-    route: FLOW_ROUTES.predictFiles,
-    cta: 'Predict with a model I saved',
     tryExample: {
       label: 'Try it with example data',
       path: 'predict',
@@ -120,8 +107,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
             number: 1,
             name: 'Start',
             lines: [
-              'Pick the way in: learn from my data, a ready-made model, or a model I saved.',
-              'The three cards name what each way needs.',
+              'Pick the way in: learn from my data, or predict new patients.',
+              'The two cards name what each way needs.',
             ],
             screen: 'Start',
             details: [
@@ -129,8 +116,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
                 kind: 'bullets',
                 items: [
                   '"Learn from my data" — button "Add my data".',
-                  '"Predict with a ready-made model" — button "Add the patients to predict".',
-                  '"Use a model I saved" — button "Predict with a model I saved".',
+                  '"Predict new patients" — button "Add the patients to predict".',
                   'Not sure? "Answer a few questions about your study on the next screen", or load "Try the example data" to explore with the project\'s own sample files.',
                 ],
               },

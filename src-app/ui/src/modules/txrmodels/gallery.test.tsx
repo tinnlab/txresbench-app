@@ -80,6 +80,10 @@ const STORY_SLUGS = [
   'txr-shell-route-models',
   'txr-shell-route-saved-models',
   'txr-shell-route-pretrained-models',
+  'txr-models-choose',
+  'txr-models-choose-narrow-390',
+  'txr-models-choose-none',
+  'txr-shell-route-choose-models',
   'txr-models-l',
   'txr-models-l2',
   'txr-models-l3',
@@ -136,6 +140,13 @@ describe('txrmodels gallery seed (TEST-MOD-16)', () => {
     expect(bySlug.get('txr-models-j-narrow-390')?.initialPath).toBe('/models')
     expect(bySlug.get('txr-models-empty')?.path).toBe('/pretrained-models')
     expect(bySlug.get('txr-models-error')?.path).toBe('/pretrained-models')
+    // The merged-list stories bind the round-2 route (the D/I frames'
+    // descendant-Routes pattern — the run's in-frame navigation shows the
+    // landing line).
+    for (const slug of ['txr-models-choose', 'txr-models-choose-narrow-390', 'txr-models-choose-none', 'txr-shell-route-choose-models']) {
+      expect(bySlug.get(slug)?.path, slug).toBe('/*')
+      expect(bySlug.get(slug)?.initialPath, slug).toBe('/choose-models')
+    }
     for (const slug of ['txr-models-l', 'txr-models-l2', 'txr-models-l3']) {
       expect(bySlug.get(slug)?.initialPath, slug).toBe('/analysis/run-c/results')
     }

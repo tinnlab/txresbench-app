@@ -510,3 +510,22 @@ export function formatSavedTotals(
   const someSegment = some > 0 ? ` (${some} of them for some patients)` : ''
   return `${shown} saved models shown \u00b7 ${canRun} can run, ${cannot} cannot${someSegment}`
 }
+
+/**
+ * The merged model step's header totals line (predict-card merge round 2):
+ * "N models · X can run, Y cannot" ("1 model · …" singular) — the one
+ * accounting over the eligibility response's three verdicts (can run =
+ * fit + some, the same definition the built-in "Can run N" chip counts;
+ * the "N saved models shown" old line's word goes: the list shows every
+ * source).
+ */
+export function formatChooseTotals(
+  shown: number,
+  fit: number,
+  some: number,
+  cannot: number,
+): string {
+  const canRun = fit + some
+  const noun = shown === 1 ? 'model' : 'models'
+  return `${shown} ${noun} \u00b7 ${canRun} can run, ${cannot} cannot`
+}

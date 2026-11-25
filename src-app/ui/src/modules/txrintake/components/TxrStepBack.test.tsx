@@ -75,6 +75,10 @@ function renderFlow(initial: string, steps: { blocked?: string | null; dialog?: 
           element={<Step step="pretrained-models" fallback="/predict-files" />}
         />
         <Route
+          path="/choose-models"
+          element={<Step step="choose-models" fallback="/predict-files" />}
+        />
+        <Route
           path="/files"
           element={
             <Step
@@ -215,7 +219,7 @@ describe('the palette offers flow.back only on a step view', () => {
     expect(offered()).not.toContain('flow.back')
   })
 
-  it('models.switchList only on the model steps (D, I), never on B, C, N or E', () => {
+  it('models.switchList only on the model steps (D, I, the merged list), never on B, C, N or E', () => {
     const study = renderFlow('/study')
     expect(offered()).toContain('flow.back')
     expect(offered()).not.toContain('models.switchList')
@@ -223,6 +227,10 @@ describe('the palette offers flow.back only on a step view', () => {
     const models = renderFlow('/pretrained-models')
     expect(offered()).toContain('models.switchList')
     models.unmount()
+    // Round 2: the merged list is a model step too (the alias is offered there).
+    const merged = renderFlow('/choose-models')
+    expect(offered()).toContain('models.switchList')
+    merged.unmount()
     expect(offered()).not.toContain('models.switchList')
   })
 

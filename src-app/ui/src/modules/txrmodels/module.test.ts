@@ -159,13 +159,18 @@ describe('txrmodels module (TEST-MOD-01)', () => {
       name: 'txrmodels',
       version: '1.0.0',
       description:
-        'TxResBench models — choose pretrained (D) and saved (I) models to run, the Your-models inventory (J), and the save dialogs (L/L2/L3)',
+        'TxResBench models — the merged model step (choose-models), the D/I redirects, the Your-models inventory (J), and the save dialogs (L/L2/L3)',
     })
   })
 
-  it('owns exactly the three model routes, each guarded under the shell layout', () => {
+  it('owns exactly the four model routes, each guarded under the shell layout', () => {
     const routes = routesOf(txrModelsModule)
-    expect(routes.map(r => r.path)).toEqual(['/pretrained-models', '/saved-models', '/models'])
+    expect(routes.map(r => r.path)).toEqual([
+      '/pretrained-models',
+      '/saved-models',
+      '/choose-models',
+      '/models',
+    ])
     for (const route of routes) {
       expect(route.requiresAuth).toBe(true)
       expect(route.layout).toBe(TxrLayoutDef)
@@ -226,11 +231,11 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     expect(files['./module.tsx'].default).toBe(txrModelsModule)
   })
 
-  it('routes the three lazy pages the module declares', () => {
+  it('routes the four lazy pages the module declares', () => {
     const source = readFileSync(fileURLToPath(new URL('./module.tsx', import.meta.url)), 'utf8')
     expect(source).toContain('lazyWithPreload')
-    expect(source).toContain("import('./pages/PretrainedModelsPage')")
-    expect(source).toContain("import('./pages/SavedModelsPage')")
+    expect(source).toContain("import('./pages/RedirectRoutes')")
+    expect(source).toContain("import('./pages/ChooseModelsPage')")
     expect(source).toContain("import('./pages/ModelsPage')")
   })
 
@@ -500,7 +505,15 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           // (the app-mode store, the notice bar + the mode-gated
           // components) — new auto-discovered modules are additions, not
           // global edits (the txrhistory/txrhelp convention).
-          !p.startsWith('src-app/ui/src/modules/demo/'),
+          !p.startsWith('src-app/ui/src/modules/demo/') &&
+          // predictions-r2 (its DRIFT-1): the predict flow's ONE shared
+          // step vocabulary — `txrshell/lib/flowSteps.ts` gains the
+          // `choose-models` step (FLOW_ROUTES/FLOW_STEPS/FlowStepId) and
+          // `FLOW_PATHS.predict` becomes `[[predict-files],[choose-models]]`
+          // (the old D/I routes join the same step until round 3), plus
+          // the flow-step unit test's new pins.
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.test.ts',
       ),
     ).toEqual([])
   })

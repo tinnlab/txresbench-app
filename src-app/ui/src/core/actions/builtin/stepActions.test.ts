@@ -3,7 +3,7 @@
 // trail cut), `models.switchList` (the D/I switch that replaces the step) and
 // `flow.startPath` (the Start cards) and `help.backToStep` (Help opened from a step).
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const nav = vi.hoisted(() => ({ navigate: vi.fn(), current: vi.fn(() => '/') }))
 vi.mock('../navigateBridge', () => ({
@@ -41,6 +41,7 @@ import {
   useStepTrailStore,
   type TxrCurrentStep,
 } from '@/modules/txrintake/lib/stepTrail'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 
 function onStep(current: Partial<TxrCurrentStep> & Pick<TxrCurrentStep, 'step' | 'url'>): void {
   useStepTrailStore.setState({
@@ -176,7 +177,7 @@ describe('models.switchList', () => {
     })
   })
 
-  it('is registered: McpUse, mutating, the model-step context (offered on D and I only), a list param', () => {
+  it('is registered: McpUse, mutating, the model-step context (offered on D, I and the merged list), a list param', () => {
     const meta = getActionMeta('models.switchList')
     expect(meta?.permission).toBe(Permissions.McpUse)
     expect(meta?.mutating).toBe(true)
@@ -184,29 +185,32 @@ describe('models.switchList', () => {
     expect(TXR_MODEL_STEP_CONTEXT).toBe('txr.modelStep')
   })
 
-  it('from the empty published list: the saved list takes the step\u2019s place, the saved source, the checked file kept', async () => {
+  it('from the empty published list: the merged list takes the step\u2019s place, Saved + Imported on, the checked file kept', async () => {
     useStepTrailStore.setState({ trail: ['/', '/predict-files', '/pretrained-models'] })
     onStep({ step: 'pretrained-models', url: '/pretrained-models', fallback: '/predict-files' })
     await expect(runAction('models.switchList', { list: 'saved' })).resolves.toEqual({
-      path: '/saved-models',
+      path: '/choose-models',
     })
-    expect(nav.navigate).toHaveBeenCalledWith('/saved-models')
-    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/saved-models'])
+    expect(nav.navigate).toHaveBeenCalledWith('/choose-models')
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/choose-models'])
     expect(useTxrIntakeStore.getState().intent).toBe('predict')
     expect(useTxrIntakeStore.getState().predictSource).toBe('saved')
     expect(useTxrIntakeStore.getState().mode).toBe('predict')
     expect(useTxrIntakeStore.getState().validation).toBe(checked)
+    // The alias mapping: the Saved + Imported chips of the ONE list.
+    expect(useTxrModelsStore.getState().filters).toEqual(['source-saved', 'source-imported'])
   })
 
-  it('and back the other way: the published list, the lab source', async () => {
+  it('and back the other way: From the lab on, the lab source', async () => {
     useTxrIntakeStore.setState({ intent: 'predict', predictSource: 'saved' })
     useStepTrailStore.setState({ trail: ['/', '/predict-files', '/saved-models'] })
     onStep({ step: 'saved-models', url: '/saved-models', fallback: '/predict-files' })
     await runAction('models.switchList', { list: 'published' })
-    expect(nav.navigate).toHaveBeenCalledWith('/pretrained-models')
-    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/pretrained-models'])
+    expect(nav.navigate).toHaveBeenCalledWith('/choose-models')
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/choose-models'])
     expect(useTxrIntakeStore.getState().intent).toBe('predict')
     expect(useTxrIntakeStore.getState().predictSource).toBe('lab')
+    expect(useTxrModelsStore.getState().filters).toEqual(['source-lab'])
   })
 
   it('a second switch before the router commits the first does nothing (the trail holds the list once)', async () => {
@@ -215,14 +219,16 @@ describe('models.switchList', () => {
     await runAction('models.switchList', { list: 'saved' })
     await expect(runAction('models.switchList', { list: 'saved' })).rejects.toThrow(STEP_BACK_LEAVING)
     expect(nav.navigate).toHaveBeenCalledTimes(1)
-    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/saved-models'])
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/choose-models'])
   })
 
-  it('already on that list: nothing moves', async () => {
-    useStepTrailStore.setState({ trail: ['/', '/predict-files', '/saved-models'] })
-    onStep({ step: 'saved-models', url: '/saved-models', fallback: '/predict-files' })
+  it('already on the merged list: only the chips are set (the step is not exchanged)', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files', '/choose-models'] })
+    onStep({ step: 'choose-models', url: '/choose-models', fallback: '/predict-files' })
     await runAction('models.switchList', { list: 'saved' })
-    expect(nav.navigate).not.toHaveBeenCalled()
+    expect(nav.navigate).toHaveBeenCalledWith('/choose-models')
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/choose-models'])
+    expect(useTxrModelsStore.getState().filters).toEqual(['source-saved', 'source-imported'])
   })
 
   it('refuses off the model step, while a run is starting, and while a dialog is open', async () => {
@@ -354,6 +360,10 @@ describe('flow.useExample', () => {
     )
   })
 
+  afterEach(() => {
+    resetDemoMode()
+  })
+
   it('is registered: McpUse, mutating, global, the predict/train intent params', () => {
     const meta = getActionMeta('flow.useExample')
     expect(meta).toBeDefined()
@@ -432,6 +442,30 @@ describe('flow.useExample', () => {
     await runAction('flow.useExample', { intent: 'predict' }, ctx)
     expect(notes).toHaveLength(1)
     expect(notes[0]).toMatchObject({ state: 'creating', methods: ['kelim'] })
+  })
+
+  it('demo: the predict path still ensures the example set (the demo answers it from the recorded bundle)', async () => {
+    seedDemoMode('demo')
+    api.exampleSet.mockResolvedValueOnce({
+      state: 'ready',
+      set_id: 'set-demo',
+      methods: ['kelim'],
+      run_id: undefined,
+      run_status: undefined,
+      error: undefined,
+    })
+    await expect(runAction('flow.useExample', { intent: 'predict' })).resolves.toEqual({
+      path: '/predict-files',
+    })
+    expect(nav.navigate).toHaveBeenCalledWith('/predict-files')
+    expect(useTxrIntakeStore.getState()).toMatchObject({
+      intent: 'predict',
+      predictSource: 'saved',
+      mode: 'predict',
+    })
+    expect(useTxrIntakeStore.getState().pendingExampleSetId).toBe('set-demo')
+    expect(api.example).toHaveBeenCalledWith({ kind: 'predict-measurements' })
+    expect(api.exampleSet).toHaveBeenCalledTimes(1)
   })
 
   it('refuses while a run is starting or a page dialog is open on the step view', async () => {

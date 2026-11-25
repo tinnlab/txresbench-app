@@ -26,6 +26,12 @@ export const pretrainedModelsPath = (): string => ROUTE_CONVENTIONS.pretrainedMo
 /** Screen I — choose saved models (board `Saved.dc.html`). */
 export const savedModelsPath = (): string => ROUTE_CONVENTIONS.savedModels
 
+/** The merged model step (predict-card merge round 2) — the one list of the
+ *  predict path's model choice; `source` decorates the redirects from the
+ *  old D/I routes with the chip preset the old intent pinned. */
+export const chooseModelsPath = (source?: 'lab' | 'saved'): string =>
+  source === undefined ? '/choose-models' : `/choose-models?source=${source}`
+
 /** Screen J — your models (board `Models.dc.html`); the optional set id focuses the table. */
 export const modelsPath = (setId?: string): string =>
   setId === undefined ? MODELS_ROUTE : `${MODELS_ROUTE}?set=${setId}`

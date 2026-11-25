@@ -703,7 +703,7 @@
       "stateful": true,
       "permission": "mcp::use",
       "group": "Analysis",
-      "description": "On the model step (the ready-made or the saved models list), start the run with the models that are checked. Refused when the chosen models were trained at different decision days (each model runs at its own day), when no model is chosen, and when a selected model cannot be run (a download still running or failed, on the ready-made list). Requires the current state token (view.describe).",
+      "description": "On the model step (the merged model list), start the run with the models that are checked. Refused when the chosen models were trained at different decision days (each model runs at its own day), when no model is chosen, and when a selected lab model cannot be run (a download still running or failed). Requires the current state token (view.describe).",
       "aliases": [
         "run the models",
         "run the chosen models",
@@ -734,6 +734,136 @@
       }
     },
     {
+      "id": "models.setListFilters",
+      "title": "Filter and sort the model list",
+      "kind": "instance",
+      "context": "txr.model-list",
+      "mutating": true,
+      "stateful": true,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the merged model list, set the view: the source chips (From the lab / Saved / Imported), \"Can run only\", the host chips (Same outcome as my file, Published rules, Learned by the benchmark, Checked on 2 or more other cohorts), the search text over the run name and the sort. Each omitted field keeps the current value; \"all\" is cleared by passing empty sources, no chips and canRunOnly false. Requires the current state token (view.describe).",
+      "aliases": [
+        "filter the models",
+        "sort the models",
+        "set the model filters"
+      ],
+      "keywords": [
+        "models",
+        "filters",
+        "sort",
+        "state token"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "expected"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The model list (views.list, type txr.model-list)."
+          },
+          "expected": {
+            "type": "string",
+            "description": "The current state token of the model list (view.describe._state_token)."
+          },
+          "sources": {
+            "description": "The source chips to show (\"lab\", \"saved\", \"imported\"; several on = any of them).",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "lab",
+                "saved",
+                "imported"
+              ]
+            }
+          },
+          "canRunOnly": {
+            "description": "Show only the models that can run on the file.",
+            "type": "boolean"
+          },
+          "chips": {
+            "description": "The other host chips to show.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "same-outcome",
+                "published",
+                "learned",
+                "checked-2-plus"
+              ]
+            }
+          },
+          "search": {
+            "description": "Text to find over the run name and the model facts.",
+            "type": "string"
+          },
+          "sort": {
+            "description": "The sort: \"transfer\", \"newest-run\", \"patients\" or \"time\".",
+            "type": "string",
+            "enum": [
+              "transfer",
+              "newest-run",
+              "patients",
+              "time"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "models.setSelection",
+      "title": "Select models to run",
+      "kind": "instance",
+      "context": "txr.model-list",
+      "mutating": true,
+      "stateful": true,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the merged model list, set the checked models by their row ids (the same write the checkboxes and \"Select all that can run\" make). Rows the list shows as cannot run are never selectable. Requires the current state token (view.describe).",
+      "aliases": [
+        "select models",
+        "check models",
+        "set the model selection"
+      ],
+      "keywords": [
+        "models",
+        "selection",
+        "state token"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "expected",
+          "ids"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The model list (views.list, type txr.model-list)."
+          },
+          "expected": {
+            "type": "string",
+            "description": "The current state token of the model list (view.describe._state_token)."
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The row ids to check (the selection replaces the current one)."
+          }
+        }
+      }
+    },
+    {
       "id": "models.switchList",
       "title": "Switch between the ready-made models and your saved models",
       "kind": "global",
@@ -741,7 +871,7 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "On the model step of a new analysis, show the other model list for the same checked file: \"saved\" for your saved models, \"published\" for the ready-made models (already trained by the TxResBench team). The new list takes the place of the current one in the steps, so Back still goes to the file step.",
+      "description": "On the model step of a new analysis, show the other model kind of the one merged list: \"saved\" turns the Saved and Imported chips on, \"published\" turns the From the lab chip on. Everything else (the searched file, the selection) stays; the old two-list switch is this alias's mapping.",
       "aliases": [
         "use my saved models",
         "use the ready-made models",
@@ -773,7 +903,7 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "Your models \"Use\": start the saved-model path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the saved list once the file checks out. Back from that step returns to the page it was started from.",
+      "description": "Your models \"Use\": start the predict path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the merged model list once the file checks out. Back from that step returns to the page it was started from.",
       "aliases": [
         "use this model"
       ],

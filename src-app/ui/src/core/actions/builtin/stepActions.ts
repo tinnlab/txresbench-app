@@ -6,7 +6,7 @@ import { getActiveEntity } from '../activeContext'
 import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
 import { runExampleFlow } from '@/modules/txrintake/lib/example'
 import type { IntakeIntent, PredictModelSource } from '@/modules/txrintake/types'
-import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
+import { FLOW_ROUTES, stepOfUrl } from '@/modules/txrshell/lib/flowSteps'
 import {
   beginPath,
   assertCanLeaveStep,
@@ -39,10 +39,6 @@ import {
 // Sole runtime import site: `src/modules/txrintake/module.tsx`.
 
 // The routes come from the one list of steps (`txrshell/lib/flowSteps.ts`).
-
-/** The model step routes (the D and I screens). */
-const PUBLISHED_MODELS_ROUTE = FLOW_ROUTES.pretrainedModels
-const SAVED_MODELS_ROUTE = FLOW_ROUTES.savedModels
 
 /** The first step of each path (Start's card picker: learn → the files step, the predict paths → N). */
 const FILES_ROUTE = FLOW_ROUTES.files
@@ -119,28 +115,39 @@ defineAction({
   context: TXR_MODEL_STEP_CONTEXT,
   aliases: ['use my saved models', 'use the ready-made models', 'use the published models'],
   description:
-    'On the model step of a new analysis, show the other model list for the same checked file: "saved" for your saved models, "published" for the ready-made models (already trained by the TxResBench team). The new list takes the place of the current one in the steps, so Back still goes to the file step.',
+    'On the model step of a new analysis, show the other model kind of the one merged list: "saved" turns the Saved and Imported chips on, "published" turns the From the lab chip on. Everything else (the searched file, the selection) stays; the old two-list switch is this alias\'s mapping.',
   params: z.object({
     list: z
       .enum(['saved', 'published'])
       .describe('"saved" for your saved models, "published" for the ready-made models.'),
   }),
-  run: ({ list }, ctx) => {
+  run: async ({ list }, ctx) => {
     const onScreen = useStepTrailStore.getState().current
     if (
       onScreen === null ||
-      (onScreen.step !== 'pretrained-models' && onScreen.step !== 'saved-models')
+      (onScreen.step !== 'pretrained-models' &&
+        onScreen.step !== 'saved-models' &&
+        onScreen.step !== 'choose-models')
     ) {
       throw new Error('Open the model step of a new analysis first.')
     }
-    const current = assertCanLeaveStep()
-    const path = list === 'saved' ? SAVED_MODELS_ROUTE : PUBLISHED_MODELS_ROUTE
-    // Already on that list: nothing to switch.
-    if ((current.step === 'saved-models') === (list === 'saved')) return { path }
-    // The ONE predict intent + the source preset the list shows; the checked
-    // file stays (setIntent changes the intent and the mode only).
+    assertCanLeaveStep()
+    const { useTxrModelsStore } = await import('@/modules/txrmodels/stores/TxrModels.store')
+    // The ONE merged list's source chips (the round-2 alias mapping: the
+    // old list switch becomes the chip preset; nothing moves between
+    // steps — the merged list IS the model step).
+    useTxrModelsStore.getState().setListFilters({
+      sources: list === 'saved' ? ['saved', 'imported'] : ['lab'],
+    })
     TxrIntake.setIntent('predict', list === 'saved' ? 'saved' : 'lab')
-    replaceCurrentStep(path)
+    const path = FLOW_ROUTES.chooseModels
+    // From an old model step (the D/I pages still in the tree this round)
+    // the merged list TAKES ITS PLACE in the trail, so Back from it goes
+    // to the file step. From the merged list itself (its chips preset only)
+    // the trail is the model step already and must keep the current step's
+    // leaving flag untouched — a same-URL navigate would otherwise leave
+    // `leaving` stuck and Block the Back button.
+    if (onScreen.step !== 'choose-models') replaceCurrentStep(path)
     ctx.navigate(path)
     return { path }
   },
@@ -198,15 +205,22 @@ defineAction({
   }),
   run: async ({ intent }, ctx) => {
     assertCanStartPath()
-    beginPathHere()
+    // Round-1 audit item 3: when the person is ALREADY on the step this
+    // leads to (the file step's own "Use example"), beginning the path here
+    // would reset the step trail (Help → files → Back would go to Start
+    // instead of Help). Only begin the path and navigate when the person is
+    // not already on that step.
+    const path = intent === 'train' ? FILES_ROUTE : PREDICT_FILES_ROUTE
+    const here = currentPathViaBridge()
+    const alreadyThere = stepOfUrl(here) !== null && stepOfUrl(here) === (intent === 'train' ? 'files' : 'predict-files')
+    if (!alreadyThere) beginPathHere()
     await runExampleFlow(intent, {
       // The UI host (the button) streams the set-training state through the
       // progress channel; the agent sees the same as a progress note.
       onSetProgress: response => ctx.progress('Preparing the example models', response),
       cancelled: () => ctx.signal?.aborted ?? false,
     })
-    const path = intent === 'train' ? FILES_ROUTE : PREDICT_FILES_ROUTE
-    ctx.navigate(path)
+    if (!alreadyThere) ctx.navigate(path)
     return { path }
   },
 })
@@ -218,7 +232,7 @@ defineAction({
   mutating: true,
   aliases: ['use this model'],
   description:
-    'Your models "Use": start the saved-model path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the saved list once the file checks out. Back from that step returns to the page it was started from.',
+    'Your models "Use": start the predict path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the merged model list once the file checks out. Back from that step returns to the page it was started from.',
   params: z.object({
     modelId: z.string().min(1).describe('The saved model id (from Your models).'),
     name: z.string().optional().describe('The model name the step shows.'),

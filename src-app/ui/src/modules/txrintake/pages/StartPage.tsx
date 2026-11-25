@@ -289,7 +289,7 @@ export function StartPage() {
   // The ONE counts source of the two cards (see the header): the lab
   // catalogue count and the store's `run` / `imported` counts. `null` =
   // loading or failed; `failed` is the "never show state B" flag.
-  const { lab, saved, imported, failed } = usePredictModelCounts()
+  const { lab, saved, imported, failed, settled } = usePredictModelCounts()
   const { isDemo } = useAppMode()
   const navigate = useNavigate()
   // R2-G1: the tab/title byte is the page's own h1.
@@ -306,14 +306,18 @@ export function StartPage() {
   })
 
   // The three counts' state: some model exists (state A), none anywhere and
-  // all three KNOWN (state B), or still loading (skeletons — never flash B).
+  // the mount's own counts settled at 0 (state B), or still loading
+  // (skeletons — a cached 0 never flashes state B before this mount's own
+  // fetches have settled, round-1 audit item 6).
   const someModel =
     (lab !== null && lab > 0) || (saved !== null && saved > 0) || (imported !== null && imported > 0)
-  const allKnown = lab !== null && saved !== null && imported !== null
-  const noModelAnywhere = allKnown && lab === 0 && saved === 0 && imported === 0
-  // Demo mode: the predict card is always state A (the demo has its
-  // recorded lab models); the counts state never shows B there.
+  const noModelAnywhere = !failed && settled && lab === 0 && saved === 0 && imported === 0
+  // Demo mode: both cards are state A (the demo has its recorded lab
+  // models); the counts state never shows B there (round-1 audit item 1:
+  // the Learn card used to flip to its state-B copy in demo when the
+  // counts are 0 — the same demo guard the Predict card uses).
   const predictStateB = !isDemo && noModelAnywhere
+  const learnStateB = !isDemo && noModelAnywhere
   const predictLoading = !isDemo && !failed && !someModel && !noModelAnywhere
   // The badge: on the predict card when the lab catalogue has a model,
   // otherwise on "Learn from my data" (also while loading or failed).
@@ -347,7 +351,7 @@ export function StartPage() {
               <div style={CARD_GRID}>
                 <section style={CARD} data-testid="txr-intake-start-card-train">
                   <div style={CARD_EYEBROW}>
-                    {noModelAnywhere
+                    {learnStateB
                       ? 'Start here: train your first models'
                       : 'Most flexible'}
                   </div>
@@ -360,7 +364,7 @@ export function StartPage() {
                     ) : null}
                   </h2>
                   <p style={CARD_BODY}>
-                    {noModelAnywhere
+                    {learnStateB
                       ? 'Train the methods on your patients with known outcomes and save them as models. Then predict new patients with them.'
                       : 'Train the methods on your own patients with known outcomes, then predict new patients. Choose what to predict — progression or death within a chosen horizon — and run the methods that fit your file.'}
                   </p>
@@ -457,8 +461,13 @@ export function StartPage() {
                         openFile={
                           <Button
                             data-testid="txr-intake-start-card-predict-open-file"
-                            style={{ ...PRIMARY_BUTTON, background: 'var(--txr-surface)', color: 'var(--txr-text)', border: '1px solid var(--txr-border)' }}
-                            onClick={() => void runAction('models.openModelFile', {})}
+                            variant="outline"
+                            onClick={() => {
+                              // Round-1 audit item 9: a failed import's
+                              // error Alert clears on the next click.
+                              importFile.clearError()
+                              void runAction('models.openModelFile', {})
+                            }}
                           >
                             Open a model file
                           </Button>

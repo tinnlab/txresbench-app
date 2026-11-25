@@ -65,6 +65,7 @@ import type {
   TxrModelDialogId,
   TxrModelFilterId,
   TxrModelSortId,
+  TxrModelSourceId,
   TxrModelsState,
 } from '../types'
 
@@ -82,6 +83,7 @@ const BIRTH_STATE: TxrModelsState = {
   eligibility: { byKey: new Map(), totals: null, loading: false, error: null },
   selection: new Set<string>(),
   filters: [],
+  canRunOnly: false,
   sort: 'transfer',
   search: '',
   atATime: DEFAULT_AT_A_TIME,
@@ -177,6 +179,7 @@ const TxrModelsDef = defineStore('TxrModels', {
       set(s => ({
         selection: new Set<string>(),
         filters: [],
+        canRunOnly: false,
         downloadState: {},
         eligibility: { byKey: new Map(), totals: null, loading: false, error: null },
         pretrained: s.pretrained,
@@ -453,6 +456,52 @@ const TxrModelsDef = defineStore('TxrModels', {
           const active = s.filters.includes(id)
           return {
             filters: active ? s.filters.filter(f => f !== id) : [...s.filters, id],
+          }
+        })
+      },
+
+      /** The merged list's "Can run N" built-in chip, wired for real. */
+      setCanRunOnly: (on: boolean): void => set({ canRunOnly: on }),
+
+      /**
+       * The `models.setListFilters` write — the ONE store action behind the
+       * filter chips, the search and the sort of the merged model list (the
+       * registered action and the human controls call it; the list component
+       * never filters itself). Each undefined field keeps the current value;
+       * `sources` REPLACES the active source chip ids and `chips` replaces
+       * the active non-source host chip ids (the two groups are the action's
+       * own vocabulary — "All" clears everything through its own action).
+       */
+      setListFilters: (input: {
+        sources?: TxrModelSourceId[] | null
+        canRunOnly?: boolean
+        chips?: TxrModelFilterId[] | null
+        search?: string
+        sort?: TxrModelSortId
+      }): void => {
+        set(s => {
+          let filters = [...s.filters]
+          if (input.sources !== undefined) {
+            const sourceIds = (input.sources ?? []).map(
+              (source): TxrModelFilterId => `source-${source}` as TxrModelFilterId,
+            )
+            filters = filters.filter(f => !f.startsWith('source-'))
+            filters = [...filters, ...sourceIds]
+          }
+          if (input.chips !== undefined) {
+            const hostIds = (input.chips ?? []).filter(
+              (f: TxrModelFilterId) => !f.startsWith('source-') && f !== 'all' && f !== 'can-run',
+            )
+            filters = filters.filter(
+              f => f.startsWith('source-') || f === 'all' || f === 'can-run',
+            )
+            filters = [...filters, ...hostIds]
+          }
+          return {
+            filters,
+            canRunOnly: input.canRunOnly ?? s.canRunOnly,
+            search: input.search ?? s.search,
+            sort: input.sort ?? s.sort,
           }
         })
       },

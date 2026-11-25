@@ -42,6 +42,10 @@ describe('the order of the paths', () => {
       of: 3,
       title: 'Choose the saved models to run',
     })
+    // predict-card merge round 2: the merged list is the SAME step 3 (the
+    // old D/I views stay in the path as members of that step until round 3
+    // removes them).
+    expect(stepPlace('choose-models')).toEqual({ step: 3, of: 3, title: 'Choose the models to run' })
   })
 
   it('the study questions are a side trip of the predict path, not a numbered step', () => {
@@ -55,6 +59,7 @@ describe('the order of the paths', () => {
     expect(stepOrder('choose-methods')).toBe(3)
     expect(stepOrder('predict-files')).toBe(1)
     expect(stepOrder('saved-models')).toBe(2)
+    expect(stepOrder('choose-models')).toBe(2)
   })
 })
 

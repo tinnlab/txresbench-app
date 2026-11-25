@@ -28,11 +28,29 @@ import { useActiveContext } from '@/core/actions/activeContext'
 import { checkExpectedToken, createVersioned } from '@/core/actions/versioned'
 import { newViewId } from '@/core/actions/instanceRegistry'
 
-/** The one registered Run action of the model step (D and I). */
+/** The one registered Run action of the model step (D, I and the merged list). */
 export const MODELS_RUN = 'models.run'
 
-/** The instance type of the live model list (D or I page) — the context name. */
+/** The merged list's filter/search/sort action (predict-card merge round 2). */
+export const MODELS_SET_LIST_FILTERS = 'models.setListFilters'
+
+/** The merged list's selection action (the row checkboxes + select-all). */
+export const MODELS_SET_SELECTION = 'models.setSelection'
+
+/** The instance type of the live model list (D, I or the merged list page)
+ *  — the context name. */
 export const TXR_MODEL_LIST_CONTEXT = 'txr.model-list'
+
+/** The merged list's source vocabulary (the actions' params). */
+export type TxrListSourceId = 'lab' | 'saved' | 'imported'
+
+/** The host chip ids the merged list's actions accept (the non-source chips). */
+export const CHOOSE_HOST_CHIP_IDS = [
+  'published',
+  'learned',
+  'checked-2-plus',
+  'same-outcome',
+] as const
 
 /** The instance snapshot (`views.list` / `view.describe` read it). */
 export interface TxrModelListSnapshot extends Record<string, unknown> {
@@ -48,6 +66,15 @@ export interface TxrModelListSnapshot extends Record<string, unknown> {
   selected_ids: string[]
   /** Why the run cannot start (different decision days), or null. */
   blocked_reason: string | null
+  /** The merged list's active filter state (the same facts the
+   *  `setListFilters` run reads — a filter change moves the token too). */
+  filters: {
+    sources: TxrListSourceId[]
+    chips: string[]
+    can_run_only: boolean
+    search: string
+    sort: string
+  }
 }
 
 /** The runnable-selection row shape (a full `TxrListRow` is assignable). */
@@ -178,6 +205,29 @@ export interface ModelListRunOptions {
    *  Refusals and failures THROW (with the page's plain text); it must
    *  never report a run that did not start. */
   createRun(keys: readonly string[]): Promise<string>
+  /** The merged list's write for `models.setSelection` (the row checkboxes
+   *  and the select-all call the action — the human controls and the AI
+   *  take one path). Absent on D/I: those pages have no registered
+   *  per-row action this round. */
+  setSelection?(ids: string[]): void
+  /** The merged list's write for `models.setListFilters` (every chip, the
+   *  search and the sort call the action). Absent on D/I. */
+  setListFilters?(input: {
+    sources?: TxrListSourceId[] | null
+    canRunOnly?: boolean
+    chips?: string[] | null
+    search?: string
+    sort?: string
+  }): void
+  /** The merged list's live filter state (the snapshot + the token's
+   *  truth — a filter change must move the token like a selection does). */
+  listState?(): {
+    sources: TxrListSourceId[]
+    chips: string[]
+    canRunOnly: boolean
+    search: string
+    sort: string
+  }
 }
 
 /** The shared Run path's face to a page. */
@@ -231,31 +281,53 @@ export function useModelListRun(options: ModelListRunOptions): ModelListRun {
   const horizons = useMemo(() => chosenFacts.map(facts => facts.horizon), [chosenFacts])
   const blockedReason = useMemo(() => mixedDecisionDaysReason(decisionDays), [decisionDays])
 
+  /** The merged list's live filter state (fresh at snapshot time). */
+  const listStateNow = (): { [key: string]: unknown } => {
+    const state = options.listState?.() ?? {
+      sources: [] as TxrListSourceId[],
+      chips: [] as string[],
+      canRunOnly: false,
+      search: '',
+      sort: 'transfer',
+    }
+    return {
+      sources: state.sources,
+      chips: state.chips,
+      can_run_only: state.canRunOnly,
+      search: state.search,
+      sort: state.sort,
+    }
+  }
+
   // ── The versioned snapshot (`views.list` / `view.describe` read it) ────
-  const snapshot: TxrModelListSnapshot = {
+  const snapshot = (): TxrModelListSnapshot => ({
     selected_count: runnable.length,
     selected_ids: [...runnable],
     blocked_reason: blockedReason,
-  }
+    filters: listStateNow() as TxrModelListSnapshot['filters'],
+  })
   const [modelListVersioned] = useState(() =>
     createVersioned<TxrModelListSnapshot>(viewId, {
       selected_count: 0,
       selected_ids: [],
       blocked_reason: null,
+      filters: { sources: [], chips: [], can_run_only: false, search: '', sort: 'transfer' },
     }),
   )
-  const modelListStamped = useRef(snapshot)
+  const modelListStamped = useRef(snapshot())
   useEffect(() => {
     const last = modelListStamped.current
+    const next = snapshot()
     if (
-      last.selected_count === snapshot.selected_count &&
-      last.blocked_reason === snapshot.blocked_reason &&
-      sameIds(last.selected_ids, snapshot.selected_ids)
+      last.selected_count === next.selected_count &&
+      last.blocked_reason === next.blocked_reason &&
+      sameIds(last.selected_ids, next.selected_ids) &&
+      sameFilters(last.filters, next.filters)
     ) {
       return
     }
-    modelListStamped.current = snapshot
-    modelListVersioned.set(snapshot)
+    modelListStamped.current = next
+    modelListVersioned.set(next)
   })
 
   // ── The run's own state (one per page, shared here) ────────────────────
@@ -315,17 +387,66 @@ export function useModelListRun(options: ModelListRunOptions): ModelListRun {
   // and the token guard already told a stale caller to re-read.
   useAction(viewId, {
     type: TXR_MODEL_LIST_CONTEXT,
-    handlers: {
-      [MODELS_RUN]: (params: unknown) => {
-        const expectedParam = (params as { expected?: unknown }).expected
-        const expected = typeof expectedParam === 'string' ? expectedParam : undefined
-        const current = modelListVersioned.snapshot()._state_token
-        if (checkExpectedToken(current, expected) !== 'ok') {
-          throw staleStateError(viewId, expected, current)
+    handlers: (() => {
+      const handlers: Record<string, (params: unknown) => unknown> = {
+        [MODELS_RUN]: (params: unknown) => {
+          const expectedParam = (params as { expected?: unknown }).expected
+          const expected = typeof expectedParam === 'string' ? expectedParam : undefined
+          const current = modelListVersioned.snapshot()._state_token
+          if (checkExpectedToken(current, expected) !== 'ok') {
+            throw staleStateError(viewId, expected, current)
+          }
+          return startRun(runnableKeys([...getSelection()], rows))
+        },
+      }
+      const writeSelection = options.setSelection
+      if (writeSelection !== undefined) {
+        handlers[MODELS_SET_SELECTION] = (params: unknown) => {
+          const expectedParam = (params as { expected?: unknown }).expected
+          const expected = typeof expectedParam === 'string' ? expectedParam : undefined
+          const current = modelListVersioned.snapshot()._state_token
+          if (checkExpectedToken(current, expected) !== 'ok') {
+            throw staleStateError(viewId, expected, current)
+          }
+          const ids = (params as { ids?: unknown }).ids
+          writeSelection(
+            Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [],
+          )
+          return { status: 'applied', selected_ids: getSelection() }
         }
-        return startRun(runnableKeys([...getSelection()], rows))
-      },
-    },
+      }
+      const writeFilters = options.setListFilters
+      if (writeFilters !== undefined) {
+        handlers[MODELS_SET_LIST_FILTERS] = (params: unknown) => {
+          const expectedParam = (params as { expected?: unknown }).expected
+          const expected = typeof expectedParam === 'string' ? expectedParam : undefined
+          const current = modelListVersioned.snapshot()._state_token
+          if (checkExpectedToken(current, expected) !== 'ok') {
+            throw staleStateError(viewId, expected, current)
+          }
+          const p = (params ?? {}) as {
+            sources?: unknown
+            canRunOnly?: unknown
+            chips?: unknown
+            search?: unknown
+            sort?: unknown
+          }
+          writeFilters({
+            sources: Array.isArray(p.sources)
+              ? (p.sources.filter(
+                  (s): s is TxrListSourceId => s === 'lab' || s === 'saved' || s === 'imported',
+                ) as TxrListSourceId[])
+              : undefined,
+            canRunOnly: typeof p.canRunOnly === 'boolean' ? p.canRunOnly : undefined,
+            chips: Array.isArray(p.chips) ? (p.chips as string[]) : undefined,
+            search: typeof p.search === 'string' ? p.search : undefined,
+            sort: typeof p.sort === 'string' ? p.sort : undefined,
+          })
+          return { status: 'applied', filters: listStateNow() }
+        }
+      }
+      return handlers
+    })(),
     getSnapshot: () => modelListVersioned.snapshot(),
   })
   useActiveContext(TXR_MODEL_LIST_CONTEXT, { entityId: viewId })
@@ -350,4 +471,18 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
     if (a[i] !== b[i]) return false
   }
   return true
+}
+
+/** The snapshot's filter state compare (a filter change moves the token). */
+function sameFilters(
+  a: TxrModelListSnapshot['filters'],
+  b: TxrModelListSnapshot['filters'],
+): boolean {
+  return (
+    a.can_run_only === b.can_run_only &&
+    a.search === b.search &&
+    a.sort === b.sort &&
+    sameIds(a.sources, b.sources) &&
+    sameIds(a.chips, b.chips)
+  )
 }

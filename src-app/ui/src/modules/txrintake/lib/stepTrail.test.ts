@@ -33,6 +33,7 @@ const PREDICT = '/predict-files'
 const METHODS = '/choose-methods'
 const PUBLISHED = '/pretrained-models'
 const SAVED = '/saved-models'
+const CHOOSE = '/choose-models'
 
 /** The fallback each step page declares (the plan's row 13). */
 // The pages' own fallbacks: the step before on the learn path
@@ -44,6 +45,7 @@ const FALLBACK: Record<TxrStepId, string> = {
   'choose-methods': STUDY,
   'pretrained-models': PREDICT,
   'saved-models': PREDICT,
+  'choose-models': PREDICT,
 }
 
 const STEP_OF: Record<string, TxrStepId> = {
@@ -53,6 +55,7 @@ const STEP_OF: Record<string, TxrStepId> = {
   [METHODS]: 'choose-methods',
   [PUBLISHED]: 'pretrained-models',
   [SAVED]: 'saved-models',
+  [CHOOSE]: 'choose-models',
 }
 
 /** A step view mounts: the trail records it and it becomes the current step. */

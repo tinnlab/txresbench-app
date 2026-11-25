@@ -18,9 +18,12 @@
  * The hook ALSO registers itself as the `models.openModelFile` picker
  * host (the `lib/modelFilePicker.ts` channel): a human click runs the
  * action, the action asks the channel, and the mounted host opens its
- * input in place (the action's agent path has no host/gesture and
- * navigates instead). The host only answers when a user activation is
- * active — an agent invocation can never open a picker.
+ * input in place (the action's agent path has no host and navigates
+ * instead). The host answers whenever it is mounted — the action decides
+ * the demo refusal, and the human click (still on the stack inside the
+ * action) is what lets the browser open the picker; there is no
+ * `navigator.userActivation` dependency (round-1 audit item 5: a desktop
+ * shell exposes no such API, and the picker must open there).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiClient } from '@/api-client'
@@ -80,16 +83,6 @@ export interface UseModelFileImportResult {
   importFile: (file: File) => Promise<boolean>
 }
 
-/** A user activation is active (the human's own click) — the agent path
- *  never has one, so it can never open a picker. jsdom exposes no
- *  `navigator.userActivation` (tests stub it for the human path). */
-function userActivationActive(): boolean {
-  const activation = (
-    typeof navigator !== 'undefined' ? (navigator as { userActivation?: { isActive: boolean } }).userActivation : undefined
-  )
-  return activation?.isActive === true
-}
-
 export function useModelFileImport(options: UseModelFileImportOptions = {}): UseModelFileImportResult {
   const { setId = null, onImported } = options
   const [error, setError] = useState<string | null>(null)
@@ -130,12 +123,13 @@ export function useModelFileImport(options: UseModelFileImportOptions = {}): Use
   }, [])
 
   // The instance is the `models.openModelFile` host: answer the action's
-  // picker request only when a user activation is active (a human click),
-  // so the agent path is never handed a picker.
+  // picker request whenever mounted — the action already refused the demo
+  // path, and the human click (still on the stack when the action asks)
+  // is what lets the browser open the picker in place. The agent path has
+  // no host mounted and navigates instead (no gesture, no picker).
   useEffect(
     () =>
       registerModelFilePicker(() => {
-        if (!userActivationActive()) return false
         openPicker()
         return true
       }),

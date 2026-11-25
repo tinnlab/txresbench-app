@@ -1360,11 +1360,15 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
       '3 of the 5 ready-made models can run on this file.',
     )
     await click('txr-models-i-no-saved-action-use-published')
-    expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')
+    // Round 2: "Use the published models" is the switchList alias mapping —
+    // it turns the From the lab chip on and lands on the ONE merged list
+    // (the old D/I step exchange becomes the merged list taking the old
+    // step's place in the trail, so its Back still goes to the file step).
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-models')
     expect(useTxrIntakeStore.getState().intent).toBe('predict')
     expect(useTxrIntakeStore.getState().predictSource).toBe('lab')
     expect(useTxrIntakeStore.getState().validation).toBe(checked)
-    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/pretrained-models'])
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/choose-models'])
   })
 
   it('no saved model and none of the published can run: "See the published models" and Your models', async () => {
@@ -1416,7 +1420,8 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
       `None of your ${TXRMODELS_SAVED.length} saved models can run on this file. Each row says what is missing. 1 ready-made model can run on it.`,
     )
     await click('txr-models-i-none-can-run-action-use-published')
-    expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')
+    // Round 2: the switch goes to the ONE merged list (From the lab chip on).
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-models')
   })
 
   it('a file change never shows the previous file\u2019s none-can-run line', async () => {

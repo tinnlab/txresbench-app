@@ -76,6 +76,7 @@ import { TXRLIST_METHODS } from '@/modules/txrlist/fixtures'
 import { PretrainedModelsPage } from './pages/PretrainedModelsPage'
 import { SavedModelsPage } from './pages/SavedModelsPage'
 import { ModelsPage } from './pages/ModelsPage'
+import { ChooseModelsPage } from './pages/ChooseModelsPage'
 import { TxrModelsDialogHost } from './components/TxrModelsDialogHost'
 import { TxrSavedDialog } from './components/TxrSavedDialog'
 import { TxrModels, useTxrModelsStore } from './stores/TxrModels.store'
@@ -684,6 +685,103 @@ function ShellJStoryView() {
   )
 }
 
+// ── the merged model step (predict-card merge round 2) ───────────────────────
+
+/** The choose story's seed: the D fixture seed + the engine's sticky
+ *  analysis config (the same-outcome chip's fact source) — the merged list
+ *  reads both sources (the lab catalogue AND the saved rows) in one frame. */
+function seedChooseStory(): void {
+  TxrModels.reset()
+  seedIntake()
+  extendCassette({
+    'Txr.createRun': (ctx: MockRequestContext) => {
+      recordRun(ctx.body)
+      return TXRMODELS_RUN_SUMMARY
+    },
+    'Txr.getAnalysisConfig': () => ({
+      config: {
+        endpoint: 'pfs',
+        decision_day: 60,
+        look_ahead_day: 240,
+        covariates: false,
+        at_a_time: 3,
+        save_models: false,
+      },
+    }),
+  })
+}
+
+/** The choose-none story's seed: no catalogue rows AND no owned rows (the
+ *  panel's exact state — every count known and 0). */
+function seedChooseNoneStory(): void {
+  seedChooseStory()
+  extendCassette({
+    'Pretrained.listModels': () => ({ models: [], total: 0, origin: 'disk' }),
+    'Models.listModels': () => ({ models: [], total: 0 }),
+  })
+}
+
+/** The merged list's run-landing seam (the D seam's row — the story records
+ *  the posted bytes and observes the in-frame navigation). */
+function LandingLineChoose({ path }: { path: string }) {
+  return (
+    <p data-testid="txr-models-choose-run-landed" style={{ margin: 12, fontSize: 12, color: 'var(--txr-muted)' }}>
+      {path}
+    </p>
+  )
+}
+
+/** The choose story's frame: the merged page under the harness frame's
+ *  splat route with its own descendant Routes (the run's in-frame
+ *  navigation shows the landing line instead of blanking the frame). */
+function ChooseStoryView({ narrow = false }: { narrow?: boolean }) {
+  return (
+    <section style={{ width: narrow ? 390 : '100%', maxWidth: '100%', minWidth: 0 }}>
+      <SeedGate seed={seedChooseStory}>
+        <RouterBridge />
+        <Routes>
+          <Route path="/choose-models" element={<ChooseModelsPage />} />
+          <Route path="/analysis/:runId/running" element={<LandingLineChoose path="running" />} />
+        </Routes>
+        <RunResultLine />
+        <RequestSeam />
+      </SeedGate>
+    </section>
+  )
+}
+
+/** The choose-none story's frame: the no-models panel (the same frame, the
+ *  none seed). */
+function ChooseNoneStoryView() {
+  return (
+    <section style={{ width: '100%', minWidth: 0 }}>
+      <SeedGate seed={seedChooseNoneStory}>
+        <RouterBridge />
+        <Routes>
+          <Route path="/choose-models" element={<ChooseModelsPage />} />
+        </Routes>
+      </SeedGate>
+    </section>
+  )
+}
+
+/** The choose route inside the real shell (the ITEM-3 route byte). */
+function ShellChooseStoryView() {
+  return (
+    <SeedGate seed={seedChooseStory}>
+      <AppShell>
+        <RouterBridge />
+        <Routes>
+          <Route path="/choose-models" element={<ChooseModelsPage />} />
+          <Route path="/analysis/:runId/running" element={<LandingLineChoose path="running" />} />
+        </Routes>
+      </AppShell>
+      <RunResultLine />
+      <RequestSeam />
+    </SeedGate>
+  )
+}
+
 // ── the module's gallery seed ────────────────────────────────────────────────
 
 /** The module's cassette: the JSON operations this node consumes and no
@@ -842,6 +940,43 @@ export const gallery: ModuleGallery = {
       path: '/*',
       initialPath: '/pretrained-models',
       component: lazy(() => Promise.resolve({ default: ShellDStoryView })),
+    },
+    {
+      slug: 'txr-models-choose',
+      title: 'Choose the models to run (the merged list)',
+      note: 'The predict-card merge round 2 board: the three sources in ONE flat list — the lab catalogue rows (with their small-caps "From the lab" label, the Published/Learned chip, the transfer fact) and the saved + imported rows ("Saved"/"Imported", the run name in the subtitle, the Trained-by-you/Imported chip) — no double row for a downloaded lab model; the source chips (From the lab / Saved / Imported, a 0-count chip stays visible, disabled), the lab-only chips shown because the catalogue has rows, the Same-outcome chip over all rows, the search over the run name, the sorts with the merged default rule, the downloads strip, the mixed-day reason, and one reuse Run recorded by the story.',
+      path: '/*',
+      initialPath: '/choose-models',
+      component: lazy(() => Promise.resolve({ default: ChooseStoryView })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-models-choose-narrow-390',
+      title: 'Choose the models to run at 390 px (the merged list)',
+      note: 'The merged board\'s mobile width: the header, the list rows and the bottom bar stack inside the frame, no horizontal page overflow.',
+      path: '/*',
+      initialPath: '/choose-models',
+      component: lazy(() =>
+        Promise.resolve({ default: () => <ChooseStoryView narrow /> }),
+      ),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-models-choose-none',
+      title: 'No models to choose from yet (the merged list)',
+      note: 'The round-2 panel: every source count known and 0 — the title, the pick-one-of-these line, the three options with their buttons (Use example / Learn from my data / Open a model file), and the bottom bar with Run disabled beside "There is no model to run yet."',
+      path: '/*',
+      initialPath: '/choose-models',
+      component: lazy(() => Promise.resolve({ default: ChooseNoneStoryView })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-shell-route-choose-models',
+      title: 'Choose the models to run (the merged list) inside the shell',
+      note: 'The app-shell ITEM-3 route byte for the round-2 board: the step + title + checked line + totals + the shared list\'s toolbar fixed, the merged rows in the ONE region, the counters + research notice + Run pinned in the fixed bottom bar.',
+      path: '/*',
+      initialPath: '/choose-models',
+      component: lazy(() => Promise.resolve({ default: ShellChooseStoryView })),
     },
     {
       slug: 'txr-models-l',

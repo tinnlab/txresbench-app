@@ -37,10 +37,13 @@ import type {
 
 /**
  * The chip row of screens D (All / Can run / Published rules / Learned by
- * the benchmark / Checked on 2 or more other cohorts) and I (All runs /
- * Can run / Same outcome as my file) — the boards' chip words, one id per
+ * the benchmark / Checked on 2 or more other cohorts), I (All runs /
+ * Can run / Same outcome as my file) and the merged model step (the same
+ * plus the three source chips) — the boards' chip words, one id per
  * chip. `'all'` and `'can-run'` are the shared list's built-in counts; the
- * rest are host-made predicates (`lib/filters.ts`).
+ * rest are host-made predicates (`lib/filters.ts`). The `source-*` ids are
+ * the merged list's source chips ("From the lab" / "Saved" / "Imported" —
+ * `TxrModelSourceId`).
  */
 export type TxrModelFilterId =
   | 'all'
@@ -49,6 +52,12 @@ export type TxrModelFilterId =
   | 'learned'
   | 'checked-2-plus'
   | 'same-outcome'
+  | 'source-lab'
+  | 'source-saved'
+  | 'source-imported'
+
+/** The merged list's three sources (the `models.setListFilters` vocabulary). */
+export type TxrModelSourceId = 'lab' | 'saved' | 'imported'
 
 /**
  * The sort options of screens D (Transfer to other cohorts / Patients
@@ -157,6 +166,8 @@ export interface TxrModelsState {
   }
   selection: ReadonlySet<TxrModelRowKey>
   filters: TxrModelFilterId[]
+  /** The merged list's "Can run N" filter (built-in chip wired for real). */
+  canRunOnly: boolean
   sort: TxrModelSortId
   search: string
   atATime: number

@@ -634,11 +634,15 @@ export function ModelsPage() {
   // the picker, the POST and the two error lines; the success side is this
   // page's refresh (the imported row appears, exactly as before). The
   // import affordance is the registered `models.openModelFile` action — a
-  // human click opens the picker through the hook's host channel in place.
-  const { error: importError, inputProps: importInputProps } = useModelFileImport({
-    setId,
-    onImported: refresh,
-  })
+  // human click opens the picker through the hook's host channel in place
+  // (round-1 audit item 5: no `navigator.userActivation` dependency — the
+  // action decides the demo refusal, the click opens the input) and clears
+  // a previous error (item 9's sibling rule).
+  const { error: importError, inputProps: importInputProps, clearError: clearImportError } =
+    useModelFileImport({
+      setId,
+      onImported: refresh,
+    })
 
   // The registered `models.renameSet` action's refresh: the AI/command path
   // has no dialog `onSaved`, so the action publishes the refresh bus and
@@ -902,7 +906,10 @@ export function ModelsPage() {
                   <>
                     <Button
                       data-testid="txr-models-import"
-                      onClick={() => void runAction('models.openModelFile', {})}
+                      onClick={() => {
+                        clearImportError()
+                        void runAction('models.openModelFile', {})
+                      }}
                     >
                       {IMPORT_LABEL}
                     </Button>
@@ -1006,7 +1013,10 @@ export function ModelsPage() {
             {!isDemo ? (
               <Button
                 data-testid="txr-models-empty-import"
-                onClick={() => void runAction('models.openModelFile', {})}
+                onClick={() => {
+                  clearImportError()
+                  void runAction('models.openModelFile', {})
+                }}
               >
                 {IMPORT_LABEL}
               </Button>

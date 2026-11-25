@@ -65,10 +65,16 @@ export function useStepBack({
   const url = `${location.pathname}${location.search}`
   useActiveContext(TXR_STEP_CONTEXT, { entityId: step })
 
-  // The model steps (D, I) also declare the model-step context: the list
-  // switch is offered there only.
+  // The model steps (D, I and the merged list) also declare the model-step
+  // context: the list switch is offered there only.
   useEffect(() => {
-    if (step !== 'pretrained-models' && step !== 'saved-models') return
+    if (
+      step !== 'pretrained-models' &&
+      step !== 'saved-models' &&
+      step !== 'choose-models'
+    ) {
+      return
+    }
     registerActiveContext(TXR_MODEL_STEP_CONTEXT, { entityId: step })
     return () => unregisterActiveContext(TXR_MODEL_STEP_CONTEXT)
   }, [step])

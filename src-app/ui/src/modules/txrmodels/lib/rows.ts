@@ -44,6 +44,7 @@ import type {
   Coverage,
   EligibilityStatus,
   MinDraws,
+  ModelEligibility,
   ModelEligibilityResponse,
   ModelSummary,
   PretrainedEligibilityResponse,
@@ -138,6 +139,19 @@ function savedSubtitle(model: ModelSummary): string {
 }
 
 /**
+ * The merged list's saved/imported subtitle (predict-card merge round 2):
+ * the run name first ("`<run name>` · decision day N" — the run name is the
+ * set name, so the flat list still shows which run a model came from), or
+ * the DEC-13 day part alone for an imported model with no set. "before
+ * treatment only" stays the day part's baseline spelling.
+ */
+export function chooseSavedSubtitle(model: ModelSummary): string {
+  const day = savedSubtitle(model)
+  const run = model.set_name?.trim() ?? ''
+  return run.length > 0 ? `${run} \u00b7 ${day}` : day
+}
+
+/**
  * The screen-D join: catalogue cards × pretrained eligibility verdicts →
  * `TxrListRow[]`, one row per card in catalogue order (the list order is
  * the catalogue's). In demo mode (`demo: true` — the audit's ITEM-7 row)
@@ -216,48 +230,105 @@ export function buildSavedRows(
   const verdictById = new Map(
     (eligibility?.models ?? []).map(verdict => [verdict.id, verdict]),
   )
-  return summaries.map(model => {
-    const verdict = verdictById.get(model.id)
-    const chip =
-      model.provenance === 'run'
-        ? { label: 'Trained by you', tone: 'accent' as const }
-        : model.provenance === 'imported'
-          ? { label: 'Imported', tone: 'neutral' as const }
-          : { label: 'Ready-made', tone: 'accent' as const }
-    if (verdict === undefined) {
-      return {
-        key: model.id,
-        name: model.name,
-        tag: savedSubtitle(model),
-        chip,
-        performanceText: ownAucText(model.own_auc),
-        run: {
-          status: 'cannot' as TxrRunStatus,
-          headline: formatRunHeadline('cannot'),
-          detail: formatReasonLine('cannot', [{ code: 'NOT_RUNNABLE' }], { eligible: 0, total: 0 }, { required: 0, met: 0, unmet_patients: 0 }, [], []),
-          disabled: true,
-        },
-        timeText: null,
-        action: { label: 'Details' },
-      }
-    }
-    const status = toRunStatus(verdict.status)
+  return summaries.map(model =>
+    buildSavedRow(model, verdictById.get(model.id), savedSubtitle(model)),
+  )
+}
+
+/** ONE saved/imported row (the shared arm of the I join and the merged
+ *  list's join — the merged list threads its own subtitle through). */
+function buildSavedRow(
+  model: ModelSummary,
+  verdict: ModelEligibility | undefined,
+  subtitle: string,
+): TxrListRow {
+  const chip =
+    model.provenance === 'run'
+      ? { label: 'Trained by you', tone: 'accent' as const }
+      : model.provenance === 'imported'
+        ? { label: 'Imported', tone: 'neutral' as const }
+        : { label: 'Ready-made', tone: 'accent' as const }
+  if (verdict === undefined) {
     return {
       key: model.id,
       name: model.name,
-      tag: savedSubtitle(model),
+      tag: subtitle,
       chip,
       performanceText: ownAucText(model.own_auc),
-      run: runFacts(status, verdict.reasons, verdict.coverage, verdict.min_draws, verdict.missing_markers),
-      timeText:
-        verdict.estimated_seconds === null ||
-        verdict.estimated_seconds === undefined ||
-        !Number.isFinite(verdict.estimated_seconds)
-          ? null
-          : formatDurationShort(verdict.estimated_seconds),
+      run: {
+        status: 'cannot' as TxrRunStatus,
+        headline: formatRunHeadline('cannot'),
+        detail: formatReasonLine('cannot', [{ code: 'NOT_RUNNABLE' }], { eligible: 0, total: 0 }, { required: 0, met: 0, unmet_patients: 0 }, [], []),
+        disabled: true,
+      },
+      timeText: null,
       action: { label: 'Details' },
     }
-  })
+  }
+  const status = toRunStatus(verdict.status)
+  return {
+    key: model.id,
+    name: model.name,
+    tag: subtitle,
+    chip,
+    performanceText: ownAucText(model.own_auc),
+    run: runFacts(status, verdict.reasons, verdict.coverage, verdict.min_draws, verdict.missing_markers),
+    timeText:
+      verdict.estimated_seconds === null ||
+      verdict.estimated_seconds === undefined ||
+      !Number.isFinite(verdict.estimated_seconds)
+        ? null
+        : formatDurationShort(verdict.estimated_seconds),
+    action: { label: 'Details' },
+  }
+}
+
+/** The merged list row source labels (the small-caps DOM text, verbatim). */
+export const CHOOSE_SOURCE_LABELS = {
+  lab: 'From the lab',
+  saved: 'Saved',
+  imported: 'Imported',
+} as const
+
+/**
+ * The merged model step's row join (predict-card merge round 2): the lab
+ * catalogue rows (the D pages' rows, plus the source label) and the store's
+ * `run` / `imported` rows (the I pages' row arm, plus the source label and
+ * the run-name subtitle) in ONE flat list — every model that exists.
+ * A store row with provenance `pretrained` is NOT listed: it is the lab
+ * row's downloaded state (fixes today's double listing). The list order is
+ * the lab catalogue order, then the store's own order.
+ */
+export function buildChooseRows(
+  cards: PretrainedSummary[],
+  summaries: ModelSummary[],
+  pretrainedElig: PretrainedEligibilityResponse | null,
+  savedElig: ModelEligibilityResponse | null,
+  demo = false,
+): TxrListRow[] {
+  const lab = buildPretrainedRows(cards, pretrainedElig, demo).map(row => ({
+    ...row,
+    source: { label: CHOOSE_SOURCE_LABELS.lab as string },
+  }))
+  const verdictById = new Map(
+    (savedElig?.models ?? []).map(verdict => [verdict.id, verdict]),
+  )
+  const owned = summaries
+    .filter(model => model.provenance !== 'pretrained')
+    .map(model => {
+      const row = buildSavedRow(model, verdictById.get(model.id), chooseSavedSubtitle(model))
+      return {
+        ...row,
+        source: {
+          label: (
+            model.provenance === 'run'
+              ? CHOOSE_SOURCE_LABELS.saved
+              : CHOOSE_SOURCE_LABELS.imported
+          ) as string,
+        },
+      }
+    })
+  return [...lab, ...owned]
 }
 
 /**

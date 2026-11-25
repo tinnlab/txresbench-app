@@ -20,6 +20,7 @@ import './dayActions'
 import './intakeActions'
 import './modelSetActions'
 import './modelFileActions'
+import './modelRunActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -32,6 +33,8 @@ const NEW_IDS = [
   'flow.back',
   'help.backToStep',
   'models.switchList',
+  'models.setListFilters',
+  'models.setSelection',
   'flow.startPath',
   'models.useModel',
   'history.useSettingsAgain',
@@ -61,6 +64,7 @@ const MODULE_IMPORTS: Record<string, string[]> = {
   'src/modules/txrmodels/module.tsx': [
     '@/core/actions/builtin/modelSetActions',
     '@/core/actions/builtin/modelFileActions',
+    '@/core/actions/builtin/modelRunActions',
   ],
 }
 

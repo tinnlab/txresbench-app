@@ -105,6 +105,11 @@ export interface TxrUseExampleButtonProps {
    *  data" — the per-path accessible name never changes). */
   label?: string
   style?: CSSProperties
+  /** The button's test id (default `txr-use-example-<path>`) — a host that
+   *  mounts several buttons on one page (Help's two quick-start cards)
+   *  gives each its own (round-1 audit item 1: the shared id used to
+   *  appear twice and `getByTestId` threw). */
+  testId?: string
   /** Place the button and its message apart (see the header). Without it
    *  the message renders under the button, in one column. */
   layout?(parts: TxrUseExampleParts): ReactNode
@@ -121,7 +126,14 @@ function isExampleSetResponse(data: unknown): data is ExampleSetResponse {
   )
 }
 
-export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrUseExampleButtonProps) {
+export function TxrUseExampleButton({
+  path,
+  onDone,
+  label,
+  style,
+  testId,
+  layout,
+}: TxrUseExampleButtonProps) {
   const occupied = useStore(
     useTxrIntakeStore,
     s => {
@@ -211,7 +223,7 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
   const action: ReactNode = confirming ? null : (
     <Button
       ref={buttonRef}
-      data-testid={`txr-use-example-${path}`}
+      data-testid={testId ?? `txr-use-example-${path}`}
       aria-label={ACCESSIBLE_NAMES[path]}
       className="txr-use-example-button"
       style={{ ...BUTTON, ...style }}

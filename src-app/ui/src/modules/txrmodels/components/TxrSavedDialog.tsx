@@ -13,8 +13,9 @@
  * The three actions (the board's words):
  *
  * - "Predict new patients with them" — the DEC-10 handoff's intent
- *   (`setIntent('reuse')`) + the N screen (`predictFilesPath()` — the
- *   same route the J "Use" handoff uses);
+ *   (the ONE predict intent — round 1 replaced the old `'reuse'`) + the N
+ *   screen (`predictFilesPath()` — the same route the J "Use" handoff
+ *   uses, which continues to the merged model step);
  * - "See my models" — `modelsPath()` (screen J, this module's own);
  * - "Done" — close.
  *

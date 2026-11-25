@@ -22,7 +22,6 @@ import {
   validateRequest,
 } from '../lib/flow'
 import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } from '../lib/download'
-import { ROUTE_CONVENTIONS } from '../module'
 import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
@@ -77,6 +76,9 @@ const START_ROUTE = FLOW_ROUTES.start
 /** Your models (the "Use" handoff's origin; the txrmodels route, spelled here
  *  because txrmodels depends on this module, never the other way round). */
 const MODELS_ROUTE = '/models'
+/** The merged model step (round 2 — the ONE list of the predict path's
+ *  model choice; spelled here for the same direction reason). */
+const CHOOSE_MODELS_ROUTE = '/choose-models'
 
 /** The page's frame host. */
 const PAGE_ROOT: CSSProperties = {
@@ -466,19 +468,13 @@ export function PredictFilesPage() {
     !hasErrorProblems(validation.problems) &&
     !fileHasNoDataRows(file)
   /**
-   * The board's Continue — into the model choice screens (DEC-3's declared
-   * conventions; the ownership stays ui-models'). Round 1's bridge: the ONE
-   * predict intent continues by its source preset — `lab` → the ready-made
-   * list, `saved` or no preset → the saved-models list.
+   * The board's Continue — into the merged model step (round 2: the ONE
+   * `/choose-models` list — the intent split goes; the source preset is read
+   * by the list once on its mount).
    */
   const continueFlow = useCallback(() => {
-    navigate(
-      // round-2: /choose-models
-      predictSource === 'lab'
-        ? ROUTE_CONVENTIONS.pretrainedModels
-        : ROUTE_CONVENTIONS.savedModels,
-    )
-  }, [navigate, predictSource])
+    navigate(CHOOSE_MODELS_ROUTE)
+  }, [navigate])
 
   return (
     <div

@@ -192,6 +192,10 @@ function renderApp(entry: string) {
           path="/pretrained-models"
           element={<StandIn step="pretrained-models" fallback="/predict-files" />}
         />
+        <Route
+          path="/choose-models"
+          element={<StandIn step="choose-models" fallback="/predict-files" />}
+        />
       </Routes>
     </MemoryRouter>,
   )
@@ -349,17 +353,18 @@ describe('Back targets along the Start paths', () => {
     expect(useStepTrailStore.getState().trail).toEqual(['/'])
   })
 
-  it('row 1 — the ready-made path: A → N → D; Back from D is N, Back from N is Start', async () => {
+  it('row 1 — the ready-made path: A → N → the merged model step; Back from it is N, Back from N is Start', async () => {
     seedPredict()
     renderApp('/')
     await click('txr-intake-start-card-predict-cta')
     expect(routeAt()).toBe('/predict-files')
-    // The merged card's button pins no source (round 1's bridge then goes to
-    // the saved-models list); the ready-made row pins the lab source, exactly
-    // as `flow.startPath`'s `pretrained` alias does.
+    // The merged card's button pins no source (round 2: the ONE /choose-models
+    // list — the source preset is read by the list once on its mount); the
+    // ready-made row pins the lab source, exactly as `flow.startPath`'s
+    // `pretrained` alias does.
     act(() => store().setIntent('predict', 'lab'))
     await click('txr-intake-continue')
-    expect(routeAt()).toBe('/pretrained-models')
+    expect(routeAt()).toBe('/choose-models')
     await click('txr-step-back')
     expect(routeAt()).toBe('/predict-files')
     await click('txr-step-back')

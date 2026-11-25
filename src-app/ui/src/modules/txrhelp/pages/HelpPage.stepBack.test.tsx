@@ -75,7 +75,7 @@ describe('Help as the start of a path (the step trail)', () => {
   it('a quick-start card link starts the trail at Help', async () => {
     renderHelp()
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-help-quickstart-cta-pretrained'))
+      fireEvent.click(screen.getByTestId('txr-help-quickstart-cta-predict'))
     })
     expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
     expect(useStepTrailStore.getState().trail).toEqual(['/help'])
@@ -83,7 +83,7 @@ describe('Help as the start of a path (the step trail)', () => {
 
   it('a quick-start card’s example data starts the trail at Help too', async () => {
     renderHelp()
-    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
+    fireEvent.click(screen.getByTestId('txr-help-use-example-predict'))
     await waitFor(() => {
       expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
     })

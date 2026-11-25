@@ -192,7 +192,11 @@ export async function runExampleFlow(
     cancelled?: () => boolean
   } = {},
 ): Promise<void> {
-  useTxrIntakeStore.getState().setIntent(path, path === 'train' ? null : 'saved')
+  // Round-1 audit item 3: keep an existing source preset (the lab preset of
+  // a started flow is not overwritten by the example path's default saved).
+  const current = useTxrIntakeStore.getState()
+  const source = path === 'train' ? null : (current.predictSource ?? 'saved')
+  useTxrIntakeStore.getState().setIntent(path, source)
   if (path === 'train') {
     useTxrIntakeStore.getState().patchStudy(EXAMPLE_STUDY)
     useTxrIntakeStore.getState().patchParameters({ decision_day: EXAMPLE_DECISION_DAY })

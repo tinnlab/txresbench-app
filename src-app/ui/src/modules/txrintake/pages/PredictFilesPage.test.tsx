@@ -5,9 +5,10 @@
  * the "What the models look for" aside with the "No outcomes are needed,
  * and no patients file." line, the validate round in `mode: 'predict'` with
  * the patients key OMITTED (TEST-INT-3 / DRIFT-1 ITEM-6 #2), the board-N
- * status box (EXAMPLE-INT-3), the Continue gate into `/pretrained-models`
- * for source `lab` and `/saved-models` for `saved`/no source (DEC-3; round
- * 1's bridge — round 2 replaces it with `/choose-models`).
+ * status box (EXAMPLE-INT-3), and the Continue gate into `/choose-models`
+ * (round 2 — the ONE merged model list; the round-1 bridge that chose
+ * `/pretrained-models` for source `lab` and `/saved-models` for `saved` is
+ * gone, the source preset is kept for the list's mount read).
  *
  * Harness identity with FilesPage.test.tsx (ITEM-6): the ApiClient is
  * mocked, the store is the real TxrIntake store (reset per test), and the
@@ -305,7 +306,7 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(continueButton().disabled).toBe(false)
   })
 
-  it('Continue goes to the pretrained models screen for source lab (round-1 bridge)', async () => {
+  it('Continue always goes to the merged model list (round 2 — the old bridge is gone)', async () => {
     store().setIntent('predict', 'lab')
     renderPredict()
     pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
@@ -313,11 +314,13 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     await waitFor(() => expect(continueButton().disabled).toBe(false))
 
     fireEvent.click(continueButton())
-    expect(routeAt()).toBe('/pretrained-models')
+    expect(routeAt()).toBe('/choose-models')
     expect(store().mode).toBe('predict')
+    // The round-1 source preset is kept for the merged list's mount read.
+    expect(store().predictSource).toBe('lab')
   })
 
-  it('Continue goes to the saved models screen for source saved (round-1 bridge)', async () => {
+  it('Continue goes to the merged model list for source saved too (round-1 bridge)', async () => {
     store().setIntent('predict', 'saved')
     renderPredict()
     pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
@@ -325,8 +328,9 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     await waitFor(() => expect(continueButton().disabled).toBe(false))
 
     fireEvent.click(continueButton())
-    expect(routeAt()).toBe('/saved-models')
+    expect(routeAt()).toBe('/choose-models')
     expect(store().mode).toBe('predict')
+    expect(store().predictSource).toBe('saved')
   })
 
   it('an error problem keeps Continue disabled and the fix affordance removes the file', async () => {
