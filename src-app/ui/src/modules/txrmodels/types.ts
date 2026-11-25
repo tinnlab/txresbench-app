@@ -123,11 +123,12 @@ export type TxrModelRowKey = string
  * - `inventory` — the ONE `InventoryEligibilityRequest` object from the
  *   intake GAP (`IntakeSnapshot.validation.inventory`), passed to the
  *   eligibility endpoints verbatim (the ui-list DEC-15 ONE-builder pin);
- * - `pretrained` / `saved` — the D/I data slices with their load state
+ * - `pretrained` / `saved` — the merged list's two source slices with
+ *   their load state
  *   (`loaded` turns true on the first successful load and stays true: the
  *   birth state shows `loading: false` before any fetch, so a page tells
  *   "loaded and empty" from "not loaded yet" by this flag);
- * - `eligibility` — the saved-models verdicts (PROV-MS-9): per-key entry
+ * - `eligibility` — the saved-row verdicts (PROV-MS-9): per-key entry
  *   (a key the response omitted maps to `null` — the row builder's
  *   defensive fallback, PROV-UI-MODELS-4) + the response totals;
  * - `selection` / `filters` / `sort` / `search` — the host list state the
@@ -137,8 +138,8 @@ export type TxrModelRowKey = string
  * - `atATime` — the bottom-bar "N run at a time" choice (the engine's
  *   default, PROV-EE-2);
  * - `draftName` — the L dialog's new-set name field;
- * - `pendingUseModelId` — the J "Use" handoff (DEC-10): the id the I
- *   screen preselects on mount, then clears;
+ * - `pendingUseModelId` — the J "Use" handoff (DEC-10): the id the merged
+ *   list preselects on mount, then clears;
  * - `dialog` — which modal is open (see `TxrModelDialogId`);
  * - `downloadState` — per-catalogue-id download views (see
  *   `TxrModelDownloadState`); absence of an entry = not started.

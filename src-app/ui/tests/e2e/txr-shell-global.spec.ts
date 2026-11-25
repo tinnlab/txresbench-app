@@ -40,8 +40,9 @@ test.describe('txr-shell — titles, not-found, focus ring, stream noise (TEST-Q
     ['/choose-methods', 'Choose the methods and settings \u2014 TxResBench'],
     ['/history', 'History \u2014 TxResBench'],
     ['/models', 'Your models \u2014 TxResBench'],
-    ['/saved-models', 'Choose the saved models to run \u2014 TxResBench'],
-    ['/pretrained-models', 'Choose the models to run \u2014 TxResBench'],
+    // The merged model step — ONE page (the old D/I routes are gone; the
+    // `/pretrained-models` and `/saved-models` addresses only redirect here).
+    ['/choose-models', 'Choose the models to run \u2014 TxResBench'],
     ['/help', 'Help \u2014 TxResBench'],
   ]
 

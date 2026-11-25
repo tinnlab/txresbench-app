@@ -647,8 +647,9 @@ export function ModelsPage() {
   // The registered `models.renameSet` action's refresh: the AI/command path
   // has no dialog `onSaved`, so the action publishes the refresh bus and
   // EVERY mounted host that shows the sets data re-reads (this page's hooks
-  // here; the saved-models store in the I page). The human path refreshes
-  // through the dialogs' own callbacks — never a double refresh.
+  // here — the merged list shows saved rows but no set actions, so it does
+  // not subscribe). The human path refreshes through the dialogs' own
+  // callbacks — never a double refresh.
   useEffect(() => subscribeModelSetsChanged(refresh), [refresh])
 
   /** The set record for a set id: the SetSummary (name + the keep flag) from
@@ -670,7 +671,8 @@ export function ModelsPage() {
 
   // The registered `models.deleteSet` action only OPENS the confirm dialog
   // (it never deletes): the pending-request channel is the seam, and this
-  // page is one of the two hosts (with the saved-models page) that listen.
+  // page is the ONE host that listens (the old saved-models page is gone
+  // with round 3 — the merged list has no set actions).
   // The listener reports back whether IT opened the dialog (true only when
   // the set resolved to a real set row and the dialog was shown; false when
   // the set is unknown or the reads are still empty) — the action rejects

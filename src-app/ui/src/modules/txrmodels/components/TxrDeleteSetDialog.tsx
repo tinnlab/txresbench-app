@@ -5,9 +5,9 @@
  * `models.deleteSet` action only OPENS this dialog, the confirm is the
  * only delete).
  *
- * Two optional props arm the Models page's "Delete the set" without
- * touching Card 3 (the saved-models page passes neither and keeps its
- * wording): `confirmLabel` (default "Delete the run's models") and
+ * Two optional props arm the Models page's "Delete the set" (the set-row
+ * wording stands when they are not passed, and the merged list has no set
+ * actions): `confirmLabel` (default "Delete the run's models") and
  * `keepsTrainingFiles` (the body adds the kept-training-files sentence when
  * the set records `keep_training_files`). `keep_files` stays `false` on the
  * wire for every caller (DEC-14).
@@ -44,7 +44,7 @@ const DELETE_BODY =
 const KEEPS_TRAINING_FILES_SENTENCE =
   ' The training files kept with this set are removed too.'
 
-/** The confirm button's default label (the saved-models page's board verb). */
+/** The confirm button's default label (the saved-model run's board verb). */
 const DEFAULT_CONFIRM_LABEL = "Delete the run's models"
 
 /** The danger button's look (the board's danger red over the kit variant). */
@@ -73,13 +73,13 @@ export interface TxrDeleteSetDialogProps {
   onClose: () => void
   /** The confirm succeeded — the page refreshes the saved slice. */
   onDeleted: () => void
-  /** The confirm button's label. Defaults to the saved-models page's board
-   *  verb ("Delete the run's models"); the Models page passes "Delete the
+  /** The confirm button's label. Defaults to the saved-run board verb
+   *  ("Delete the run's models"); the Models page passes "Delete the
    *  set". */
   confirmLabel?: string
   /** True when the set keeps its training files: the body adds one extra
-   *  sentence (the kept training copy is removed too). Card 3 (the
-   *  saved-models page) passes neither prop and keeps its current wording. */
+   *  sentence (the kept training copy is removed too). Kept for the Models
+   *  page's confirm; the default wording stands when it is not passed. */
   keepsTrainingFiles?: boolean
 }
 

@@ -189,10 +189,6 @@ function renderApp(entry: string) {
           element={<StandIn step="choose-methods" fallback="/files" />}
         />
         <Route
-          path="/pretrained-models"
-          element={<StandIn step="pretrained-models" fallback="/predict-files" />}
-        />
-        <Route
           path="/choose-models"
           element={<StandIn step="choose-models" fallback="/predict-files" />}
         />

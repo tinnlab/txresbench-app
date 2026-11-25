@@ -13,7 +13,6 @@ import {
   HELP_BACK_NO_STEP,
   helpReturnTarget,
   isStepUrl,
-  replaceCurrentStep,
   STEP_BACK_DIALOG_OPEN,
   STEP_BACK_LEAVING,
   takeStepBack,
@@ -24,10 +23,10 @@ import {
 } from '@/modules/txrintake/lib/stepTrail'
 
 // The step-flow actions of a new analysis: the Back button of each step view,
-// the switch between the published and the saved model lists on the model
-// step, Help's "Back to step N" (Help opened from a step view), and the
-// entries that start a path (the Start and Help cards, Your models "Use",
-// History "Use these settings again", the saved-models dialog).
+// the switch between the sources on the ONE model step (the merged list),
+// Help's "Back to step N" (Help opened from a step view), and the entries
+// that start a path (the Start and Help cards, Your models "Use", History
+// "Use these settings again", the save-done dialog).
 // Registered once so the buttons, the command palette and the AI take the
 // same path. The models and history stores are loaded on use (they are not
 // part of the start-up code).
@@ -123,12 +122,7 @@ defineAction({
   }),
   run: async ({ list }, ctx) => {
     const onScreen = useStepTrailStore.getState().current
-    if (
-      onScreen === null ||
-      (onScreen.step !== 'pretrained-models' &&
-        onScreen.step !== 'saved-models' &&
-        onScreen.step !== 'choose-models')
-    ) {
+    if (onScreen === null || onScreen.step !== 'choose-models') {
       throw new Error('Open the model step of a new analysis first.')
     }
     assertCanLeaveStep()
@@ -141,13 +135,11 @@ defineAction({
     })
     TxrIntake.setIntent('predict', list === 'saved' ? 'saved' : 'lab')
     const path = FLOW_ROUTES.chooseModels
-    // From an old model step (the D/I pages still in the tree this round)
-    // the merged list TAKES ITS PLACE in the trail, so Back from it goes
-    // to the file step. From the merged list itself (its chips preset only)
-    // the trail is the model step already and must keep the current step's
-    // leaving flag untouched — a same-URL navigate would otherwise leave
-    // `leaving` stuck and Block the Back button.
-    if (onScreen.step !== 'choose-models') replaceCurrentStep(path)
+    // There is ONE model step (the merged list — the old D/I pages left in
+    // round 3, so the switch never has to take another step's place any
+    // more); the trail is the model step already and must keep the current
+    // step's leaving flag untouched — a same-URL navigate would otherwise
+    // leave `leaving` stuck and Block the Back button.
     ctx.navigate(path)
     return { path }
   },
@@ -173,9 +165,9 @@ defineAction({
   run: ({ intent, startAtFiles }, ctx) => {
     assertCanStartPath()
     // The old two-list intents become the ONE predict intent plus the source
-    // preset they pinned (`lab` / `saved`); `predict` pins no source (round
-    // 1's bridge then continues to the saved-models list — round 2 replaces
-    // it with /choose-models).
+    // preset they pinned (`lab` / `saved`); `predict` pins no source (round 2
+    // reads the preset on the merged list's mount — the source chips open
+    // on it; with no preset they all start off).
     const pathIntent: IntakeIntent = intent === 'train' ? 'train' : 'predict'
     const source: PredictModelSource | null =
       intent === 'pretrained' ? 'lab' : intent === 'reuse' ? 'saved' : null

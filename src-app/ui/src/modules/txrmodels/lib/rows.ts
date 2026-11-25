@@ -1,8 +1,9 @@
 /**
  * txrmodels row builders — PROV-UI-MODELS-4 (ITEM-4).
  *
- * `buildPretrainedRows` (screen D) and `buildSavedRows` / `buildSavedSections`
- * (screen I) are the pure joins the two choice screens are fed from: the
+ * `buildPretrainedRows` (the lab catalogue join) and `buildSavedRows` (the
+ * saved-model join) are the pure joins the ONE merged choice screen is fed
+ * from via `buildChooseRows` (round 2 — the D/I lists merged): the
  * provider list payloads (the pretrained catalogue cards,
  * `PretrainedSummary[]`; the saved-model summaries, `ModelSummary[]`, plus
  * the set rows, `SetSummary[]`) × the eligibility verdicts (`PROV-PC-8` /
@@ -58,11 +59,9 @@ import {
   formatReasonLine,
   formatRunHeadline,
   type TxrListRow,
-  type TxrListSection,
   type TxrReasonCode,
   type TxrRunStatus,
 } from '@/modules/txrlist'
-import { formatPredicts, formatTrainedDateShort, UNRECORDED } from './format'
 import { DEMO_PRETRAINED_CHIP } from '@/modules/demo/copy'
 
 /** The provider's three verdict codes → the three board status codes. */
@@ -214,14 +213,11 @@ export function buildPretrainedRows(
 }
 
 /**
- * The screen-I row join: one set's saved-model summaries × their eligibility
- * verdicts → `TxrListRow[]`, in the list's order.
- *
- * The section-level facts (the run-facts subtitle, the section actions)
- * are `buildSavedSections`'s; a row reads only its own model's facts —
- * the `SetSummary` is a header concern and is deliberately not threaded
- * into the row signature (the plan's early draft named a `set` argument;
- * the sections function owns it: PROV-UI-MODELS-4's `buildSavedSections`).
+ * The saved/imported row join: the store's summaries × their eligibility
+ * verdicts → `TxrListRow[]`, in the list's order. A row reads only its own
+ * model's facts; the merged list threads its own subtitle through
+ * `chooseSavedSubtitle` (the screen-I set grouping left with the old page —
+ * round 3: the merged list is flat).
  */
 export function buildSavedRows(
   summaries: ModelSummary[],
@@ -345,49 +341,6 @@ export function buildChooseRows(
       }
     })
   return [...lab, ...owned]
-}
-
-/**
- * An I section's run-facts line (Saved.dc.html's "trained 19 Oct on
- * patients.csv · <N> patients · <M> models · progression or death by day
- * 238" SKELETON — the letters are the board's, the counts design
- * examples) from the set's record + its models' run facts — every fact is
- * a provider field, never a design example:
- *
- * - `trained <date> on <source_label>` — the first model's `trained_at`
- *   (the run's `finished_at`; the set's own record carries no timestamp)
- *   + the set's `source_label` (engine truth — the file name the save
- *   dialog showed); the segment is omitted when neither fact is present;
- * - `<N> patients` — the first model's `trained_on_patients` (singular at
- *   one), omitted when unrecorded;
- * - `<M> models` — the set's `model_count`;
- * - the predicts line — the first model's task/endpoint/horizon through
- *   `formatPredicts`, omitted when unrecorded.
- *
- * A set whose models are still loading renders from the set's own facts
- * only (the first three segments' companions can be absent — the compose
- * never spells a blank, UNRECORDED or otherwise: the header is one line
- * and a "not recorded" segment in the middle would read wrong; the rows
- * below carry the unrecorded verdicts individually).
- */
-function sectionSubtitle(set: SetSummary, models: ModelSummary[]): string {
-  const first = models[0]
-  const parts: string[] = []
-  const trained = formatTrainedDateShort(first?.trained_at ?? null)
-  const label = set.source_label?.trim() ?? ''
-  if (trained !== null && label.length > 0) parts.push(`trained ${trained} on ${label}`)
-  else if (trained !== null) parts.push(`trained ${trained}`)
-  else if (label.length > 0) parts.push(`on ${label}`)
-  const trainedOn = first?.trained_on_patients
-  if (trainedOn !== null && trainedOn !== undefined && Number.isFinite(trainedOn)) {
-    parts.push(`${trainedOn} ${trainedOn === 1 ? 'patient' : 'patients'}`)
-  }
-  parts.push(`${set.model_count} ${set.model_count === 1 ? 'model' : 'models'}`)
-  if (first !== undefined) {
-    const predicts = formatPredicts(first.task, first.endpoint, first.horizon)
-    if (predicts !== UNRECORDED) parts.push(predicts)
-  }
-  return parts.join(' \u00b7 ')
 }
 
 /**
@@ -789,35 +742,4 @@ function newestInstant(models: ModelSummary[]): number {
     if (t > newest) newest = t
   }
   return newest
-}
-
-/**
- * The screen-I section join (INV-2: models from one training run are
- * grouped): one `TxrListSection` per saved set, in the sets list's order,
- * with the set's row keys (the set's models in the summaries list order)
- * and the board's two section actions — Rename (default tone) and "Delete
- * the run's models" (danger). The section's models are grouped by
- * `set_id`; a summary row with no set (the J inventory owns it) is not a
- * saved-model section member. The action ids are the host's
- * `onSectionAction` vocabulary: `'rename'` / `'delete'`.
- */
-export function buildSavedSections(
-  sets: SetSummary[],
-  summaries: ModelSummary[],
-  eligibility: ModelEligibilityResponse | null,
-): TxrListSection[] {
-  return sets.map(set => {
-    const models = summaries.filter(model => model.set_id === set.id)
-    const rows = buildSavedRows(models, eligibility)
-    return {
-      key: set.id,
-      title: set.name,
-      subtitle: sectionSubtitle(set, models),
-      rowKeys: rows.map(row => row.key),
-      actions: [
-        { id: 'rename', label: 'Rename', tone: 'default' },
-        { id: 'delete', label: "Delete the run's models", tone: 'danger' },
-      ],
-    }
-  })
 }

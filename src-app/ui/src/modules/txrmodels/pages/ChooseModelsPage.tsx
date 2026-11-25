@@ -56,7 +56,6 @@ import type {
   PretrainedEligibilityEntry,
   PretrainedEligibilityResponse,
   PretrainedSummary,
-  RunConfig,
   TxrModelAsset,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
@@ -86,21 +85,29 @@ import { Alert, Button } from '@txresbench/kit'
 import { runAction } from '@/core/actions/defineAction'
 import { usePretrained } from '../data/usePretrained'
 import { usePretrainedEligibility } from '../data/usePretrainedEligibility'
-import { useDownloadState } from '../data/useDownloadState'
 import { useAnalysisOutcome } from '../data/useAnalysisOutcome'
 import { useModelFileImport } from '../data/useModelFileImport'
+import {
+  cardRunnable,
+  DOWNLOAD_STRIP,
+  GATE_DOWNLOADING_LINE,
+  GATE_FAILED_LINE,
+  getLiveSelection,
+  installedModelId,
+  reuseConfig,
+  StripEntry,
+} from '../lib/pretrainedRun'
 import { buildChooseRows } from '../lib/rows'
 import { chooseChipPredicate, filterRows, type TxrModelSortable } from '../lib/filters'
 import { totalSecondsForSelection, type TxrTimedVerdict } from '../lib/total'
 import { formatCheckedAgainstLine, formatChooseTotals, RESEARCH_NOTICE } from '../lib/format'
-import { DOWNLOAD_POLL_MS, useTxrModelsStore } from '../stores/TxrModels.store'
+import { useTxrModelsStore } from '../stores/TxrModels.store'
 import type {
   TxrModelDialogId,
   TxrModelFilterId,
   TxrModelSortId,
   TxrModelSourceId,
 } from '../types'
-import { TxrDownloadState } from '../components/TxrDownloadState'
 import { TxrModelCardDialog } from '../components/TxrModelCardDialog'
 import { TxrModelDetailsDialog } from '../components/TxrModelDetailsDialog'
 
@@ -148,18 +155,6 @@ const TOTALS: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 /** The header block's lead paragraph (the board's own). */
 const CHECK_LINE: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
 
-/** The downloads strip's card (the host chrome between list and footnote). */
-const DOWNLOAD_STRIP: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '8px 18px',
-  alignItems: 'center',
-  padding: '10px 14px',
-  border: '1px solid var(--txr-border-subtle)',
-  borderRadius: 10,
-  background: 'var(--txr-bg)',
-}
-
 /** The strip's "Downloads" caption (the board's muted small line). */
 const STRIP_CAPTION: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)', fontWeight: 700 }
 
@@ -175,13 +170,6 @@ const EMPTY_NOTE =
 
 /** The not-ready state's CTA — the step that unlocks this one (RES-20). */
 const EMPTY_CTA = 'Go to the measurements step'
-
-/** The gate line for a still-downloading selected card. */
-const GATE_DOWNLOADING_LINE =
-  'A selected model is still downloading. Wait for it to finish, or uncheck it.'
-
-/** The gate line for a failed selected card's download. */
-const GATE_FAILED_LINE = "A selected model's download failed. Retry it, or uncheck it."
 
 /** The none-can-run lines (round 2 — one list, the cross-list buttons go). */
 const NONE_CAN_RUN_ONE = 'The 1 model cannot run on this file. Its row says what is missing.'
@@ -255,75 +243,6 @@ const LAB_CHIPS: ReadonlyArray<{ id: TxrModelFilterId; label: string }> = [
 const SAME_OUTCOME_CHIP: Readonly<{ id: TxrModelFilterId; label: string }> = {
   id: 'same-outcome',
   label: 'Same outcome as my file',
-}
-
-/** Can the card be run WITHOUT a live download? (The D page's rule — an
- *  entry commits a provider state once; without an entry the card's own
- *  list state decides.) */
-function cardRunnable(
-  card: PretrainedSummary,
-  entry: { status: { state: string } | null; error: string | null } | undefined,
-): boolean {
-  const state = entry?.status?.state ?? null
-  if (state !== null) return state === 'ready'
-  return card.state === 'installed' || card.state === 'bundled' || card.state === 'ready'
-}
-
-/** The reuse-mode config: the FIRST SELECTED model's own endpoint/horizon/
- *  decision day (the D/I rule — the merged list has no settings controls),
- *  with the engine-defaults the boards' bars carry. */
-function reuseConfig(
-  first: { endpoint: string; decision_day: number; horizon: number },
-  atATime: number,
-): RunConfig {
-  return {
-    endpoint: first.endpoint,
-    decision_day: first.decision_day,
-    look_ahead_day: first.horizon,
-    covariates: false,
-    at_a_time: atATime,
-    cpus: null,
-    save_models: false,
-    label_day: null,
-  } as unknown as RunConfig
-}
-
-/** The live selection read FRESH at invoke time (the shared hook's
- *  `getSelection` — the action's selection is never a render-time snapshot;
- *  the stale-state token is the real check). */
-function getLiveSelection(): ReadonlySet<string> {
-  return useTxrModelsStore.getState().selection
-}
-
-/** The one install path for a selected card (PROV-PC-7, the D page's). */
-async function installedModelId(card: PretrainedSummary): Promise<string> {
-  if (card.state === 'installed') {
-    if (card.installed_model_id === undefined) {
-      throw new Error(`The model ${card.id} has no installed model record.`)
-    }
-    return card.installed_model_id
-  }
-  let install = await ApiClient.Pretrained.installModel({ id: card.id })
-  while (install.status === 'installing') {
-    await new Promise(resolve => setTimeout(resolve, DOWNLOAD_POLL_MS))
-    const downloads = await ApiClient.Pretrained.listDownloads()
-    const entry = downloads.downloads.find(d => d.id === card.id)
-    if (entry?.state === 'failed') {
-      throw new Error(entry.error ?? `The model ${card.id} could not be downloaded.`)
-    }
-    if (entry?.state !== 'ready') continue
-    install = await ApiClient.Pretrained.installModel({ id: card.id })
-  }
-  if (install.model_id === undefined) {
-    throw new Error(`The model ${card.id} could not be installed.`)
-  }
-  return install.model_id
-}
-
-/** One downloads-strip entry (the D page's controller per card). */
-function StripEntry({ id }: { id: string }) {
-  const { entry, retrying, retry } = useDownloadState(id)
-  return <TxrDownloadState id={id} label={id} entry={entry} retrying={retrying} onRetry={retry} />
 }
 
 /** The no-model panel's one option row. */
@@ -913,26 +832,28 @@ export function ChooseModelsPage() {
         } as unknown as IntakeSnapshot,
         'predict',
       )
+      // The ONE create call's assets, built by the arm that applies:
+      // the demo arm includes the lab cards' recorded identity (no install,
+      // no download — the server blocks both, and the recorded replay reads
+      // only the method facts), while the OWNED rows DO resolve through
+      // `Models.resolveModels` (the server does not block that; it is how
+      // a saved/imported model becomes runnable) like any saved model.
+      // The replay replays each selected method's recorded column, whatever
+      // the mix is (lab + example-set mix included).
+      let assets: TxrModelAsset[]
       if (isDemo) {
-        // ITEM-7 demo arm: the lab cards are included (no install, no
-        // download — the server blocks both, and the recorded replay reads
-        // only the method facts), while the OWNED rows DO resolve through
-        // `Models.resolveModels` (the server does not block that; it is how
-        // a saved/imported model becomes runnable) like any saved model.
-        // The replay replays each selected method's recorded column,
-        // whatever the mix is (lab + example-set mix included).
         const ownedAssets = new Map<string, TxrModelAsset>()
         if (runModels.length > 0) {
-          const { assets } = await ApiClient.Models.resolveModels({
+          const { assets: owned } = await ApiClient.Models.resolveModels({
             model_ids: runModels.map(model => model.id),
           })
-          for (const asset of assets) ownedAssets.set(asset.model_id, asset)
+          for (const asset of owned) ownedAssets.set(asset.model_id, asset)
         }
-        const assets: TxrModelAsset[] = []
+        const demoAssets: TxrModelAsset[] = []
         for (const key of keys) {
           const card = cardById.get(key.slice(ROW_KEY_PREFIX.length))
           if (card !== undefined) {
-            assets.push({
+            demoAssets.push({
               model_id: card.id,
               method_id: card.method_id,
               method_version: card.method_version,
@@ -940,49 +861,40 @@ export function ChooseModelsPage() {
           } else {
             const model = modelById.get(key) ?? pretrainedRows.get(key)
             const asset = model !== undefined ? ownedAssets.get(model.id) : undefined
-            if (asset !== undefined) assets.push(asset)
+            if (asset !== undefined) demoAssets.push(asset)
           }
         }
-        const created = await ApiClient.Txr.createRun({
-          mode: 'reuse',
-          input,
-          config: reuseConfig(
-            first ?? { endpoint: 'pfs', decision_day: 56, horizon: 238 },
-            atATime,
-          ),
-          model_ids: assets,
-        })
-        navigate(runningPath(created.id))
-        return created.id
-      }
-      const blocked = runCards.filter(
-        card => !cardRunnable(card, useTxrModelsStore.getState().downloadState[card.id]),
-      )
-      if (blocked.length > 0) {
-        throw new Error(
-          blocked.some(card => {
-            const state = useTxrModelsStore.getState().downloadState[card.id]?.status?.state
-            return state === 'failed'
-          })
-            ? GATE_FAILED_LINE
-            : GATE_DOWNLOADING_LINE,
+        assets = demoAssets
+      } else {
+        const blocked = runCards.filter(
+          card => !cardRunnable(card, useTxrModelsStore.getState().downloadState[card.id]),
         )
-      }
-      // install-if-needed, in the SELECTION's own order (audit item 2: the
-      // lab ids never jump ahead of saved ids — each key maps to its id in
-      // place, a lab key to its installed uuid), then ONE resolve over the
-      // whole ordered list.
-      const modelIds: string[] = []
-      for (const key of keys) {
-        const card = cardById.get(key.slice(ROW_KEY_PREFIX.length))
-        if (card !== undefined) {
-          modelIds.push(await installedModelId(card))
-          continue
+        if (blocked.length > 0) {
+          throw new Error(
+            blocked.some(card => {
+              const state = useTxrModelsStore.getState().downloadState[card.id]?.status?.state
+              return state === 'failed'
+            })
+              ? GATE_FAILED_LINE
+              : GATE_DOWNLOADING_LINE,
+          )
         }
-        const model = modelById.get(key) ?? pretrainedRows.get(key)
-        if (model !== undefined) modelIds.push(model.id)
+        // install-if-needed, in the SELECTION's own order (audit item 2: the
+        // lab ids never jump ahead of saved ids — each key maps to its id in
+        // place, a lab key to its installed uuid), then ONE resolve over the
+        // whole ordered list.
+        const modelIds: string[] = []
+        for (const key of keys) {
+          const card = cardById.get(key.slice(ROW_KEY_PREFIX.length))
+          if (card !== undefined) {
+            modelIds.push(await installedModelId(card))
+            continue
+          }
+          const model = modelById.get(key) ?? pretrainedRows.get(key)
+          if (model !== undefined) modelIds.push(model.id)
+        }
+        assets = (await ApiClient.Models.resolveModels({ model_ids: modelIds })).assets
       }
-      const { assets } = await ApiClient.Models.resolveModels({ model_ids: modelIds })
       const created = await ApiClient.Txr.createRun({
         mode: 'reuse',
         input,

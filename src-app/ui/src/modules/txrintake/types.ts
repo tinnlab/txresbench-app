@@ -69,9 +69,9 @@ export type IntakeIntent = 'predict' | 'train'
  * The source preset of the predict path (round 1): which model list the
  * predict path's model step shows. `'lab'` = ready-made models from the lab,
  * `'saved'` = the user's saved models (trained runs AND opened `.txr` files).
- * Stored for round 2's merged `/choose-models` list; today
- * `PredictFilesPage` continues by it (`lab` → `/pretrained-models`, else →
- * `/saved-models`).
+ * Stored for round 2/3's merged `/choose-models` list; `PredictFilesPage`
+ * continues to `/choose-models` and the list reads the preset as its focus
+ * on mount (the old D/I addresses redirect with the same preset pinned).
  */
 export type PredictModelSource = 'lab' | 'saved'
 

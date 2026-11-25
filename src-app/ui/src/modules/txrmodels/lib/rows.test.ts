@@ -21,18 +21,13 @@
  *   chip (Trained by you / Imported / Pretrained with the board tones),
  *   the own-AUC entry with the "not yet cross-checked" fallback, the
  *   statuses, times and the "Details" action;
- * - `buildSavedSections` yields one section per set with the run-facts
- *   subtitle, the row keys, and the Rename / "Delete the run's models"
- *   actions (danger tone on delete) — INV-2's grouping;
  * - the baseline rule: a model whose facts say `needs_baseline` renders
  *   "before treatment only" (DEC-13; the summary does not carry the
  *   facts block today, so the read is the defensive optional read — a
  *   grown response flips the row, an ungrown one keeps the day rule).
  *
  * Every expected string is board copy; every VALUE is the fixture's
- * synthetic one (INV-4). The dates below are TZ-proof by construction:
- * the instant passed to the section builder is a local-noon `new Date`,
- * so the en-GB day-month rendering is the same calendar day in every zone.
+ * synthetic one (INV-4).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -48,18 +43,12 @@ import {
   buildModelTableRows,
   buildPretrainedRows,
   buildSavedRows,
-  buildSavedSections,
   MODEL_TABLE_DEFAULT_SORT,
   type ModelTableOptions,
   type ModelTableRow,
   type ModelTableSort,
 } from './rows'
 import type { ModelSummary, PretrainedListResponse } from '@/api-client/types'
-
-/** A local-noon instant, so the en-GB date rendering is zone-independent. */
-function localNoonIso(year: number, month: number, day: number): string {
-  return new Date(year, month - 1, day, 12, 0, 0).toISOString()
-}
 
 /** A ready catalogue payload in the list-response shape (the store owns
  *  the fetch; the builder takes the rows slice). */
@@ -250,67 +239,6 @@ describe('buildSavedRows — the I list rows (TEST-MOD-06)', () => {
 function fixtureId(k: number): string {
   return `a0000000-0000-4000-8000-0000000000${String(k).padStart(2, '0')}`
 }
-
-describe('buildSavedSections — the I run groups (TEST-MOD-06, INV-2)', () => {
-  it('groups one section per set with the run-facts subtitle and the board actions', () => {
-    // TZ-proof: the run timestamps are local-noon instants.
-    const a = TXRMODELS_SAVED.slice(0, 7).map(model => ({
-      ...model,
-      trained_at: localNoonIso(2026, 11, 29),
-    }))
-    const b = TXRMODELS_SAVED.slice(7).map(model => ({
-      ...model,
-      trained_at: localNoonIso(2026, 10, 9),
-    }))
-    const built = buildSavedSections(
-      [TXRMODELS_SET_A, TXRMODELS_SET_B],
-      [...a, ...b],
-      TXRMODELS_SAVED_ELIGIBILITY,
-    )
-    expect(built).toHaveLength(2)
-    expect(built[0].key).toBe('set-a')
-    expect(built[0].title).toBe('CRC cohort, day 60')
-    expect(built[0].subtitle).toBe(
-      'trained 29 Nov on patients.csv · 42 patients · 7 models · progression, death by day 240',
-    )
-    expect(built[0].rowKeys).toHaveLength(7)
-    expect(built[1].subtitle).toBe(
-      'trained 9 Oct on lung-pilot.csv · 42 patients · 3 models · death by day 165',
-    )
-    expect(built[1].rowKeys).toHaveLength(3)
-    expect(built[1].actions).toEqual([
-      { id: 'rename', label: 'Rename', tone: 'default' },
-      { id: 'delete', label: "Delete the run's models", tone: 'danger' },
-    ])
-  })
-
-  it('omits the run-facts segments that have no record (never a blank or a kept "not recorded" word)', () => {
-    const models = TXRMODELS_SAVED.slice(0, 7).map(model => ({
-      ...model,
-      trained_at: undefined,
-      trained_on_patients: undefined,
-    }))
-    const set = { ...TXRMODELS_SET_A, source_label: undefined, model_count: 7 }
-    const built = buildSavedSections([set], models, null)
-    expect(built[0].subtitle).toBe('7 models · progression, death by day 240')
-  })
-
-  it('keeps a set-less summary out of the sections (the J inventory owns it)', () => {
-    const orphan = {
-      ...TXRMODELS_SAVED[0],
-      id: 'a0000000-0000-4000-8000-000000000099',
-      set_id: undefined,
-      set_name: undefined,
-    }
-    const built = buildSavedSections(
-      [TXRMODELS_SET_A],
-      [orphan, ...TXRMODELS_SAVED.slice(0, 7)],
-      null,
-    )
-    expect(built[0].rowKeys).toHaveLength(7)
-    expect(built[0].rowKeys).not.toContain(orphan.id)
-  })
-})
 
 describe('buildModelTableRows — the J one-table rows (TEST-MOD-06)', () => {
   /** The builder's fixture invocation with the part-2 defaults (Made,

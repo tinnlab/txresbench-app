@@ -138,16 +138,14 @@ describe('txrintake module', () => {
     expect(files['./module.tsx'].default).toBe(txrIntakeModule)
   })
 
-  it('declares the E/D/I route conventions for the sibling choice screens', () => {
+  it('declares the E route convention for the sibling choice screen', () => {
     expect(ROUTE_CONVENTIONS).toEqual({
       methods: '/choose-methods',
-      pretrainedModels: '/pretrained-models',
-      savedModels: '/saved-models',
     })
     const source = readFileSync(fileURLToPath(new URL('./module.tsx', import.meta.url)), 'utf8')
     expect(source).toContain('/choose-methods')
-    expect(source).toContain('/pretrained-models')
-    expect(source).toContain('/saved-models')
+    expect(source).not.toContain('/pretrained-models')
+    expect(source).not.toContain('/saved-models')
   })
 
   it('records the txrshell route handoffs: the `/`, `/models`, `/history` and `/help` scaffold routes are gone', () => {

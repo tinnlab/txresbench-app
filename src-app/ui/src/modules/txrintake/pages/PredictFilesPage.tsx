@@ -36,9 +36,8 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
  * ITEM-7): the predict-mode variant of the C flow. ONE measurements card
  * (no patients file, no outcomes — the board's "No outcomes are needed, and
  * no patients file." line), the "What the models look for" aside, and the
- * Continue gate into the model choice screens by the predict path's source
- * preset (round 1's bridge — `lab` → `/pretrained-models`, else →
- * `/saved-models`; round 2 replaces it with `/choose-models`).
+ * Continue gate into the ONE merged model list (`/choose-models` — the
+ * predict path's model step; the old D/I list split left in round 3).
  *
  * INV-2's flow, one pipe for C and N (the card markup is the shared
  * `TxrFileCard` — ITEM-9's component extraction; this page owns the N
@@ -237,7 +236,6 @@ export function PredictFilesPage() {
   const { isDemo } = useAppMode()
   const [searchParams] = useSearchParams()
   const file = useStore(useTxrIntakeStore, s => s.predictMeasurements)
-  const predictSource = useStore(useTxrIntakeStore, s => s.predictSource)
   const joins = useStore(useTxrIntakeStore, s => s.joins)
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
@@ -502,16 +500,12 @@ export function PredictFilesPage() {
               </p>
             ) : null}
 
-            {/* qa-fixes4 ITEM-5 (help-r3 R3-help-6): this screen serves BOTH
-                predict lists — the screen says which one the user is on (the
-                Start card and the Help quick-start cards set the intent
-                first; a direct visit defaults to the saved-model list, the
-                same default the Continue button and the aside use — round 1's
-                bridge, round 2 replaces it with /choose-models). */}
+            {/* The ONE merged model list (round 3): this screen serves the
+                predict path's single model step, so the path sentence names
+                every model kind it shows. */}
             <p data-testid="txr-intake-predict-path" style={INTRO}>
-              {predictSource === 'lab'
-                ? 'This is the ready-made model path — you will pick from the ready-made models.'
-                : 'This is the saved-model path — you will pick from the models you saved.'}
+              You will pick from the models that can run on this file: ready-made models
+              from the lab, models you saved, and models opened from a file.
             </p>
 
             <div
@@ -613,12 +607,8 @@ export function PredictFilesPage() {
               <aside style={ASIDE} data-testid="txr-intake-aside">
                 <div style={ASIDE_EYEBROW}>What the models look for</div>
                 <p style={ASIDE_PARA}>
-                  {/* R2-12: the aside's lead must name the list the Continue takes —
-                      the board's "ready-made models" byte is the lab list's; a
-                      saved-model flow reads its own words. */}
-                  {predictSource === 'lab'
-                    ? 'After you add the file we check which ready-made models can run on it. These are the draws most models use:'
-                    : 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'}
+                  After you add the file we check which models can run on it. These are the
+                  draws most models use:
                 </p>
                 <ul style={ASIDE_LIST}>
                   <li style={ASIDE_ITEM}>

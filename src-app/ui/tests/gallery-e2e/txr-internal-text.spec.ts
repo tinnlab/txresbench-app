@@ -129,8 +129,7 @@ const ROUTE_BANK: Array<{ slug: string; surface: string }> = [
   { slug: 'txr-results-h', surface: 'txr-results-subtitle' }, // the one-method page
   { slug: 'txr-history-populated', surface: 'txr-history' }, // /history
   { slug: 'txr-models-j', surface: 'txr-models-j' }, // /models
-  { slug: 'txr-models-d', surface: 'txr-models-d' }, // /pretrained-models
-  { slug: 'txr-models-i', surface: 'txr-models-i' }, // /saved-models
+  { slug: 'txr-models-choose', surface: 'txr-models-choose' }, // /choose-models
   { slug: 'txr-help', surface: 'txr-help' }, // /help
 ]
 

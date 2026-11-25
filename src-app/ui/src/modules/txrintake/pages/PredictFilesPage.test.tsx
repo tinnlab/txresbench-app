@@ -221,8 +221,9 @@ afterEach(() => {
 
 describe('PredictFilesPage (screen N, ITEM-7)', () => {
   it('renders ONE measurements card with the board N copy, the aside and no patients card', () => {
-    // The ready-made list's spell (the screen's default is the saved-model
-    // list — round 1's bridge).
+    // The ONE predict path: the path sentence and the aside lead name every
+    // model kind the merged list shows (round 3 — the old D/I split is gone;
+    // the source preset still exists but nothing on this page reads it).
     store().setIntent('predict', 'lab')
     renderPredict()
     expect(screen.getByText('Add the patients to predict')).toBeTruthy()
@@ -239,12 +240,18 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(screen.getByText('for example LDH, ctDNA')).toBeTruthy()
     expect(screen.getByText('lets us check the scale against the model')).toBeTruthy()
     expect(screen.queryByText('your own code, the same in both files')).toBeNull()
+    // The ONE path sentence (round 3): "You will pick from the models that
+    // can run on this file: ready-made models from the lab, models you
+    // saved, and models opened from a file."
+    expect(screen.getByTestId('txr-intake-predict-path').textContent).toBe(
+      'You will pick from the models that can run on this file: ready-made models from the lab, models you saved, and models opened from a file.',
+    )
     // The aside + the board's bottom line.
     expect(screen.getByTestId('txr-intake-aside')).toBeTruthy()
     expect(screen.getByText('What the models look for')).toBeTruthy()
     expect(
       screen.getByText(
-        'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
+        'After you add the file we check which models can run on it. These are the draws most models use:',
       ),
     ).toBeTruthy()
     expect(screen.getByText('No outcomes are needed, and no patients file.')).toBeTruthy()
@@ -487,30 +494,41 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
     expect(units.textContent).toContain(': add the unit column so we can check')
   })
 
-  // R2-12 (qa-fixes2): the aside's lead named "ready-made models" on the
-  // saved-model flow too — the board's byte is the ready-made path's; a
-  // saved-model flow reads its own words (the two screens differ only here).
-  it('the aside lead names saved models for source saved (R2-12)', () => {
+  // R2-12 (qa-fixes2) → round 3: the aside's lead used to name the list the
+  // Continue took (the ready-made list's byte vs the saved list's); the ONE
+  // merged list made it ONE line for both source presets.
+  it('the aside lead is the ONE merged line for both source presets (round 3)', () => {
     store().setIntent('predict', 'lab')
     renderPredict()
     expect(
       screen.getByText(
-        'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
+        'After you add the file we check which models can run on it. These are the draws most models use:',
       ),
     ).toBeTruthy()
     cleanup()
     store().setIntent('predict', 'saved')
     renderPredict()
     expect(
+      screen.getByText(
+        'After you add the file we check which models can run on it. These are the draws most models use:',
+      ),
+    ).toBeTruthy()
+    expect(
       screen.queryByText(
         'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
       ),
     ).toBeNull()
     expect(
-      screen.getByText(
+      screen.queryByText(
         'After you add the file we check which of your saved models can run on it. These are the draws most models use:',
       ),
-    ).toBeTruthy()
+    ).toBeNull()
+    // The path sentence is the ONE line too (never the old two-list spell).
+    expect(screen.getByTestId('txr-intake-predict-path').textContent).toBe(
+      'You will pick from the models that can run on this file: ready-made models from the lab, models you saved, and models opened from a file.',
+    )
+    expect(screen.queryByText(/(This is the ready-made model path|This is the saved-model path)/)).toBeNull()
+    expect(store().predictSource).toBe('saved') // the preset itself is untouched
   })
 
   it('a wrong file type is refused with the plain sentence on the N card too (F4)', async () => {

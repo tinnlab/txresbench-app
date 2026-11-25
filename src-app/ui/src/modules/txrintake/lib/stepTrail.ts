@@ -130,10 +130,10 @@ export function leaveStep(trail: readonly string[], url: string): string[] {
 }
 
 /**
- * Replace the step at `from` with `to` (the D/I switch: "Use my saved
- * models" takes the place of the empty published list, so Back from the
- * saved list goes to the file step). With `from` not in the trail, `to` is
- * appended.
+ * Replace the step at `from` with `to` (the model-list switch used to take
+ * the place of the old D/I list in the trail; round 3 — a model-list
+ * switch never moves between steps any more, so nothing calls this).
+ * With `from` not in the trail, `to` is appended.
  */
 export function replaceCurrent(trail: readonly string[], from: string, to: string): string[] {
   const at = indexOfPath(trail, from)
@@ -249,12 +249,4 @@ export function helpReturnTarget(
   return trail[trail.length - 1] === origin ? origin : null
 }
 
-/** Swap the step on screen for another one in the trail (the D/I switch); the step is being left. */
-export function replaceCurrentStep(to: string): void {
-  const { trail, current } = useStepTrailStore.getState()
-  if (current === null) {
-    useStepTrailStore.setState({ trail: [...trail, to], leaving: true })
-    return
-  }
-  useStepTrailStore.setState({ trail: replaceCurrent(trail, current.url, to), leaving: true })
-}
+/** An entry point starts a new trail (Start, Help, Your models, History, a results page). */

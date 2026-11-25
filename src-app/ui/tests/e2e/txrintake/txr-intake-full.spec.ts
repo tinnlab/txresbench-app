@@ -305,15 +305,16 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     )
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
 
-    // Continue → the declared I route (round 1's bridge: the merged card's
-    // no-source default continues to the saved-models list).
+    // Continue → the declared merged model step (round 3: the predict files
+    // step declares `/choose-models` — the ONE merged list, which reads the
+    // store's pinned saved source as its chip preset).
     await page.getByTestId('txr-intake-continue').click()
     const navigations = await page.evaluate(
       () => (window as unknown as { __txrNav: string[] }).__txrNav,
     )
     expect(
       navigations,
-      'the Continue click must push the declared saved-models route (round-1 bridge)',
-    ).toEqual(expect.arrayContaining([expect.stringContaining('/saved-models')]))
+      'the Continue click must push the declared choose-models route (the merged model list)',
+    ).toEqual(expect.arrayContaining([expect.stringContaining('/choose-models')]))
   })
 })

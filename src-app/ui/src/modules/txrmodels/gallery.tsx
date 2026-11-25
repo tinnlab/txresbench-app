@@ -13,10 +13,13 @@
  * (`txrresults`' emitSaveModels / emitSaveOneModel — the same emitters
  * the results screen's buttons use).
  *
- * - `txr-models-d` / `txr-models-d-narrow-390`: the populated Pretrained
- *   board at the container width and at 390 px. The story host seeds the
- *   intake store's validated summary (the module fixture family: 42
- *   patients, four markers, draws day 0/14/28/56, decision day 60), runs
+ * - `txr-models-choose` / `txr-models-choose-narrow-390` /
+ *   `txr-models-choose-none` / `txr-shell-route-choose-models`: the merged
+ *   model step (predict-card merge rounds 2/3) — the ONE list of the
+ *   predict path's model choice at the container width and at 390 px, the
+ *   no-model panel, and the real page inside the app shell. The story host
+ *   seeds the intake store's validated summary (the module fixture family:
+ *   42 patients, four markers, draws day 0/14/28/56, decision day 60), runs
  *   the real page, and records the page's Run into
  *   `txr-models-run-result` (the `txr-list-run-result` seam convention —
  *   the component is never probed). The Run's createRun request is
@@ -24,21 +27,17 @@
  *   navigation is observed by the story's own MemoryRouter (the harness
  *   frame mounts one route; a run-created navigation would unmount the
  *   page otherwise).
- * - `txr-models-i` / `txr-models-j` / `txr-models-j-narrow-390`: the two
- *   model boards — the saved
- *   models grouped per run over the store's real load (the module
- *   cassette answers `Models.listModels` / `ModelSets.listSets` /
- *   `Models.checkEligibility`), and the Your-models table over the
- *   server-filtered inventory read (the J story's extension answers the
- *   J fixture rows; the I story's extension answers the engine's sticky
- *   analysis config — the same-outcome chip's fact source, read raw) at
- *   the container width and at 390 px (ITEM-5, RES-16).
+ * - `txr-models-j` / `txr-models-j-narrow-390`: the Your-models table over
+ *   the server-filtered inventory read (the J story's extension answers
+ *   the J fixture rows) at the container width and at 390 px (ITEM-5,
+ *   RES-16).
  * - `txr-models-l` / `txr-models-l2` / `txr-models-l3`: the save dialogs
  *   over the results board (L and L2 through the real host + the real
  *   event; L3 the saved confirmation). Their extensions answer the
  *   fixture run's detail/predictions/catalogue/root reads.
- * - `txr-models-empty` / `txr-models-error`: the D page's no-file and
- *   first-load-failure states.
+ * - `txr-models-empty` / `txr-models-error`: the merged list's no-file and
+ *   one-source-failure states (the old D page's stories, re-pointed round
+ *   3).
  *
  * The cassette's OWNED keys are this module's non-colliding ones (the
  * gallery holds ONE owner per endpoint — `mergeModuleCassettes` throws on
@@ -73,8 +72,6 @@ import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { emitSaveModels, emitSaveOneModel } from '@/modules/txrresults/events'
 import { TXR_PREDICTIONS, TXR_RUNS } from '@/modules/txrresults/fixtures'
 import { TXRLIST_METHODS } from '@/modules/txrlist/fixtures'
-import { PretrainedModelsPage } from './pages/PretrainedModelsPage'
-import { SavedModelsPage } from './pages/SavedModelsPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { ChooseModelsPage } from './pages/ChooseModelsPage'
 import { TxrModelsDialogHost } from './components/TxrModelsDialogHost'
@@ -299,41 +296,6 @@ function seedIntake(): void {
   })
 }
 
-/** The D story's seed: a fresh module store + intake, and the story's
- *  `Txr.createRun` answer (the key belongs to `txrrun`'s cassette; this
- *  story replays its own answer and records the request into the seam). */
-function seedDStory(): void {
-  TxrModels.reset()
-  seedIntake()
-  extendCassette({
-    'Txr.createRun': (ctx: MockRequestContext) => {
-      recordRun(ctx.body)
-      return TXRMODELS_RUN_SUMMARY
-    },
-  })
-}
-
-/** The I story's seed: the fresh stores + the engine's sticky analysis
- *  config (the same-outcome chip's raw fact source — pfs, day 240). The
- *  key belongs to `txrrun`'s cassette (its empty default would make the
- *  chip honest-but-empty; this story seeds the configured state). */
-function seedIStory(): void {
-  TxrModels.reset()
-  seedIntake()
-  extendCassette({
-    'Txr.getAnalysisConfig': () => ({
-      config: {
-        endpoint: 'pfs',
-        decision_day: 60,
-        look_ahead_day: 240,
-        covariates: false,
-        at_a_time: 3,
-        save_models: false,
-      },
-    }),
-  })
-}
-
 /** The J story's seed: the inventory answer (the J fixture rows with the
  *  board's imported row; the shared `Models.listModels` cassette is the I
  *  story's family, so this story re-answers it). Part 2: the page loads the
@@ -400,9 +362,11 @@ function seedEmptyStory(): void {
   })
 }
 
-/** The error story's seed: the catalogue read fails (the list's error + Retry). */
+/** The error story's seed: the merged list's seed with the lab catalogue
+ *  read failing (the source-failed alert + Retry — the merged list's own
+ *  one-source state, the old D error story re-pointed round 3). */
 function seedErrorStory(): void {
-  seedDStory()
+  seedChooseStory()
   extendCassette({
     'Pretrained.listModels': () => {
       throw new Error('fixture catalogue failure')
@@ -423,45 +387,6 @@ function seedErrorStory(): void {
  * RunResultLine/RequestSeam live outside the Routes so the recorded run
  * stays readable.
  */
-function DStoryView({ narrow = false }: { narrow?: boolean }) {
-  return (
-    <section style={{ width: narrow ? 390 : '100%', maxWidth: '100%', minWidth: 0 }}>
-      <SeedGate seed={seedDStory}>
-        <RouterBridge />
-        <Routes>
-          <Route path="/pretrained-models" element={<PretrainedModelsPage />} />
-          <Route
-            path="/analysis/:runId/running"
-            element={<LandingLine path="running" />}
-          />
-        </Routes>
-        <RunResultLine />
-        <RequestSeam />
-      </SeedGate>
-    </section>
-  )
-}
-
-/** The run-landing seam (the D Run's in-frame navigation's destination). */
-function LandingLine({ path }: { path: string }) {
-  return (
-    <p data-testid="txr-models-d-run-landed" style={{ margin: 12, fontSize: 12, color: 'var(--txr-muted)' }}>
-      {path}
-    </p>
-  )
-}
-
-/** The I story's frame: the real saved-models page over the seeded slice. */
-function IStoryView() {
-  return (
-    <section style={{ width: '100%', minWidth: 0 }}>
-      <SeedGate seed={seedIStory}>
-        <SavedModelsPage />
-      </SeedGate>
-    </section>
-  )
-}
-
 /** The J story's frame: the real inventory page (web mode — the
  *  open-folder button is desktop-gated and absent here). The narrow frame
  *  is the 390 px page: the table stacks as labelled cards and the header
@@ -621,23 +546,25 @@ function L3StoryView() {
   )
 }
 
-/** The D empty story: the no-validated-file state. */
+/** The merged list's empty story: the no-validated-file state (the old D
+ *  no-file story, re-pointed to the merged page round 3). */
 function EmptyStoryView() {
   return (
     <section style={{ width: '100%', minWidth: 0 }}>
       <SeedGate seed={seedEmptyStory}>
-        <PretrainedModelsPage />
+        <ChooseModelsPage />
       </SeedGate>
     </section>
   )
 }
 
-/** The D error story: the catalogue first-load failure. */
+/** The merged list's error story: the lab catalogue first-load failure (the
+ *  source-failed alert + Retry — the old D failure story, re-pointed). */
 function ErrorStoryView() {
   return (
     <section style={{ width: '100%', minWidth: 0 }}>
       <SeedGate seed={seedErrorStory}>
-        <PretrainedModelsPage />
+        <ChooseModelsPage />
       </SeedGate>
     </section>
   )
@@ -645,34 +572,6 @@ function ErrorStoryView() {
 
 // ── the app-shell ITEM-3 route surfaces (the real page INSIDE the real
 //    shell — the audit section-4 legs of `txr-shell-routes.spec.ts`) ────────
-
-/** The D route: the shared list's layout split inside the shell frame. */
-function ShellDStoryView() {
-  return (
-    <SeedGate seed={seedDStory}>
-      <AppShell>
-        <RouterBridge />
-        <Routes>
-          <Route path="/pretrained-models" element={<PretrainedModelsPage />} />
-          <Route path="/analysis/:runId/running" element={<LandingLine path="running" />} />
-        </Routes>
-      </AppShell>
-      <RunResultLine />
-      <RequestSeam />
-    </SeedGate>
-  )
-}
-
-/** The I route: the saved-models groups inside the shell frame. */
-function ShellIStoryView() {
-  return (
-    <SeedGate seed={seedIStory}>
-      <AppShell>
-        <SavedModelsPage />
-      </AppShell>
-    </SeedGate>
-  )
-}
 
 /** The J route: the inventory table inside the shell frame. */
 function ShellJStoryView() {
@@ -687,9 +586,10 @@ function ShellJStoryView() {
 
 // ── the merged model step (predict-card merge round 2) ───────────────────────
 
-/** The choose story's seed: the D fixture seed + the engine's sticky
+/** The merged list's seed: the D fixture seed + the engine's sticky
  *  analysis config (the same-outcome chip's fact source) — the merged list
- *  reads both sources (the lab catalogue AND the saved rows) in one frame. */
+ *  reads both sources (the lab catalogue AND the saved rows) in one frame.
+ *  (The old D/I story seeds are gone with the pages — round 3.) */
 function seedChooseStory(): void {
   TxrModels.reset()
   seedIntake()
@@ -842,35 +742,6 @@ export const gallery: ModuleGallery = {
 
   seeded: [
     {
-      slug: 'txr-models-d',
-      title: 'Choose the models to run (screen D)',
-      note: 'The board\'s Step 4 with the module fixture catalogue over the seeded intake summary: the seven cards (6 runnable — 4 fit + 2 some — 1 cannot), the four chips, the Sort by select, the selection-driven total, the research notice, and the downloads strip when a not-yet-installed card is checked; the Model card dialog from the row action; Run installs → resolves → creates and the story records the posted bytes.',
-      path: '/*',
-      initialPath: '/pretrained-models',
-      component: lazy(() => Promise.resolve({ default: DStoryView })),
-      fullHeight: true,
-    },
-    {
-      slug: 'txr-models-d-narrow-390',
-      title: 'Choose the models to run at 390 px',
-      note: 'The board\'s mobile width: the header, the list rows and the bottom bar stack inside the frame, no horizontal page overflow.',
-      path: '/*',
-      initialPath: '/pretrained-models',
-      component: lazy(() =>
-        Promise.resolve({ default: () => <DStoryView narrow /> }),
-      ),
-      fullHeight: true,
-    },
-    {
-      slug: 'txr-models-i',
-      title: 'Choose the saved models (screen I)',
-      note: 'The two saved sets (the fixture run groups) with their run-facts lines, the section select-alls and the Rename/Delete actions, the Same-outcome chip over the engine\'s sticky config, the find-a-model-or-run search, the board\'s sorts, the research notice.',
-      path: '/saved-models',
-      initialPath: '/saved-models',
-      component: lazy(() => Promise.resolve({ default: IStoryView })),
-      fullHeight: true,
-    },
-    {
       slug: 'txr-models-j',
       title: 'Your models (screen J)',
       note: 'The ONE-table inventory over the full read (sort/search are the page\'s now, not the server\'s): a set row ("folder") per set — Made newest first by default with folders on top (the set rows first, the no-set imported row as a plain top-level row after them, never mixed in); chevron disclosure, the folder glyph, the name with the "(N)" count beside it (the screen-reader-only "N models" text), the run-source facts line under the name, the Made date, the Rename/Export/Delete set actions — CLOSED by default; the board columns (Name | Method | Predicts | Decision day | Trained on | Made), the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the sortable Name and Made headers (buttons inside the aria-sort th), the ONE Search sets and models box (client-side), the Open-a-model-file button, the footnotes (web mode — no open-folder button).',
@@ -924,22 +795,6 @@ export const gallery: ModuleGallery = {
       path: '/models',
       initialPath: '/models',
       component: lazy(() => Promise.resolve({ default: ShellJStoryView })),
-    },
-    {
-      slug: 'txr-shell-route-saved-models',
-      title: 'Choose the saved models (screen I) inside the shell',
-      note: 'The app-shell ITEM-3 route byte: the step + title + checked line + use-example + the shared list\'s toolbar fixed, the grouped rows in the ONE region (the shared list\'s layout split — the region is the row stream\'s scrollport), the counters + Run pinned in the fixed bottom bar.',
-      path: '/saved-models',
-      initialPath: '/saved-models',
-      component: lazy(() => Promise.resolve({ default: ShellIStoryView })),
-    },
-    {
-      slug: 'txr-shell-route-pretrained-models',
-      title: 'Choose the models to run (screen D) inside the shell',
-      note: 'The app-shell ITEM-3 route byte: the step + title + checked line + totals + the shared list\'s toolbar (and the downloads strip) fixed, the catalogue rows in the ONE region (the shared list\'s layout split), the counters + research notice + Run pinned in the fixed bottom bar.',
-      path: '/*',
-      initialPath: '/pretrained-models',
-      component: lazy(() => Promise.resolve({ default: ShellDStoryView })),
     },
     {
       slug: 'txr-models-choose',
@@ -1007,19 +862,19 @@ export const gallery: ModuleGallery = {
     },
     {
       slug: 'txr-models-empty',
-      title: 'Choose the models to run — no file',
-      note: 'The not-ready state: no validated predict file — the honest line + the measurements-step CTA (ITEM-5, RES-20), never a half-built list.',
-      path: '/pretrained-models',
-      initialPath: '/pretrained-models',
+      title: 'Choose the models to run — no file (the merged list)',
+      note: 'The not-ready state: no validated predict file — the honest line + the round-2 note + the measurements-step CTA (ITEM-5, RES-20), never a half-built list.',
+      path: '/*',
+      initialPath: '/choose-models',
       component: lazy(() => Promise.resolve({ default: EmptyStoryView })),
       fullHeight: true,
     },
     {
       slug: 'txr-models-error',
-      title: 'Choose the models to run — catalogue failure',
-      note: 'The first-load failure of the catalogue read: the list\'s error line + Retry.',
-      path: '/pretrained-models',
-      initialPath: '/pretrained-models',
+      title: 'Choose the models to run — catalogue failure (the merged list)',
+      note: 'The lab catalogue\'s first-load failure: "Some models could not be loaded." + Retry over the saved rows that still load.',
+      path: '/*',
+      initialPath: '/choose-models',
       component: lazy(() => Promise.resolve({ default: ErrorStoryView })),
       fullHeight: true,
     },

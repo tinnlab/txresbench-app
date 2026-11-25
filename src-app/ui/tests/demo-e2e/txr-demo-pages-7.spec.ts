@@ -13,8 +13,10 @@ import { expect, test, type Page } from '@playwright/test'
  *    per-run delete are absent;
  *  · MODELS carries the statement + "n of 50 models"; import, export,
  *    rename and delete are absent (Use stays);
- *  · SAVED-MODELS carries the statement + counter; the set Rename/Delete
- *    actions are absent (the seeded example set stays runnable);
+ *  · the merged model list (the old saved-models page's byte, now the
+ *    `/choose-models` screen) carries the statement + counter; the set
+ *    Rename/Delete actions are absent (the seeded example set stays
+ *    runnable);
  *  · HELP carries "About this demo" first: what you can/cannot do, the
  *    statement, the privacy line, and the download link with its attributes
  *    (the notice bar's /help#demo anchor resolves);
@@ -119,24 +121,26 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
     expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([])
   })
 
-  test('saved-models + help: the reuse list keeps its rows without the set actions; About-this-demo carries the statement + the download link', async ({ page }) => {
+  test('the merged model list + help: the reuse list keeps its rows without the set actions; About-this-demo carries the statement + the download link', async ({ page }) => {
     const pageErrors: string[] = []
     page.on('pageerror', error => pageErrors.push(String(error)))
     await openApp(page)
-    // The reuse path: the example predict card → the seeded example set.
+    // The reuse path: the example predict card → the merged model list.
     await page.getByTestId('txr-use-example-predict').click()
     await page.waitForURL('/predict-files', { timeout: 60_000 })
     await expect(page.getByTestId('txr-example-card-predict')).toBeVisible({ timeout: 60_000 })
     await page.getByTestId('txr-intake-continue').click()
-    await page.waitForURL('/saved-models', { timeout: 60_000 })
+    await page.waitForURL('/choose-models', { timeout: 60_000 })
 
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible({ timeout: 60_000 })
     await expect(page.getByTestId('txr-demo-retention-statement')).toHaveText(STATEMENT, {
       timeout: 30_000,
     })
     await expect(page.getByTestId('txr-demo-retention-counter')).toHaveText(/^\d+ of 50 models$/, {
       timeout: 30_000,
     })
-    // The set's Rename/Delete actions are absent; the rows + the Run bar stay.
+    // The merged list: the set's Rename/Delete actions are absent; the rows
+    // + the Run bar stay (the shared-list row testids).
     expect(await page.locator('[data-testid^="txr-list-section-action-"]').count()).toBe(0)
     expect(await page.locator('[data-testid^="txr-list-checkbox-"]').count()).toBeGreaterThan(0)
     await expect(page.getByTestId('txr-list-run')).toBeVisible()
@@ -169,7 +173,7 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
   test('390 × 844 dark: the ITEM-7 paragraphs stay inside the viewport, never overlap the notice bar, no horizontal overflow', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.emulateMedia({ colorScheme: 'dark' })
-    const pages = ['/', '/history', '/models', '/saved-models', '/help']
+    const pages = ['/', '/history', '/models', '/choose-models', '/help']
     for (const path of pages) {
       await openApp(page, path)
       await page.waitForTimeout(400) // the usage read settles (the counter's numbers)

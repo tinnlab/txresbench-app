@@ -5,8 +5,9 @@
  * routes and the numbers from here, never from their own copies.
  *
  * - Learn from my data: 1 Start, 2 Your files, 3 Your study, 4 Methods.
- * - Predict (a ready-made model or a saved model): 1 Start, 2 Patients to
- *   predict, 3 Models (the ready-made list or the saved list).
+ * - Predict: 1 Start, 2 Patients to predict, 3 Models (the ONE merged list,
+ *   "Choose the models to run" — the old D/I pages are gone since round 3;
+ *   their addresses survive as txrmodels' redirects, not as flow steps).
  *
  * The study questions opened from the predict file step are a side trip of
  * the predict path, not one of its numbered steps.
@@ -23,8 +24,6 @@ export const FLOW_ROUTES = {
   study: '/study',
   methods: '/choose-methods',
   predictFiles: '/predict-files',
-  pretrainedModels: '/pretrained-models',
-  savedModels: '/saved-models',
   chooseModels: '/choose-models',
 } as const
 
@@ -34,8 +33,6 @@ export type FlowStepId =
   | 'study'
   | 'choose-methods'
   | 'predict-files'
-  | 'pretrained-models'
-  | 'saved-models'
   | 'choose-models'
 
 /** The two kinds of path: learn from my data, or predict with a model. */
@@ -62,16 +59,6 @@ export const FLOW_STEPS: Readonly<Record<FlowStepId, FlowStep>> = {
     route: FLOW_ROUTES.predictFiles,
     title: 'Add the patients to predict',
   },
-  'pretrained-models': {
-    id: 'pretrained-models',
-    route: FLOW_ROUTES.pretrainedModels,
-    title: 'Choose the models to run',
-  },
-  'saved-models': {
-    id: 'saved-models',
-    route: FLOW_ROUTES.savedModels,
-    title: 'Choose the saved models to run',
-  },
   'choose-models': {
     id: 'choose-models',
     route: FLOW_ROUTES.chooseModels,
@@ -81,14 +68,12 @@ export const FLOW_STEPS: Readonly<Record<FlowStepId, FlowStep>> = {
 
 /**
  * The numbered steps of each path after Start (step 1), in order. A list
- * entry with two ids is one step shown by either view — the predict path's
- * model step is ONE step shown by the merged list (round 2) or, this round
- * still, by the old ready-made / saved lists (the old pages keep their
- * components and tests until round 3 removes them).
+ * entry with two ids is one step shown by either view — none today; the
+ * predict path's model step is ONE step shown by the merged list (round 2).
  */
 export const FLOW_PATHS: Readonly<Record<FlowPath, ReadonlyArray<readonly FlowStepId[]>>> = {
   learn: [['files'], ['study'], ['choose-methods']],
-  predict: [['predict-files'], ['pretrained-models', 'saved-models', 'choose-models']],
+  predict: [['predict-files'], ['choose-models']],
 }
 
 /** A step view's place on a path, as its step line shows it. */

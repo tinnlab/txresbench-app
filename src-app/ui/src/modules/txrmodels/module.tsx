@@ -11,9 +11,16 @@ import '@/core/actions/builtin/modelRunActions'
 // Start card's, the human picker and the agent's navigate path share it.
 import '@/core/actions/builtin/modelFileActions'
 // Side-effect import: registers the model-set actions (`models.renameSet` /
-// `models.exportSet` / `models.deleteSet`) — the set section buttons (J),
-// the saved-models section actions (I) and the AI agent take the same path.
+// `models.exportSet` / `models.deleteSet`) — the set section buttons on the
+// Models page and the AI agent take the same path.
 import '@/core/actions/builtin/modelSetActions'
+
+/** The old D route's address — kept as a REDIRECT to the merged list (round
+ *  2), never a flow step any more (round 3 removed the `pretrained-models`
+ *  step id; this address survives for old links and bookmarks). */
+const OLD_PRETRAINED_MODELS_ROUTE = '/pretrained-models'
+/** The old I route's address — the same redirect rule (`source=saved`). */
+const OLD_SAVED_MODELS_ROUTE = '/saved-models'
 
 const PretrainedModelsRedirectRoute = lazyWithPreload(() =>
   import('./pages/RedirectRoutes').then(m => ({ default: m.PretrainedModelsRedirectRoute })),
@@ -30,11 +37,12 @@ const ChooseModelsPage = lazyWithPreload(() =>
 
 /**
  * txrmodels — the model screens of TxResBench: the merged model step
- * (choose-models, the one list of the predict path — round 2) and screen J
- * (Your models — the inventory table, `Models.dc.html`), plus the save
+ * (choose-models, the ONE list of the predict path — rounds 2/3) and screen
+ * J (Your models — the inventory table, `Models.dc.html`), plus the save
  * dialogs L / L2 / L3 (`SaveModels/SaveOne/SaveDone.dc.html`) that run over
- * the results screen. The old D/I routes REDIRECT to the merged list
- * (round 2; the old page components stay in the tree until round 3).
+ * the results screen. The old D/I pages are gone (round 3); their addresses
+ * REDIRECT to the merged list (round 2's `RedirectRoute`, the source preset
+ * pinned in the query).
  *
  * Route handoff: this module owns `/models` (screen J) — the `txrshell`
  * scaffold route for it is removed on the same branch (the `/` handoff is
@@ -72,13 +80,13 @@ export default createModule({
   },
   routes: [
     {
-      path: FLOW_ROUTES.pretrainedModels,
+      path: OLD_PRETRAINED_MODELS_ROUTE,
       element: PretrainedModelsRedirectRoute,
       requiresAuth: true,
       layout: TxrLayoutDef,
     },
     {
-      path: FLOW_ROUTES.savedModels,
+      path: OLD_SAVED_MODELS_ROUTE,
       element: SavedModelsRedirectRoute,
       requiresAuth: true,
       layout: TxrLayoutDef,

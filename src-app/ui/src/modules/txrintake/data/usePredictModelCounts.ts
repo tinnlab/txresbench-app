@@ -7,21 +7,21 @@
  * anywhere") from three counts:
  *
  * - `lab` — the ready-made catalogue size (`GET /api/txr/pretrained`;
- *   `useReadyMadeModelCount`'s fetch);
+ *   `READY_MADE_COUNT_KEY`'s fetch);
  * - `saved` — store models with `provenance: 'run'` (`GET /api/txr/models`;
- *   `useSavedModelCount`'s fetch);
+ *   `SAVED_COUNT_KEY`'s fetch);
  * - `imported` — store models with `provenance: 'imported'` (same response).
  *
- * The bug fixed here: `useSavedModelCount` counts EVERY store row, so a
- * downloaded lab model (`provenance: 'pretrained'`) counted as "saved".
+ * The bug fixed here: the old `useSavedModelCount` counted EVERY store row,
+ * so a downloaded lab model (`provenance: 'pretrained'`) counted as "saved".
  * The counts hook filters by provenance: `pretrained` is NOT saved.
  *
- * Fetch semantics are the two hooks' (both are still the implementations
- * of the wire reads — the same `fetchCached` keys, so the Start page's
- * hooks and any other reader of the two keys share one request): every
- * mount asks again, the last settled cached value renders on the first
- * frame of a revisiting mount, and two mounts that arrive together share
- * one request.
+ * Fetch semantics are the two old hooks' (both were the implementations of
+ * the wire reads — this hook carries the same `fetchCached` keys, so the
+ * Start page's hook and any other reader of the two keys share one
+ * request): every mount asks again, the last settled cached value renders
+ * on the first frame of a revisiting mount, and two mounts that arrive
+ * together share one request.
  *
  * Failure is graceful on purpose: a failed fetch yields `null` for that
  * count and `failed: true` — the cards must never show the "no model
@@ -31,8 +31,12 @@ import { useEffect, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import type { ModelListResponse, PretrainedListResponse } from '@/api-client/types'
 import { dropCached, fetchCached, readCached } from './fetchCache'
-import { READY_MADE_COUNT_KEY } from './useReadyMadeModelCount'
-import { SAVED_COUNT_KEY } from './useSavedModelCount'
+
+/** The fetch-cache key of the catalogue list (the lab count's source). */
+export const READY_MADE_COUNT_KEY = 'pretrained:list'
+
+/** The fetch-cache key of the models list (the saved/imported counts' source). */
+export const SAVED_COUNT_KEY = 'models:list'
 
 export interface UsePredictModelCountsResult {
   /** How many ready-made models the lab catalogue has; `null` while loading or after a failure. */
