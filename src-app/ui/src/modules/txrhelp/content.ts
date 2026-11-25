@@ -393,7 +393,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         kind: 'bullets',
         items: [
           'Ready-made models — models the TxResBench team has already trained and released, checked against your measurements file on the models screen: which ones can run, what they were learned on, how they performed on other cohorts, and their time.',
-          'Saved models — the models you trained, grouped by training run. Add the patients to predict and pick from them; the training data never has to be re-uploaded, and the app checks the new patients have the markers each model needs.',
+          'Saved models — the models you trained. Add the patients to predict and pick from them; the training data never has to be re-uploaded, and the app checks the new patients have the markers each model needs.',
           'Your models — the inventory of everything you saved: model, method, what it predicts, decision day, what it was trained on and when it was made. Rename, or delete a set to remove its files. "Open a model file" reads one you saved as a file.',
         ],
       },

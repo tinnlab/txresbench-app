@@ -296,7 +296,11 @@ export const CHOOSE_SOURCE_LABELS = {
  * `run` / `imported` rows (the I pages' row arm, plus the source label and
  * the run-name subtitle) in ONE flat list — every model that exists.
  * A store row with provenance `pretrained` is NOT listed: it is the lab
- * row's downloaded state (fixes today's double listing). The list order is
+ * row's downloaded state (fixes today's double listing). When the lab
+ * CATALOGUE fails to load (`pretrainedFailed`), that row would vanish — so
+ * it is listed as a lab row from the store's own facts instead (the audit's
+ * item 8: the downloaded lab models stay visible; a `ps:<catalogue_id>` key
+ * keeps the same identity the loaded catalogue would use). The list order is
  * the lab catalogue order, then the store's own order.
  */
 export function buildChooseRows(
@@ -305,6 +309,7 @@ export function buildChooseRows(
   pretrainedElig: PretrainedEligibilityResponse | null,
   savedElig: ModelEligibilityResponse | null,
   demo = false,
+  pretrainedFailed = false,
 ): TxrListRow[] {
   const lab = buildPretrainedRows(cards, pretrainedElig, demo).map(row => ({
     ...row,
@@ -314,8 +319,19 @@ export function buildChooseRows(
     (savedElig?.models ?? []).map(verdict => [verdict.id, verdict]),
   )
   const owned = summaries
-    .filter(model => model.provenance !== 'pretrained')
+    .filter(model => model.provenance !== 'pretrained' || pretrainedFailed)
     .map(model => {
+      if (model.provenance === 'pretrained') {
+        // The catalogue is down: the downloaded lab model stays listed as
+        // a lab row, built from the store's own facts (the store row IS the
+        // model — the catalogue list is only the not-downloaded view).
+        const row = buildSavedRow(model, verdictById.get(model.id), chooseSavedSubtitle(model))
+        return {
+          ...row,
+          key: `ps:${model.pretrained_catalogue_id ?? model.id}`,
+          source: { label: CHOOSE_SOURCE_LABELS.lab as string },
+        }
+      }
       const row = buildSavedRow(model, verdictById.get(model.id), chooseSavedSubtitle(model))
       return {
         ...row,

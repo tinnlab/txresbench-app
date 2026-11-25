@@ -234,6 +234,10 @@ export interface ModelListRunOptions {
 export interface ModelListRun {
   /** The live instance's `view_id` (the action's target). */
   viewId: string
+  /** The live instance's CURRENT state token, read fresh at call time (the
+   *  same token `view.describe` returns) — a human control passes it as
+   *  the stateful action's `expected`, exactly as the agent path does. */
+  stateToken(): string
   /** The keys the run takes (selection order, runnable only). */
   runnable: readonly string[]
   /** The runnable selection's decision days, in the run's order. */
@@ -453,6 +457,7 @@ export function useModelListRun(options: ModelListRunOptions): ModelListRun {
 
   return {
     viewId,
+    stateToken: () => modelListVersioned.snapshot()._state_token,
     runnable,
     decisionDays,
     horizons,

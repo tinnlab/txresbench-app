@@ -45,7 +45,7 @@
  * handoff or the example set; "Transfer to other cohorts" otherwise).
  */
 import { TxrModelHorizonLine } from '../components/TxrModelHorizonLine'
-import { type ModelRunFacts, useModelListRun } from '../lib/modelRun'
+import { type ModelRunFacts, MODELS_SET_LIST_FILTERS, MODELS_SET_SELECTION, useModelListRun } from '../lib/modelRun'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from 'zustand'
@@ -414,20 +414,27 @@ export function ChooseModelsPage() {
     const handoff = store.pendingUseModelId !== null || pendingExampleSetId !== null
     if (handoff) {
       store.setListFilters({ sources: [] })
-      if (store.sort === 'transfer') store.setSort('newest-run')
     } else {
       if (source === 'lab') store.setListFilters({ sources: ['lab'] })
       else if (source === 'saved') store.setListFilters({ sources: ['saved', 'imported'] })
-      if (source === 'saved' && store.sort === 'transfer') store.setSort('newest-run')
-      else if (!CHOOSE_SORT_OPTIONS.some(option => option.value === store.sort)) {
-        store.setSort('transfer')
-      }
     }
+    // The mount sort is the rule's own (audit item 7): "Newest run first"
+    // with the Saved preset, a Use handoff or the example set, otherwise
+    // "Transfer to other cohorts" — a stale value from an earlier visit
+    // never survives.
+    const wishSort: TxrModelSortId =
+      handoff || source === 'saved' ? 'newest-run' : 'transfer'
+    if (store.sort !== wishSort) store.setSort(wishSort)
   }, [searchParams, pendingExampleSetId])
 
   // The store's saved slice + the verdicts (the merged list's owned rows).
+  // The mount's OWN fresh load is tracked (`savedFreshLoad`): the two
+  // handoffs below clear their pending markers only after THIS load has
+  // settled (audit item 4 — the cached list of an earlier visit may not have
+  // the new set/model yet; clearing on it would lose the handoff).
+  const savedFreshLoad = useRef<Promise<void> | null>(null)
   useEffect(() => {
-    void useTxrModelsStore.getState().loadSaved()
+    savedFreshLoad.current = useTxrModelsStore.getState().loadSaved()
   }, [])
   const ids = useMemo(() => saved.summaries.map(model => model.id), [saved.summaries])
   useEffect(() => {
@@ -466,10 +473,16 @@ export function ChooseModelsPage() {
     }
   }, [saved.summaries, eligibility.byKey, eligibility.totals])
 
+  // The lab slice's own failure (the LIST request — audit item 8: a
+  // downloaded lab model (a `pretrained` store row) is then listed from the
+  // store's facts instead of vanishing; the verdict failure `eligError` is
+  // the OTHER half — audit item 5 — counted into `labFailed` below).
+  const labCatalogueFailed = cardsError !== null
+
   // ── The row/composition layer ───────────────────────────────────────────
   const rows = useMemo(
-    () => buildChooseRows(cards, saved.summaries, labElig, savedElig, isDemo),
-    [cards, saved.summaries, labElig, savedElig, isDemo],
+    () => buildChooseRows(cards, saved.summaries, labElig, savedElig, isDemo, labCatalogueFailed),
+    [cards, saved.summaries, labElig, savedElig, isDemo, labCatalogueFailed],
   )
 
   const cardById = useMemo(() => new Map(cards.map(card => [card.id, card])), [cards])
@@ -477,6 +490,18 @@ export function ChooseModelsPage() {
     () => new Map(saved.summaries.map(model => [model.id, model])),
     [saved.summaries],
   )
+
+  /** The `ps:<catalogue_id>` key → its `pretrained` store row (the
+   *  catalogue-down fallback: the same key the loaded catalogue uses, so
+   *  the run/verdict layers resolve the row's store facts in place). */
+  const pretrainedRows = useMemo(() => {
+    const m = new Map<string, ModelSummary>()
+    for (const model of saved.summaries) {
+      if (model.provenance !== 'pretrained') continue
+      m.set(`${ROW_KEY_PREFIX}${model.pretrained_catalogue_id ?? model.id}`, model)
+    }
+    return m
+  }, [saved.summaries])
 
   /** The row key → source facts (the chip predicate's input). */
   const factsByKey = useMemo(() => {
@@ -486,7 +511,15 @@ export function ChooseModelsPage() {
     >()
     for (const card of cards) m.set(`${ROW_KEY_PREFIX}${card.id}`, { source: 'lab', card, model: null })
     for (const model of saved.summaries) {
-      if (model.provenance === 'pretrained') continue
+      if (model.provenance === 'pretrained') {
+        if (!labCatalogueFailed) continue
+        m.set(`${ROW_KEY_PREFIX}${model.pretrained_catalogue_id ?? model.id}`, {
+          source: 'lab',
+          card: null,
+          model,
+        })
+        continue
+      }
       m.set(model.id, {
         source: model.provenance === 'run' ? 'saved' : 'imported',
         card: null,
@@ -494,7 +527,7 @@ export function ChooseModelsPage() {
       })
     }
     return m
-  }, [cards, saved.summaries])
+  }, [cards, saved.summaries, labCatalogueFailed])
 
   /** The row key → run facts (the mixed-day rule's input). */
   const factsOf = useCallback(
@@ -528,7 +561,22 @@ export function ChooseModelsPage() {
       })
     }
     for (const model of saved.summaries) {
-      if (model.provenance === 'pretrained') continue
+      if (model.provenance === 'pretrained') {
+        if (!labCatalogueFailed) continue
+        const key = `${ROW_KEY_PREFIX}${model.pretrained_catalogue_id ?? model.id}`
+        const verdict = eligibility.byKey.get(model.id) ?? null
+        const instant = model.trained_at ?? model.created_at
+        const madeAt = instant === undefined ? Number.NaN : Date.parse(instant)
+        m.set(key, {
+          transferCohorts: null,
+          transferMedian: null,
+          coverage: verdict?.coverage?.fraction ?? null,
+          estimateSeconds: verdict?.estimated_seconds ?? null,
+          madeAt: Number.isNaN(madeAt) ? null : madeAt,
+          id: model.id,
+        })
+        continue
+      }
       const verdict = eligibility.byKey.get(model.id) ?? null
       const instant = model.trained_at ?? model.created_at
       const madeAt = instant === undefined ? Number.NaN : Date.parse(instant)
@@ -542,7 +590,7 @@ export function ChooseModelsPage() {
       })
     }
     return m
-  }, [cards, labElig, saved.summaries, eligibility.byKey])
+  }, [cards, labElig, saved.summaries, eligibility.byKey, labCatalogueFailed])
 
   /** The per-key verdict map (the bottom-bar total's input — both the
    *  pretrained and the saved verdict shapes carry `estimated_seconds`). */
@@ -555,10 +603,20 @@ export function ChooseModelsPage() {
       )
     }
     if (eligibility.totals !== null) {
-      for (const model of saved.summaries) m.set(model.id, eligibility.byKey.get(model.id) ?? null)
+      for (const model of saved.summaries) {
+        if (model.provenance === 'pretrained') {
+          if (!labCatalogueFailed) continue
+          m.set(
+            `${ROW_KEY_PREFIX}${model.pretrained_catalogue_id ?? model.id}`,
+            eligibility.byKey.get(model.id) ?? null,
+          )
+          continue
+        }
+        m.set(model.id, eligibility.byKey.get(model.id) ?? null)
+      }
     }
     return m
-  }, [cards, labElig, saved.summaries, eligibility.byKey, eligibility.totals])
+  }, [cards, labElig, saved.summaries, eligibility.byKey, eligibility.totals, labCatalogueFailed])
 
   const outcome = useAnalysisOutcome()
 
@@ -590,14 +648,20 @@ export function ChooseModelsPage() {
   )
 
   /** The source counts over the WHOLE source set (a chip's count answers
-   *  its own question, never the current view). */
+   *  its own question, never the current view). When the catalogue is down
+   *  its downloaded rows are still listed (as the store's lab rows), so
+   *  they count into "From the lab" (audit item 8). */
   const sourceCounts = useMemo(
     () => ({
-      lab: cards.length,
+      lab:
+        cards.length +
+        (labCatalogueFailed
+          ? saved.summaries.filter(model => model.provenance === 'pretrained').length
+          : 0),
       saved: saved.summaries.filter(model => model.provenance === 'run').length,
       imported: saved.summaries.filter(model => model.provenance === 'imported').length,
     }),
-    [cards, saved.summaries],
+    [cards, saved.summaries, labCatalogueFailed],
   )
 
   /** The "Same outcome as my file" count over ALL rows. */
@@ -610,52 +674,6 @@ export function ChooseModelsPage() {
     }
     return n
   }, [factsByKey, outcome])
-
-  /** The host chips: the three source chips (0-count disabled), the lab-only
-   *  chips ONLY when the list has a lab row, then the outcome chip. */
-  const chips = useMemo(() => {
-    const onToggle = (id: TxrModelFilterId): void => {
-      useTxrModelsStore.getState().setFilter(id)
-    }
-    const list: TxrFilterChip[] = SOURCE_CHIPS.map(({ id, source, label }) => ({
-      id,
-      label,
-      count: sourceCounts[source],
-      active: filters.includes(id),
-      disabled: sourceCounts[source] === 0,
-      onToggle: () => onToggle(id),
-    }))
-    if (cards.length > 0) {
-      for (const chip of LAB_CHIPS) {
-        const count =
-          chip.id === 'published'
-            ? cards.filter(card => card.kind === 'published-rule').length
-            : chip.id === 'learned'
-              ? cards.filter(card => card.kind === 'benchmark-trained').length
-              : cards.filter(
-                  card =>
-                    card.transfer !== null &&
-                    card.transfer !== undefined &&
-                    card.transfer.n_cohorts >= 2,
-                ).length
-        list.push({
-          id: chip.id,
-          label: chip.label,
-          count,
-          active: filters.includes(chip.id),
-          onToggle: () => onToggle(chip.id),
-        })
-      }
-    }
-    list.push({
-      id: SAME_OUTCOME_CHIP.id,
-      label: SAME_OUTCOME_CHIP.label,
-      count: sameOutcomeCount,
-      active: filters.includes(SAME_OUTCOME_CHIP.id),
-      onToggle: () => onToggle(SAME_OUTCOME_CHIP.id),
-    })
-    return list
-  }, [sourceCounts, cards, filters, sameOutcomeCount])
 
   /** The verdict-accounting facts of the whole list: with every verdict
    *  ready, the fit/some/cannot totals; null while loading/failed. */
@@ -683,7 +701,11 @@ export function ChooseModelsPage() {
   }, [verdictsReady, labElig, eligibility.totals])
 
   // ── The states ──────────────────────────────────────────────────────────
-  const labFailed = cardsError !== null
+  // `labFailed` is the lab slice's verdict failure too (audit item 5): a
+  // failed eligibility call otherwise leaves the lab rows "cannot" with no
+  // alert; "Some models could not be loaded." + Retry must show for either
+  // leg.
+  const labFailed = cardsError !== null || eligError !== null
   const savedFailed = saved.error !== null || eligibility.error !== null
   const ownedLoaded =
     saved.loaded &&
@@ -708,47 +730,82 @@ export function ChooseModelsPage() {
   // The J "Use" handoff (DEC-10, moved): a pending id preselects its row
   // once the list has it, then clears. A downloaded lab model (a
   // `pretrained` store row) preselects the `ps:<catalogue_id>` row.
+  // The clear happens only AFTER THIS MOUNT's own fresh saved load has
+  // settled (audit item 4): the cached list of an earlier visit may not
+  // have the model yet, and clearing on it would lose the handoff.
   useEffect(() => {
-    const store = useTxrModelsStore.getState()
-    const pending = store.pendingUseModelId
+    const pending = useTxrModelsStore.getState().pendingUseModelId
     if (pending === null) return
-    if (ownedCount === 0 && cards.length === 0) return
-    const key = ((): string | null => {
-      const model = modelById.get(pending)
-      if (model !== undefined) {
-        if (model.provenance === 'pretrained' && model.pretrained_catalogue_id) {
-          return `${ROW_KEY_PREFIX}${model.pretrained_catalogue_id}`
-        }
-        return model.id
+    const fresh = savedFreshLoad.current
+    if (fresh === null) return
+    let cancelled = false
+    void fresh.then(() => {
+      if (cancelled) return
+      const store = useTxrModelsStore.getState()
+      const still = store.pendingUseModelId
+      if (still === null) return
+      // A newer load still in flight: leave the marker; the state change
+      // re-runs this effect and it settles then.
+      if (store.saved.loading || !store.saved.loaded) return
+      const model = store.saved.summaries.find(summary => summary.id === still)
+      const key =
+        model === undefined
+          ? null
+          : model.provenance === 'pretrained' && model.pretrained_catalogue_id
+            ? `${ROW_KEY_PREFIX}${model.pretrained_catalogue_id}`
+            : model.id
+      if (key !== null && !store.selection.has(key)) {
+        store.setSelection(new Set([...store.selection, key]))
       }
-      return null
-    })()
-    if (key !== null && !store.selection.has(key)) {
-      store.setSelection(new Set([...store.selection, key]))
+      store.setPendingUse(null)
+    })
+    return () => {
+      cancelled = true
     }
-    store.setPendingUse(null)
-  }, [ownedCount, cards.length, modelById])
+  }, [saved.summaries, saved.loading, saved.loaded])
 
   // The example-set handoff (ITEM-3, moved): the "Use example" parked the
   // set id; once the list holds it, tick EVERY row of it and clear.
+  // Same audit-item-4 rule: only after this mount's fresh saved load.
   useEffect(() => {
     if (pendingExampleSetId === null) return
-    if (saved.summaries.length === 0) return
-    const keys = saved.summaries
-      .filter(model => model.set_id === pendingExampleSetId)
-      .map(model => model.id)
-    const store = useTxrModelsStore.getState()
-    if (keys.length > 0) {
-      store.setSelection(new Set([...store.selection, ...keys]))
+    const fresh = savedFreshLoad.current
+    if (fresh === null) return
+    let cancelled = false
+    void fresh.then(() => {
+      if (cancelled) return
+      const store = useTxrModelsStore.getState()
+      if (useTxrIntakeStore.getState().pendingExampleSetId === null) return
+      if (store.saved.loading || !store.saved.loaded) return
+      const keys = store.saved.summaries
+        .filter(model => model.set_id === pendingExampleSetId)
+        .map(model => model.id)
+      if (keys.length > 0) {
+        store.setSelection(new Set([...store.selection, ...keys]))
+      }
+      TxrIntake.setPendingExampleSet(null)
+    })
+    return () => {
+      cancelled = true
     }
-    TxrIntake.setPendingExampleSet(null)
-  }, [saved.summaries, pendingExampleSetId])
+  }, [pendingExampleSetId, saved.summaries, saved.loading, saved.loaded])
 
   // ── The selection write (the controlled list's next-set + the D
   // auto-download for a newly checked lab card) ─────────────────────────────
+  // The ONE sanitizing write behind `models.setSelection` (audit item 3):
+  // only ids of LISTED rows that can be selected are ever applied (unknown
+  // and cannot-run ids never land in the selection), and a request whose
+  // ids are all not selectable is refused with a plain line. The human
+  // checkboxes/select-all reach it through the same registered action.
   const writeSelection = useCallback(
-    (next: ReadonlySet<string>): void => {
+    (ids: readonly string[]): void => {
       const store = useTxrModelsStore.getState()
+      const selectable = new Set(rows.filter(row => !row.run.disabled).map(row => row.key))
+      const kept = ids.filter(key => selectable.has(key))
+      if (ids.length > 0 && kept.length === 0) {
+        throw new Error('None of those models can be chosen.')
+      }
+      const next = new Set(kept)
       for (const key of next) {
         if (selection.has(key)) continue
         const card = cardById.get(key.slice(ROW_KEY_PREFIX.length))
@@ -762,14 +819,10 @@ export function ChooseModelsPage() {
       }
       store.setSelection(next)
     },
-    [selection, cardById, isDemo],
-  )
-  const onSelectionChange = useCallback(
-    (next: ReadonlySet<string>): void => writeSelection(next),
-    [writeSelection],
+    [selection, rows, cardById, isDemo],
   )
   const actionSetSelection = useCallback(
-    (ids: string[]): void => writeSelection(new Set(ids)),
+    (ids: string[]): void => writeSelection(ids),
     [writeSelection],
   )
   const actionSetListFilters = useCallback(
@@ -832,7 +885,7 @@ export function ChooseModelsPage() {
         .map(key => cardById.get(key.slice(ROW_KEY_PREFIX.length)))
         .filter((card): card is PretrainedSummary => card !== undefined)
       const runModels = keys
-        .map(key => modelById.get(key))
+        .map(key => modelById.get(key) ?? pretrainedRows.get(key))
         .filter((model): model is ModelSummary => model !== undefined)
       const first = ((): { endpoint: string; decision_day: number; horizon: number } | null => {
         for (const key of keys) {
@@ -842,7 +895,7 @@ export function ChooseModelsPage() {
             if (card !== undefined) {
               return { endpoint: card.endpoint, decision_day: card.decision_day, horizon: card.horizon }
             }
-            const model = modelById.get(key)
+            const model = modelById.get(key) ?? pretrainedRows.get(key)
             if (model !== undefined) {
               return { endpoint: model.endpoint, decision_day: model.decision_day, horizon: model.horizon }
             }
@@ -862,10 +915,12 @@ export function ChooseModelsPage() {
       )
       if (isDemo) {
         // ITEM-7 demo arm: the lab cards are included (no install, no
-        // resolve — both routes are blocked for the demo, and the recorded
-        // replay reads only the method facts); the owned rows resolve like
-        // any saved model. The replay replays each selected method's
-        // recorded column, whatever the mix is.
+        // download — the server blocks both, and the recorded replay reads
+        // only the method facts), while the OWNED rows DO resolve through
+        // `Models.resolveModels` (the server does not block that; it is how
+        // a saved/imported model becomes runnable) like any saved model.
+        // The replay replays each selected method's recorded column,
+        // whatever the mix is (lab + example-set mix included).
         const ownedAssets = new Map<string, TxrModelAsset>()
         if (runModels.length > 0) {
           const { assets } = await ApiClient.Models.resolveModels({
@@ -883,7 +938,8 @@ export function ChooseModelsPage() {
               method_version: card.method_version,
             } as unknown as TxrModelAsset)
           } else {
-            const asset = ownedAssets.get(key)
+            const model = modelById.get(key) ?? pretrainedRows.get(key)
+            const asset = model !== undefined ? ownedAssets.get(model.id) : undefined
             if (asset !== undefined) assets.push(asset)
           }
         }
@@ -912,15 +968,21 @@ export function ChooseModelsPage() {
             : GATE_DOWNLOADING_LINE,
         )
       }
-      // install-if-needed: the installed uuids of every selected lab card,
-      // then ONE resolve over the installed uuids + the saved ids.
-      const installed: string[] = []
-      for (const card of runCards) {
-        installed.push(await installedModelId(card))
+      // install-if-needed, in the SELECTION's own order (audit item 2: the
+      // lab ids never jump ahead of saved ids — each key maps to its id in
+      // place, a lab key to its installed uuid), then ONE resolve over the
+      // whole ordered list.
+      const modelIds: string[] = []
+      for (const key of keys) {
+        const card = cardById.get(key.slice(ROW_KEY_PREFIX.length))
+        if (card !== undefined) {
+          modelIds.push(await installedModelId(card))
+          continue
+        }
+        const model = modelById.get(key) ?? pretrainedRows.get(key)
+        if (model !== undefined) modelIds.push(model.id)
       }
-      const { assets } = await ApiClient.Models.resolveModels({
-        model_ids: [...installed, ...runModels.map(model => model.id)],
-      })
+      const { assets } = await ApiClient.Models.resolveModels({ model_ids: modelIds })
       const created = await ApiClient.Txr.createRun({
         mode: 'reuse',
         input,
@@ -937,6 +999,7 @@ export function ChooseModelsPage() {
       cards,
       cardById,
       modelById,
+      pretrainedRows,
       factsOf,
       patients,
       measurements,
@@ -959,6 +1022,101 @@ export function ChooseModelsPage() {
     setListFilters: actionSetListFilters,
     listState,
   })
+
+  /** The human checkbox / select-all click — the SAME registered
+   *  `models.setSelection` the AI invokes (audit item 1: a human control
+   *  never bypasses the action registry), with this list's view id and the
+   *  CURRENT state token. The list's own disabled-row rule means a human
+   *  click always brings selectable ids; a refusal (a stale token race)
+   *  leaves the click unapplied rather than crashing the surface. */
+  const onSelectionChange = useCallback(
+    (next: ReadonlySet<string>): void => {
+      void runAction(MODELS_SET_SELECTION, {
+        view_id: run.viewId,
+        expected: run.stateToken(),
+        ids: [...next],
+      }).catch(() => undefined)
+    },
+    [run],
+  )
+
+  /** The host chips: the three source chips (0-count disabled), the lab-only
+   *  chips ONLY when the list has a lab row, then the outcome chip. Every
+   *  toggle is the registered `models.setListFilters` (audit item 1) with
+   *  this list's view id and the CURRENT state token; `sources` / `chips`
+   *  REPLACE their group, so a toggle sends only the changed group. */
+  const chips = useMemo(() => {
+    const onToggle = (id: TxrModelFilterId): void => {
+      const current = useTxrModelsStore.getState().filters
+      const isSource =
+        id === 'source-lab' || id === 'source-saved' || id === 'source-imported'
+      let sources: TxrModelSourceId[] | undefined
+      let nextChips: TxrModelFilterId[] | undefined
+      if (isSource) {
+        const source = id.slice('source-'.length) as TxrModelSourceId
+        const active = (['lab', 'saved', 'imported'] as TxrModelSourceId[]).filter(src =>
+          current.includes(`source-${src}` as TxrModelFilterId),
+        )
+        sources = active.includes(source)
+          ? active.filter(src => src !== source)
+          : [...active, source]
+      } else {
+        const host = current.filter(
+          f =>
+            f !== 'source-lab' &&
+            f !== 'source-saved' &&
+            f !== 'source-imported' &&
+            f !== 'all' &&
+            f !== 'can-run',
+        )
+        nextChips = current.includes(id) ? host.filter(f => f !== id) : [...host, id]
+      }
+      void runAction(MODELS_SET_LIST_FILTERS, {
+        view_id: run.viewId,
+        expected: run.stateToken(),
+        ...(isSource ? { sources } : { chips: nextChips }),
+      }).catch(() => undefined)
+    }
+    const list: TxrFilterChip[] = SOURCE_CHIPS.map(({ id, source, label }) => ({
+      id,
+      label,
+      count: sourceCounts[source],
+      active: filters.includes(id),
+      disabled: sourceCounts[source] === 0,
+      onToggle: () => onToggle(id),
+    }))
+    if (cards.length > 0) {
+      for (const chip of LAB_CHIPS) {
+        const count =
+          chip.id === 'published'
+            ? cards.filter(card => card.kind === 'published-rule').length
+            : chip.id === 'learned'
+              ? cards.filter(card => card.kind === 'benchmark-trained').length
+              : cards.filter(
+                  card =>
+                    card.transfer !== null &&
+                    card.transfer !== undefined &&
+                    card.transfer.n_cohorts >= 2,
+                ).length
+        list.push({
+          id: chip.id,
+          label: chip.label,
+          count,
+          active: filters.includes(chip.id),
+          onToggle: () => onToggle(chip.id),
+        })
+      }
+    }
+    list.push({
+      id: SAME_OUTCOME_CHIP.id,
+      label: SAME_OUTCOME_CHIP.label,
+      count: sameOutcomeCount,
+      active: filters.includes(SAME_OUTCOME_CHIP.id),
+      onToggle: () => onToggle(SAME_OUTCOME_CHIP.id),
+    })
+    return list
+  }, [sourceCounts, cards, filters, sameOutcomeCount, run])
+
   useStepBack({
     step: 'choose-models',
     fallback: predictFilesPath(),
@@ -1214,24 +1372,41 @@ export function ChooseModelsPage() {
         allFilter={{
           active: !canRunOnly && filters.every(f => !f.startsWith('source-') && !LAB_CHIPS.some(c => c.id === f) && f !== 'same-outcome'),
           onClick: () =>
-            useTxrModelsStore.getState().setListFilters({
+            void runAction(MODELS_SET_LIST_FILTERS, {
+              view_id: run.viewId,
+              expected: run.stateToken(),
               sources: [],
               chips: [],
               canRunOnly: false,
-            }),
+            }).catch(() => undefined),
         }}
         canRunFilter={{
           active: canRunOnly,
-          onClick: () => useTxrModelsStore.getState().setCanRunOnly(!canRunOnly),
+          onClick: () =>
+            void runAction(MODELS_SET_LIST_FILTERS, {
+              view_id: run.viewId,
+              expected: run.stateToken(),
+              canRunOnly: !canRunOnly,
+            }).catch(() => undefined),
         }}
         search={{
           value: searchText,
-          onChange: value => useTxrModelsStore.getState().setSearch(value),
+          onChange: value =>
+            void runAction(MODELS_SET_LIST_FILTERS, {
+              view_id: run.viewId,
+              expected: run.stateToken(),
+              search: value,
+            }).catch(() => undefined),
         }}
         sort={{
           value: shownSort,
           options: CHOOSE_SORT_OPTIONS as { value: string; label: string }[],
-          onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
+          onChange: value =>
+            void runAction(MODELS_SET_LIST_FILTERS, {
+              view_id: run.viewId,
+              expected: run.stateToken(),
+              sort: value as TxrModelSortId,
+            }).catch(() => undefined),
         }}
         // Not loaded yet (the birth state, before the first fetch) counts as
         // loading: the list never flashes its empty line before the data.
@@ -1263,9 +1438,20 @@ export function ChooseModelsPage() {
         }}
         onRowAction={row => {
           if (row.key.startsWith(ROW_KEY_PREFIX)) {
-            useTxrModelsStore
-              .getState()
-              .openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)
+            const card = cardById.get(row.key.slice(ROW_KEY_PREFIX.length))
+            const fallback = card === undefined ? pretrainedRows.get(row.key) : undefined
+            if (card !== undefined) {
+              useTxrModelsStore
+                .getState()
+                .openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)
+            } else if (fallback !== undefined) {
+              // The catalogue-down lab row: its store facts' "Details".
+              useTxrModelsStore.getState().openDialog(`details:${fallback.id}` as TxrModelDialogId)
+            } else {
+              useTxrModelsStore
+                .getState()
+                .openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)
+            }
           } else {
             useTxrModelsStore.getState().openDialog(`details:${row.key}` as TxrModelDialogId)
           }

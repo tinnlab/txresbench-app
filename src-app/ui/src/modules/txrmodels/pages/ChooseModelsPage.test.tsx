@@ -72,6 +72,31 @@ import { RESEARCH_NOTICE } from '../lib/format'
 import { ChooseModelsPage } from './ChooseModelsPage'
 import { PretrainedModelsRedirectRoute, SavedModelsRedirectRoute } from './RedirectRoutes'
 
+// The human controls route through the registered actions (round-2 audit
+// item 1): every chip/search/sort click dispatches `models.setListFilters`
+// and every checkbox/select-all click `models.setSelection`, with the
+// list's view id and the CURRENT state token. This wrapper records every
+// dispatch while passing it on to the REAL action, so the tests assert the
+// route AND the behaviour in one.
+const actionLog = vi.hoisted(() => ({
+  calls: [] as { id: string; params: Record<string, unknown> }[],
+}))
+vi.mock('@/core/actions/defineAction', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/core/actions/defineAction')>()
+  return {
+    ...actual,
+    runAction: (id: string, params: unknown, ctx?: unknown): Promise<unknown> => {
+      actionLog.calls.push({ id, params: (params ?? {}) as Record<string, unknown> })
+      return actual.runAction(id, params, ctx as never)
+    },
+  }
+})
+
+/** The recorded dispatches of one action id (audit item 1's route check). */
+function callsOf(id: string): typeof actionLog.calls {
+  return actionLog.calls.filter(call => call.id === id)
+}
+
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
 // kit Checkbox/Select) construct one on pointer interaction, which would
 // throw and swallow the click. A MouseEvent subclass is the standard
@@ -475,6 +500,7 @@ async function chooseSort(value: string): Promise<void> {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  actionLog.calls.length = 0
   api.listCatalogue.mockReset()
   api.catalogueEligibility.mockReset()
   api.getModel.mockReset()
@@ -889,8 +915,10 @@ describe('ChooseModelsPage — the merged list (TEST-MOD-33)', () => {
     expect(screen.getByTestId('txr-models-choose-source-failed').textContent).toContain(
       'Some models could not be loaded.',
     )
-    // The saved/imported rows are still there; the lab rows are not.
-    expect(rowKeys()).toEqual(['sm-1', 'sm-2'])
+    // The saved/imported rows are still there; the downloaded lab model
+    // (sm-3, provenance `pretrained`) stays as a lab row from its store
+    // facts (audit item 8) — the catalogue's own rows are not.
+    expect(rowKeys()).toEqual(['sm-1', 'sm-2', 'ps:lc-1'])
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-models-choose-source-retry'))
       await Promise.resolve()
@@ -1208,6 +1236,291 @@ describe('ChooseModelsPage — the merged list (TEST-MOD-33)', () => {
     expect(api.resolveModels).toHaveBeenCalledTimes(1)
     expect(api.createRun).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('the chips, All, Can run, the search, the sort and a checkbox dispatch the registered actions with the live token', async () => {
+    renderPage()
+    await settle(0)
+    const live = instancesOfType('txr.model-list')
+    expect(live.length).toBe(1)
+    const viewId = live[0].id
+    const liveToken = (): string =>
+      live[0].record.getSnapshot()['_state_token'] as string
+
+    // A source chip → models.setListFilters (sources only).
+    const token1 = liveToken()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-filter-source-saved'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(callsOf('models.setListFilters').at(-1)?.params).toMatchObject({
+      view_id: viewId,
+      expected: token1,
+      sources: ['saved'],
+    })
+
+    // Can run → the same action.
+    const token2 = liveToken()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-filter-can-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(callsOf('models.setListFilters').at(-1)?.params).toMatchObject({
+      view_id: viewId,
+      expected: token2,
+      canRunOnly: true,
+    })
+
+    // Search → the same action.
+    const token3 = liveToken()
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-list-search'), { target: { value: 'my first' } })
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(callsOf('models.setListFilters').at(-1)?.params).toMatchObject({
+      view_id: viewId,
+      expected: token3,
+      search: 'my first',
+    })
+
+    // Sort → the same action.
+    const token4 = liveToken()
+    await chooseSort('time')
+    expect(callsOf('models.setListFilters').at(-1)?.params).toMatchObject({
+      view_id: viewId,
+      expected: token4,
+      sort: 'time',
+    })
+
+    // All → clears everything through the action.
+    const token5 = liveToken()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-filter-all'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(callsOf('models.setListFilters').at(-1)?.params).toMatchObject({
+      view_id: viewId,
+      expected: token5,
+      sources: [],
+      chips: [],
+      canRunOnly: false,
+    })
+
+    // A checkbox → models.setSelection (the token is fresh per click; the
+    // previous dispatch's token is never reused).
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-list-search'), { target: { value: '' } })
+      await Promise.resolve()
+    })
+    await settle(0)
+    const token6 = liveToken()
+    await selectRow('sm-1')
+    expect(callsOf('models.setSelection').at(-1)?.params).toMatchObject({
+      view_id: viewId,
+      expected: token6,
+      ids: ['sm-1'],
+    })
+    expect(useTxrModelsStore.getState().selection.has('sm-1')).toBe(true)
+    expect(token6).not.toBe(token1)
+  })
+
+  it('the run keeps the SELECTION order: a saved row picked before a lab row resolves saved first with the saved config', async () => {
+    // lc-1's own facts say horizon 165; the SAVED model (picked first) says
+    // 240 — the reused config must be the saved model's, and resolveModels
+    // must see the saved id BEFORE the lab's installed uuid.
+    api.listCatalogue.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 1,
+      models: [card(1, { horizon: 165 })],
+    } as PretrainedListResponse)
+    api.catalogueEligibility.mockResolvedValue({
+      total_fit: 1,
+      total_some: 0,
+      total_cannot: 0,
+      models: [catalogueEligibility().models[0]],
+    } as PretrainedEligibilityResponse)
+    renderPage()
+    await settle(0)
+    await selectRow('sm-1')
+    await selectRow('ps:lc-1')
+    expect(api.installModel).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.resolveModels).toHaveBeenCalledTimes(1)
+    expect(api.resolveModels).toHaveBeenCalledWith({
+      model_ids: ['sm-1', 'c0000000-0000-4000-8000-000000000001'],
+    })
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    const request = api.createRun.mock.calls[0][0] as {
+      config: Record<string, unknown>
+    }
+    expect(request.config.look_ahead_day).toBe(240)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('models.setSelection keeps only listed selectable ids and refuses when none is left', async () => {
+    renderPage()
+    await settle(0)
+    const live = instancesOfType('txr.model-list')
+    const viewId = live[0].id
+    const token = live[0].record.getSnapshot()['_state_token'] as string
+
+    // Unknown ids only → the plain refusal, nothing written.
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('models.setSelection', {
+        view_id: viewId,
+        expected: token,
+        ids: ['nope-1', 'nope-2'],
+      }).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toBe('None of those models can be chosen.')
+    expect(useTxrModelsStore.getState().selection.size).toBe(0)
+
+    // A mix: the cannot-run lab row (ps:lc-3) is dropped, the runnable saved
+    // row stays.
+    await act(async () => {
+      await runAction('models.setSelection', {
+        view_id: viewId,
+        expected: token,
+        ids: ['ps:lc-3', 'sm-1'],
+      })
+    })
+    await settle(0)
+    const selection = useTxrModelsStore.getState().selection
+    expect(selection.has('sm-1')).toBe(true)
+    expect(selection.has('ps:lc-3')).toBe(false)
+  })
+
+  it('the example-set handoff survives a cached list without the set: the mount fresh load ticks it', async () => {
+    // An earlier visit cached the saved slice BEFORE the example set existed.
+    useTxrModelsStore.setState({
+      saved: {
+        summaries: [model(2)],
+        sets: [],
+        loading: false,
+        error: null,
+        loaded: true,
+      },
+    })
+    useTxrIntakeStore.getState().setPendingExampleSet?.('set-a')
+    renderPage()
+    await settle(0)
+    // The mount's OWN load brings the set's model: ticked, marker cleared.
+    expect(useTxrModelsStore.getState().selection.has('sm-1')).toBe(true)
+    expect(useTxrIntakeStore.getState().pendingExampleSetId).toBeNull()
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 model selected')
+  })
+
+  it('the Models-page Use handoff survives a cached list without the model: the mount fresh load ticks it', async () => {
+    useTxrModelsStore.setState({
+      saved: {
+        summaries: [model(2)],
+        sets: [],
+        loading: false,
+        error: null,
+        loaded: true,
+      },
+    })
+    useTxrModelsStore.getState().setPendingUse('sm-1')
+    renderPage()
+    await settle(0)
+    expect(useTxrModelsStore.getState().selection.has('sm-1')).toBe(true)
+    expect(useTxrModelsStore.getState().pendingUseModelId).toBeNull()
+    expect(isChecked(screen.getByTestId('txr-list-checkbox-sm-1'))).toBe(true)
+  })
+
+  it('a failed lab eligibility call also shows the source-failed alert and Retry recovers', async () => {
+    api.catalogueEligibility.mockRejectedValueOnce(new Error('eligibility down'))
+    renderPage()
+    await settle(0)
+    // The lab rows are still listed (their defensive cannot rows), but the
+    // failure shows the alert instead of a silent "cannot".
+    expect(screen.getByTestId('txr-models-choose-source-failed').textContent).toContain(
+      'Some models could not be loaded.',
+    )
+    expect(screen.getByTestId('txr-models-choose-source-retry')).toBeTruthy()
+    expect(rowKeys()).toEqual(['ps:lc-1', 'ps:lc-2', 'ps:lc-3', 'sm-1', 'sm-2'])
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-choose-source-retry'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.queryByTestId('txr-models-choose-source-failed')).toBeNull()
+  })
+
+  it('the mount default sort beats a stale "Newest run first" from an earlier visit (lab preset and no preset)', async () => {
+    useTxrModelsStore.getState().setSort('newest-run')
+    renderPage('/choose-models?source=lab')
+    await settle(0)
+    expect(useTxrModelsStore.getState().sort).toBe('transfer')
+    cleanup()
+    useTxrModelsStore.getState().setSort('newest-run')
+    renderPage('/choose-models')
+    await settle(0)
+    expect(useTxrModelsStore.getState().sort).toBe('transfer')
+  })
+
+  it('a downloaded lab model stays listed as a lab row when the catalogue fails to load', async () => {
+    api.listCatalogue.mockRejectedValueOnce(new Error('catalogue down'))
+    api.listSaved.mockResolvedValue({
+      models: [
+        model(2),
+        model(3, {
+          provenance: 'pretrained',
+          pretrained_catalogue_id: 'lc-1',
+          set_id: undefined,
+          set_name: undefined,
+        }),
+      ],
+      total: 2,
+    } as ModelListResponse)
+    api.savedEligibility.mockResolvedValue({
+      total_fit: 1,
+      total_some: 1,
+      total_cannot: 0,
+      models: [
+        savedEligibility().models[1],
+        {
+          id: 'sm-3',
+          status: 'can_run',
+          endpoint: 'pfs',
+          coverage: { eligible: 42, total: 42, fraction: 1 },
+          estimate_quality: 'estimate',
+          estimated_seconds: 50,
+          min_draws: { required: 1, met: 42, unmet_patients: 0 },
+          missing_markers: [],
+          reasons: [],
+        },
+      ],
+    } as ModelEligibilityResponse)
+    renderPage()
+    await settle(0)
+    // The downloaded lab model (sm-3 = the downloaded lc-1) is listed as a
+    // lab row from its store facts — never vanished.
+    expect(rowKeys()).toEqual(['sm-2', 'ps:lc-1'])
+    expect(screen.getByTestId('txr-list-row-ps:lc-1-source').textContent).toBe('From the lab')
+    expect(screen.getByTestId('txr-list-row-ps:lc-1').textContent).toContain('decision day 56')
+    expect(screen.getByTestId('txr-list-filter-source-lab').textContent).toBe('From the lab 1')
+    expect(screen.getByTestId('txr-models-choose-source-failed')).toBeTruthy()
+    // Retry: the catalogue comes back; the same id is the ONE lab row.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-choose-source-retry'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(rowKeys()).toEqual(['ps:lc-1', 'ps:lc-2', 'ps:lc-3', 'sm-2'])
+    expect(document.querySelectorAll('[data-testid="txr-list-row-ps:lc-1"]').length).toBe(1)
+    expect(screen.queryByTestId('txr-list-row-sm-3')).toBeNull()
   })
 })
 
