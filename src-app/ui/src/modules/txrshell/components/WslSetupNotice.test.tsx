@@ -46,7 +46,7 @@ const {
 } = await import('./WslSetupNotice')
 
 const REASON =
-  'methods run in WSL 2, which is not installed or too old on this PC: open PowerShell as administrator, run `wsl --install --no-distribution`'
+  'methods run in WSL 2, which is not installed or too old: open PowerShell as administrator, run `wsl --install --no-distribution`'
 
 function facts(setup: Partial<WslSetupStatus> = {}, reason = REASON) {
   return { reason, setup: { running: false, ...setup } }
