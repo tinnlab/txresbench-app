@@ -191,7 +191,7 @@ pub fn classify(facts: &WslFacts) -> WslStatus {
 pub fn early_probe_sentence(status: WslStatus) -> Option<&'static str> {
     match status {
         WslStatus::Policy => Some(
-            "WSL 2, which methods run in, is turned off on this computer by your organization: ask your IT \
+            "WSL 2, which methods run in, is turned off by your organization: ask your IT \
              department to allow WSL",
         ),
         WslStatus::NoWslExe => Some(
@@ -200,6 +200,45 @@ pub fn early_probe_sentence(status: WslStatus) -> Option<&'static str> {
         ),
         _ => None,
     }
+}
+
+/// The probe's sentence when `wsl --version` gave no version: WSL is missing
+/// or too old (the installer's check decides which, [`classify`]).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // `wsl_run` calls it on Windows; tests use it everywhere
+pub(crate) fn wsl_missing_or_too_old_sentence(install_command: &str, text: &str) -> String {
+    format!(
+        "methods run in WSL 2, which is not installed or too old: open PowerShell \
+         as administrator, run `{install_command}` (or `wsl --update` if WSL is installed), \
+         then restart Windows [`wsl --version` said: {}]",
+        one_line(text)
+    )
+}
+
+/// The `wsl_failure` sentence when wsl.exe says WSL is not installed.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // `wsl_run` calls it on Windows; tests use it everywhere
+pub(crate) fn wsl_not_installed_sentence(install_command: &str, text: &str) -> String {
+    format!(
+        "methods run in WSL 2, which is not installed: open PowerShell as administrator, run \
+         `{install_command}`, then restart Windows [wsl.exe said: {}]",
+        one_line(text)
+    )
+}
+
+/// The sentence when another version of the app replaced its WSL distro.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // `wsl_run` calls it on Windows; tests use it everywhere
+pub(crate) fn wsl_replaced_by_another_version_sentence(found: &str, needs: &str) -> String {
+    format!(
+        "another version of TxResBench replaced the app's WSL distro (it is now build \
+         {found}; this version needs {needs}): close the other version, then restart this one"
+    )
+}
+
+/// wsl.exe's words on one line, at most 300 characters (the rest is noise:
+/// a translated hex address, newlines).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // the sentences use it on every platform, but only `wsl_run` on Windows
+pub(crate) fn one_line(text: &str) -> String {
+    let t: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    t.chars().take(300).collect()
 }
 
 /// The WSL version from `wsl --version`: the first `a.b.c[.d]` number on the
@@ -388,7 +427,7 @@ mod tests {
                 (
                     WslStatus::Policy,
                     Some(
-                        "WSL 2, which methods run in, is turned off on this computer by your organization: \
+                        "WSL 2, which methods run in, is turned off by your organization: \
                          ask your IT department to allow WSL"
                     )
                 ),

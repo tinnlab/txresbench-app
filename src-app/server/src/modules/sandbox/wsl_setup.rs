@@ -559,7 +559,7 @@ fn question(before: WslStatus) -> Question {
              Install WSL 2 now? It is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission, and Windows usually needs a restart afterwards.\r\n\r\n\
              This was asked for with TxResBench's Set up WSL button, its command palette or an AI assistant \
-             connected to it, or by another program on this PC. If you did not ask for this, choose Not now.",
+             connected to it, or by another program. If you did not ask for this, choose Not now.",
         },
         WslStatus::Legacy => Question {
             go: "Update WSL",
@@ -569,7 +569,7 @@ fn question(before: WslStatus) -> Question {
              permission. Linux programs running in WSL will be closed, and Windows may need a restart \
              afterwards.\r\n\r\n\
              This was asked for with TxResBench's Update WSL button, its command palette or an AI assistant \
-             connected to it, or by another program on this PC. If you did not ask for this, choose Not now.",
+             connected to it, or by another program. If you did not ask for this, choose Not now.",
         },
         // `Old`: the only other status offered a setup (`offer_for`).
         _ => Question {
@@ -579,7 +579,7 @@ fn question(before: WslStatus) -> Question {
              Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission. Linux programs running in WSL will be closed.\r\n\r\n\
              This was asked for with TxResBench's Update WSL button, its command palette or an AI assistant \
-             connected to it, or by another program on this PC. If you did not ask for this, choose Not now.",
+             connected to it, or by another program. If you did not ask for this, choose Not now.",
         },
     }
 }
@@ -1764,8 +1764,8 @@ mod tests {
                 "Windows may also ask for permission",
                 "with TxResBench's",
                 "AI assistant",
-                // Any program on this PC can start a setup, not only the app.
-                "or by another program on this PC.",
+                // Any other program can start a setup, not only the app.
+                "or by another program.",
                 "If you did not ask for this, choose Not now.",
             ] {
                 assert!(q.contains(words), "{status:?}: {words:?} in {q:?}");
@@ -1779,6 +1779,83 @@ mod tests {
         let legacy = question(WslStatus::Legacy).text;
         assert!(legacy.contains("older kind") && legacy.contains("may need a restart"));
         assert!(question(WslStatus::Old).text.contains("security flaw"));
+    }
+
+    /// DEC-6 (location-neutral copy): the same rule the UI guard
+    /// `src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts` enforces for
+    /// the UI sources — its BANNED list is copied below, keep it in sync (the
+    /// comment naming that file) — plus "this pc" / "your pc" / "on this pc".
+    /// That guard never saw the server's WSL texts (it scans the UI sources
+    /// only), so this is its server-side counterpart: it builds every
+    /// user-visible WSL text the three WSL modules produce and asserts none
+    /// carries a banned phrase, so a new status or question cannot smuggle
+    /// one back in.
+    #[test]
+    fn wsl_texts_never_say_where_the_app_runs() {
+        let banned = [
+            // copyGuard.test.ts's BANNED phrases (keep in sync with
+            // src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts).
+            "on your computer",
+            "on this computer",
+            "your computer",
+            "this computer",
+            "your own computer",
+            "your machine",
+            "this machine",
+            "on your machine",
+            "never leaves",
+            "never uploaded",
+            "nothing is uploaded",
+            "read on this computer only",
+            "stays on",
+            "desktop application",
+            "your device",
+            "runs entirely",
+            "no cloud",
+            "single-user use on one machine",
+            "offline",
+            "another computer",
+            // The PC wordings the UI guard's list does not carry.
+            "this pc",
+            "your pc",
+            "on this pc",
+        ];
+        let clean = |text: &str| {
+            let lower = text.to_ascii_lowercase();
+            for phrase in banned {
+                assert!(
+                    !lower.contains(phrase),
+                    "a user-visible WSL text says where the app runs: {phrase:?} in {text:?}"
+                );
+            }
+        };
+
+        // `wsl_status`'s early sentence for EVERY status: `WslStatus::ALL` is
+        // the enum's own list, so a new variant cannot escape.
+        for status in WslStatus::ALL {
+            if let Some(sentence) = super::super::wsl_status::early_probe_sentence(status) {
+                clean(sentence);
+            }
+        }
+        // The three setup questions and their go labels.
+        for status in [WslStatus::Missing, WslStatus::Legacy, WslStatus::Old] {
+            let q = question(status);
+            clean(q.text);
+            clean(q.go);
+        }
+        // `wsl_run`'s three user-visible sentences, built through the same
+        // `wsl_status` builders `wsl_run` calls: the probe's no-version
+        // sentence, the wsl.exe failure sentence for WSL not installed, and
+        // the replaced-distro sentence.
+        clean(&super::super::wsl_status::wsl_missing_or_too_old_sentence(
+            "wsl --install --no-distribution",
+            "Invalid command line option: --version",
+        ));
+        clean(&super::super::wsl_status::wsl_not_installed_sentence(
+            "wsl --install --no-distribution",
+            "The Windows Subsystem for Linux is not installed: aka.ms/wslinstall",
+        ));
+        clean(&super::super::wsl_status::wsl_replaced_by_another_version_sentence("build-1", "wsl-test"));
     }
 
     /// The question's buttons: the setup's own verb and Not now. No label has

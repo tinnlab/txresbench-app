@@ -50,8 +50,9 @@ use super::vm_exchange::{
 };
 use super::win_registry;
 use super::wsl_status::{
-    classify, early_probe_sentence, gather_facts, parse_wsl_version, wsl_version_ok, FactReader, VersionRun,
-    WslFacts, WslStatus,
+    classify, early_probe_sentence, gather_facts, one_line, parse_wsl_version,
+    wsl_missing_or_too_old_sentence, wsl_not_installed_sentence, wsl_replaced_by_another_version_sentence,
+    wsl_version_ok, FactReader, VersionRun, WslFacts, WslStatus,
 };
 
 /// The app's own WSL distro.
@@ -394,12 +395,7 @@ fn probe() -> Result<HostCapabilities, (String, Option<WslStatus>)> {
     match version {
         None => {
             return Err((
-                format!(
-                    "methods run in WSL 2, which is not installed or too old on this computer: open PowerShell \
-                     as administrator, run `{WSL_INSTALL_COMMAND}` (or `wsl --update` if WSL is installed), \
-                     then restart Windows [`wsl --version` said: {}]",
-                    one_line(&out.text())
-                ),
+                wsl_missing_or_too_old_sentence(WSL_INSTALL_COMMAND, &out.text()),
                 wsl_problem(ran()),
             ));
         }
@@ -425,11 +421,6 @@ fn probe() -> Result<HostCapabilities, (String, Option<WslStatus>)> {
         cgroup: CgroupMode::None,
         seccomp: SeccompMode::NotLinked,
     })
-}
-
-fn one_line(text: &str) -> String {
-    let t: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    t.chars().take(300).collect()
 }
 
 /// The WSL step of the Windows installer (`txresbench-desktop.exe
@@ -613,11 +604,7 @@ fn disk_lost_at(location: &Path, text: &str) -> bool {
 /// A failed wsl.exe command, with what to do for the common causes.
 fn wsl_failure(what: &str, text: &str) -> AppError {
     if wsl_not_installed(text) {
-        return wsl_error(format!(
-            "methods run in WSL 2, which is not installed on this computer: open PowerShell as \
-             administrator, run `{WSL_INSTALL_COMMAND}`, then restart Windows [wsl.exe said: {}]",
-            one_line(text)
-        ));
+        return wsl_error(wsl_not_installed_sentence(WSL_INSTALL_COMMAND, text));
     }
     let lower = text.to_ascii_lowercase();
     let hint = if lower.contains("0x80370102") || lower.contains("virtual machine platform") {
@@ -731,11 +718,7 @@ fn start_or_set_up(
 }
 
 fn replaced_by_another_version(found: &str, runtime: &Runtime) -> AppError {
-    wsl_error(format!(
-        "another version of TxResBench on this computer replaced the app's WSL distro (it is now build \
-         {found}; this version needs {}): close the other version, then restart this one",
-        runtime.version
-    ))
+    wsl_error(wsl_replaced_by_another_version_sentence(found, &runtime.version))
 }
 
 /// Whether WSL lists a distro of the app's name, in any state.
@@ -1268,7 +1251,7 @@ mod tests {
         assert!(e.to_string().contains("`wsl --install --no-distribution`"), "{e}");
         let e = wsl_failure("WSL could not list its distros", STUB_SAYS);
         assert!(e.to_string().contains("`wsl --install --no-distribution`"), "{e}");
-        assert!(e.to_string().contains("not installed on this computer"), "{e}");
+        assert!(e.to_string().contains("not installed: open PowerShell as administrator"), "{e}");
     }
 
     /// The installer's check on this PC (whatever its WSL): a status the
