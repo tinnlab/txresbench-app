@@ -334,7 +334,7 @@ fn unit_problems_with_reference(
     let Some(unit) = facts.the_unit() else { return Vec::new() };
     match compare_unit_to_canonical(&unit.spelling, canonical_unit, canonical_family) {
         UnitAgreement::Matches => Vec::new(),
-        agreement => unit_mismatch_problem(&column.key, &unit.spelling, canonical_unit, agreement)
+        _ => unit_mismatch_problem(&column.key, &unit.spelling, canonical_unit, canonical_family)
             .into_iter()
             .collect(),
     }
@@ -729,17 +729,21 @@ mod tests {
         );
     }
 
-    /// dnd-3: a vocabulary-matched marker whose entry records NO canonical
-    /// unit has no known unit to compare against — no A04 note, not for the
-    /// same-family unit (AC/mL vs the count family) nor for an unrecognised
-    /// one (fraction vs the no-claim family). An entry WITH a set unit still
-    /// notes, with the family and the unknown wording as today.
+    /// A vocabulary-matched marker whose entry records NO canonical unit has
+    /// no known unit to compare against — no A04 note for the same-family
+    /// unit (AC/mL vs the count family) nor for a marker that records no
+    /// kind at all (fraction against the no-claim family). An entry WITH a
+    /// set unit still notes: same kind → the "not the known unit" wording; a
+    /// different known kind → the kind words sentence; an unclassifiable
+    /// file unit against a known entry kind → "not a unit we recognise".
     #[test]
     fn test_fv2_inspect_no_a04_note_when_vocabulary_entry_records_no_unit() {
         // Pin the vocabulary side of the fixture: both markers resolve to a
         // NON-fuzzy catalogue entry that records no canonical unit (the test
-        // is about the reference path — an unmapped classifier path would
-        // warn on "fraction" instead).
+        // is about the reference path; the unmapped classifier path's own
+        // verdicts are pinned by the unmapped-fraction test below —
+        // "fraction" is there a known ratio family, so an unmapped column
+        // does not warn either).
         for marker in ["ctDNA_TP53_MAC", "ctDNA_TP53_MAF"] {
             let matches = crate::modules::file_validator::vocab::marker_matches(marker);
             assert!(
@@ -796,17 +800,103 @@ mod tests {
                 ],
             ),
         });
-        let unknown_note = f
+        let other_kind_note = f
             .problems
             .iter()
             .find(|p| p.code == ProblemCode::A04UnitDiffers)
             .expect("ng/mL vs % still notes");
-        assert_eq!(unknown_note.severity, ProblemSeverity::Warning);
-        assert!(
-            unknown_note.message.contains("we do not recognise this unit"),
-            "{}",
-            unknown_note.message
+        assert_eq!(other_kind_note.severity, ProblemSeverity::Warning);
+        assert_eq!(
+            other_kind_note.message,
+            "column `CEA (LOINC 2039-6)` unit '%' is a percent, but this marker is measured as a mass concentration ('ng/mL'): the values are used as written, so check them"
         );
+        // A percent entry that records NO canonical unit (the NLR vocabulary
+        // entries): "%" is the same kind → silent; "ng/mL" (mass) and
+        // "furlongs" (unclassifiable) → they note through the reference path.
+        let nlr_matches = crate::modules::file_validator::vocab::marker_matches("NLR");
+        assert!(
+            nlr_matches.iter().any(|m| {
+                m.canonical_unit.trim().is_empty()
+                    && m.unit_family == UnitFamily::Percent
+                    && m.match_kind != MatchKind::Fuzzy
+            }),
+            "NLR must resolve to a percent no-canonical-unit entry: {nlr_matches:?}"
+        );
+        for (marker, unit, expect_note) in [
+            ("NLR", "%", false),
+            ("NLR", "ng/mL", true),
+            ("NLR", "furlongs", true),
+        ] {
+            let f = inspect(&FileInspectionRequest {
+                kind: FileTableKind::Measurements,
+                table: table(
+                    &meas_columns(),
+                    &[&["P1", "0", marker, "0.1", unit], &["P1", "7", marker, "0.2", unit]],
+                ),
+            });
+            let a04: Vec<&str> = f
+                .problems
+                .iter()
+                .filter(|p| p.code == ProblemCode::A04UnitDiffers)
+                .map(|p| p.message.as_str())
+                .collect();
+            assert_eq!(
+                a04.len() == 1,
+                expect_note,
+                "A04 expectation for {marker}/{unit}: {a04:?}"
+            );
+            if expect_note {
+                if unit == "furlongs" {
+                    assert!(a04[0].contains("not a unit we recognise"), "{}", a04[0]);
+                } else {
+                    assert!(a04[0].contains("measured as a percent"), "{}", a04[0]);
+                }
+            }
+        }
+    }
+
+    /// An UNMAPPED marker column (a made-up marker name with no vocabulary
+    /// reference) whose unit is "fraction" carries the ratio family — no
+    /// "not a unit we recognise" note, for the plain spelling, the case
+    /// variant and the parenthesised gloss ("fraction (0-1)" reads
+    /// "fraction" after normalize + strip_unit_gloss). A unit the classifier
+    /// still cannot place ("furlongs") keeps the note.
+    #[test]
+    fn test_fv2_inspect_unmapped_fraction_is_silent_and_furlongs_notes() {
+        for unit in ["fraction", "Fraction", "fraction (0-1)"] {
+            let f = inspect(&FileInspectionRequest {
+                kind: FileTableKind::Measurements,
+                table: table(
+                    &meas_columns(),
+                    &[
+                        &["P1", "0", "made_up_marker", "0.1", unit],
+                        &["P1", "7", "made_up_marker", "0.2", unit],
+                    ],
+                ),
+            });
+            assert!(
+                !f.problems
+                    .iter()
+                    .any(|p| p.code == ProblemCode::A04UnitDiffers),
+                "no A04 note for an unmapped column with unit {unit:?}: {:?}",
+                f.problems
+            );
+        }
+        let f = inspect(&FileInspectionRequest {
+            kind: FileTableKind::Measurements,
+            table: table(
+                &meas_columns(),
+                &[&["P1", "0", "made_up_marker", "10", "furlongs"]],
+            ),
+        });
+        let a04: Vec<&str> = f
+            .problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::A04UnitDiffers)
+            .map(|p| p.message.as_str())
+            .collect();
+        assert_eq!(a04.len(), 1, "furlongs stays unclassified: {:?}", f.problems);
+        assert!(a04[0].contains("not a unit we recognise"), "{}", a04[0]);
     }
 
     #[test]

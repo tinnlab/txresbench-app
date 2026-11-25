@@ -276,7 +276,7 @@ fn column_unit_verdict(
                         &column.key,
                         &unit.spelling,
                         &entry.canonical_unit,
-                        agreement,
+                        entry.unit_family,
                     ),
                     entry.unit_family,
                 ),
@@ -286,7 +286,7 @@ fn column_unit_verdict(
                         &column.key,
                         &unit.spelling,
                         &entry.canonical_unit,
-                        agreement,
+                        entry.unit_family,
                     ),
                     entry.unit_family,
                 ),
@@ -953,13 +953,15 @@ mod tests {
         assert!(!outcomes.has_responder);
     }
 
-    /// dnd-3: the same no-note rule at the validate entry point — a mapping
-    /// to a vocabulary entry with NO canonical unit (the catalogue's
+    /// The same no-note rule at the validate entry point — a mapping to a
+    /// vocabulary entry with NO canonical unit (the catalogue's
     /// ctDNA_TP53_MAC, family count, and ctDNA_TP53_MAF, family none) must
-    /// not produce the A04 note, neither for the same-family unit nor for the
-    /// unrecognised one; the unit value is still carried as is. A mapping to
-    /// an entry WITH a set unit keeps the note, family and unknown wording as
-    /// today.
+    /// not produce the A04 note, neither for the same-kind unit nor for an
+    /// entry that records no kind at all; the unit value is still carried as
+    /// is. A mapping to an entry WITH a set unit keeps the note: same kind →
+    /// the "not the known unit" wording; a different known kind → the kind
+    /// words sentence; an unclassifiable file unit against a known entry
+    /// kind → "not a unit we recognise".
     #[test]
     fn test_fv10_no_a04_note_when_mapped_entry_records_no_unit() {
         for (marker_id, unit) in [("ctDNA_TP53_MAC", "AC/mL"), ("ctDNA_TP53_MAF", "fraction")] {
@@ -1044,17 +1046,116 @@ mod tests {
             0.0,
         );
         let v = validate(&r).expect("predict validate");
-        let unknown_note = v
+        let other_kind_note = v
             .problems
             .iter()
             .find(|p| p.code == ProblemCode::A04UnitDiffers)
             .expect("ng/mL vs % still notes");
-        assert_eq!(unknown_note.severity, ProblemSeverity::Warning);
-        assert!(
-            unknown_note.message.contains("we do not recognise this unit"),
-            "{}",
-            unknown_note.message
+        assert_eq!(other_kind_note.severity, ProblemSeverity::Warning);
+        assert_eq!(
+            other_kind_note.message,
+            "column `CEA` unit '%' is a percent, but this marker is measured as a mass concentration ('ng/mL'): the values are used as written, so check them"
         );
+        // A percent entry that records NO canonical unit (the NLR LOINC
+        // entries): "%" is the same kind → no note; "ng/mL" and "furlongs"
+        // → the kind words sentence / the unclassified warning, through the
+        // mapping path. The UnitStatus stays today's (Family / Unknown).
+        for (unit, expect_note, expect_status) in [
+            ("%", false, UnitStatus::Family),
+            ("ng/mL", true, UnitStatus::Unknown),
+            ("furlongs", true, UnitStatus::Unknown),
+        ] {
+            let measurements = table(
+                &meas_cols(),
+                &[&["P1", "0", "NLR", "0.1", unit], &["P1", "7", "NLR", "0.2", unit]],
+            );
+            let r = req(
+                ValidationMode::Predict,
+                None,
+                measurements,
+                vec![],
+                vec![MarkerMapping {
+                    key: "NLR".to_string(),
+                    marker_id: "52175-8".to_string(),
+                }],
+                56.0,
+                0.0,
+            );
+            let v = validate(&r).expect("predict validate");
+            let a04: Vec<&str> = v
+                .problems
+                .iter()
+                .filter(|p| p.code == ProblemCode::A04UnitDiffers)
+                .map(|p| p.message.as_str())
+                .collect();
+            assert_eq!(
+                a04.len() == 1,
+                expect_note,
+                "A04 expectation for NLR/{unit}: {a04:?}"
+            );
+            assert_eq!(v.markers[0].unit_status, expect_status);
+            if expect_note {
+                if unit == "furlongs" {
+                    assert!(a04[0].contains("not a unit we recognise"), "{}", a04[0]);
+                } else {
+                    assert!(a04[0].contains("measured as a percent"), "{}", a04[0]);
+                }
+            }
+        }
+    }
+
+    /// The same silent-classifier rule at the validate entry point for
+    /// an UNMAPPED column (no mapping, no vocabulary reference): unit
+    /// "fraction" is the ratio family — no A04 note; the inventory carries
+    /// the ratio family. A unit the classifier still cannot place
+    /// ("furlongs") keeps the "not a unit we recognise" note.
+    #[test]
+    fn test_fv10_unmapped_fraction_is_silent_and_furlongs_notes() {
+        for unit in ["fraction", "proportion"] {
+            let measurements = table(
+                &meas_cols(),
+                &[
+                    &["P1", "0", "made_up_marker", "0.1", unit],
+                    &["P1", "7", "made_up_marker", "0.2", unit],
+                ],
+            );
+            let r = req(ValidationMode::Predict, None, measurements, vec![], vec![], 56.0, 0.0);
+            let v = validate(&r).expect("predict validate");
+            let a04: Vec<String> = v
+                .problems
+                .iter()
+                .filter(|p| p.code == ProblemCode::A04UnitDiffers)
+                .map(|p| p.message.clone())
+                .collect();
+            assert!(
+                a04.is_empty(),
+                "no A04 note for an unmapped column with unit {unit:?}: {a04:?}"
+            );
+            assert_eq!(
+                v.markers[0].unit.as_deref(),
+                Some(unit),
+                "the unit value is used as is"
+            );
+            assert_eq!(
+                v.inventory.markers[0].unit_family,
+                UnitFamily::Ratio,
+                "the inventory carries the classifier's ratio verdict"
+            );
+        }
+        let measurements = table(
+            &meas_cols(),
+            &[&["P1", "0", "made_up_marker", "10", "furlongs"]],
+        );
+        let r = req(ValidationMode::Predict, None, measurements, vec![], vec![], 56.0, 0.0);
+        let v = validate(&r).expect("predict validate");
+        let a04: Vec<&str> = v
+            .problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::A04UnitDiffers)
+            .map(|p| p.message.as_str())
+            .collect();
+        assert_eq!(a04.len(), 1, "furlongs stays unclassified: {:?}", v.problems);
+        assert!(a04[0].contains("not a unit we recognise"), "{}", a04[0]);
     }
 
     #[test]
