@@ -45,13 +45,8 @@ export interface SingleMarkerOption {
 export interface SingleMarkerFacts {
   /** The group shows: file in, n ≥ 1, and more than one main marker. */
   visible: boolean
-  /** "{n} of the methods that fit take one marker or a set number…" */
+  /** The fitting no-list single/multi count ("{n} of the methods that fit use fewer"). */
   n: number
-  /**
-   * When `n === 1`: the ONE method's kind (single → "takes one marker",
-   * multi → "takes a set number of markers" — the sentence's words differ).
-   */
-  onlyKind: 'single' | 'multi' | null
   /** The file's main-marker count ("your file has {k} markers"). */
   k: number
   /** The select's markers (the file's main markers, each with its counts). */
@@ -76,8 +71,7 @@ export function markerOptionsOf(
 /**
  * Whether a method takes one marker or a set number of markers with no fixed
  * list (single / multi only — an `any` method takes whatever is ranked, a
- * `panel` its declared count; the group's sentence counts the single/multi
- * ones).
+ * `panel` its declared count; the group's n counts the single/multi ones).
  */
 export function takesPlannedMarkerCount(method: MethodSummary): boolean {
   return isNoFixedList(method) && (method.markers.kind === 'single' || method.markers.kind === 'multi')
@@ -95,33 +89,28 @@ export function singleMarkerFacts(
 ): SingleMarkerFacts {
   const markers = markerOptionsOf(inventory)
   let n = 0
-  let onlyKind: 'single' | 'multi' | null = null
   for (const method of methods) {
     if (!takesPlannedMarkerCount(method)) continue
     const verdict = verdicts.get(method.id)
     if (verdict === undefined || hasAnswerCause(verdict)) continue
     n += 1
-    onlyKind = method.markers.kind === 'multi' ? 'multi' : 'single'
   }
   return {
     visible: inventory !== null && markers.length > 1 && n > 0,
     n,
-    onlyKind: n === 1 ? onlyKind : null,
     k: markers.length,
     markers,
   }
 }
 
 /**
- * The group's question (the brief's bytes): "{n} of the methods that fit take
- * one marker or a set number of markers, and your file has {k} markers.
- * Which should they use?" — with n = 1 the sentence names the one method and
- * says "one marker" or "a set number of markers" by that method's kind.
+ * The group's question (the brief's bytes): "Your file has {k} markers, but
+ * {n} of the methods that fit use fewer. Which markers should they use?" —
+ * at n = 1 the singular "it" replaces "they".
  */
 export function singleMarkerQuestion(facts: SingleMarkerFacts): string {
   if (facts.n === 1) {
-    const word = facts.onlyKind === 'multi' ? 'a set number of markers' : 'one marker'
-    return `1 of the methods that fit takes ${word}, and your file has ${facts.k} markers. Which should it use?`
+    return `Your file has ${facts.k} markers, but 1 of the methods that fit uses fewer. Which markers should it use?`
   }
-  return `${facts.n} of the methods that fit take one marker or a set number of markers, and your file has ${facts.k} markers. Which should they use?`
+  return `Your file has ${facts.k} markers, but ${facts.n} of the methods that fit use fewer. Which markers should they use?`
 }

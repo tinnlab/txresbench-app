@@ -1584,7 +1584,7 @@ describe('StudyPage single-marker-choice round 2', () => {
     const group = await screen.findByTestId('txr-intake-study-single-marker')
     expect(group.textContent).toContain('Methods that pick markers from your file')
     expect(group.textContent).toContain(
-      '1 of the methods that fit takes one marker, and your file has 2 markers. Which should it use?',
+      'Your file has 2 markers, but 1 of the methods that fit uses fewer. Which markers should it use?',
     )
     expect(screen.getByTestId('txr-intake-single-marker-recommended').textContent).toBe(
       'Recommended',
@@ -1657,14 +1657,14 @@ describe('StudyPage single-marker-choice round 2', () => {
     ).toBe('true')
   })
 
-  it('a multi no-list method names "a set number of markers" in the n = 1 question', async () => {
+  it('a multi no-list method still gives the n = 1 question ("uses fewer")', async () => {
     api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'multi', 2)], total: 1 } as never)
     seedStudyFile()
     renderStudy()
     await answerOneGroup()
     const group = await screen.findByTestId('txr-intake-study-single-marker')
     expect(group.textContent).toContain(
-      '1 of the methods that fit takes a set number of markers, and your file has 2 markers. Which should it use?',
+      'Your file has 2 markers, but 1 of the methods that fit uses fewer. Which markers should it use?',
     )
   })
 

@@ -115,7 +115,6 @@ describe('singleMarkerFacts', () => {
       visible: true,
       n: 1,
       k: 2,
-      onlyKind: 'single',
     })
     // No file: hidden.
     expect(singleMarkerFacts(null, [single], mapOf([verdict('one')]))).toMatchObject({
@@ -150,34 +149,30 @@ describe('singleMarkerFacts', () => {
     )
   })
 
-  it('counts single and multi no-list methods together and names the one kind at n = 1', () => {
+  it('counts single and multi no-list methods together', () => {
     const inv = inventory([marker('M1'), marker('M2')])
     const facts = singleMarkerFacts(
       inv,
       [method('s', 'single'), method('m', 'multi', 2)],
       mapOf([verdict('s'), verdict('m')]),
     )
-    expect(facts).toMatchObject({ n: 2, onlyKind: null })
+    expect(facts).toMatchObject({ n: 2 })
     expect(singleMarkerFacts(inv, [method('m', 'multi', 2)], mapOf([verdict('m')]))).toMatchObject({
       n: 1,
-      onlyKind: 'multi',
     })
   })
 })
 
 describe('singleMarkerQuestion', () => {
-  it('spells the n=1 sentence by the one method (one marker vs a set number)', () => {
-    expect(singleMarkerQuestion({ visible: true, n: 1, onlyKind: 'single', k: 3, markers: [] })).toBe(
-      '1 of the methods that fit takes one marker, and your file has 3 markers. Which should it use?',
-    )
-    expect(singleMarkerQuestion({ visible: true, n: 1, onlyKind: 'multi', k: 3, markers: [] })).toBe(
-      '1 of the methods that fit takes a set number of markers, and your file has 3 markers. Which should it use?',
+  it('spells the n = 1 sentence with k = 3: the one method uses fewer', () => {
+    expect(singleMarkerQuestion({ visible: true, n: 1, k: 3, markers: [] })).toBe(
+      'Your file has 3 markers, but 1 of the methods that fit uses fewer. Which markers should it use?',
     )
   })
 
-  it('spells the general sentence for n > 1', () => {
-    expect(singleMarkerQuestion({ visible: true, n: 3, onlyKind: null, k: 3, markers: [] })).toBe(
-      '3 of the methods that fit take one marker or a set number of markers, and your file has 3 markers. Which should they use?',
+  it('spells the n > 1 sentence for n = 3 with k = 3', () => {
+    expect(singleMarkerQuestion({ visible: true, n: 3, k: 3, markers: [] })).toBe(
+      'Your file has 3 markers, but 3 of the methods that fit use fewer. Which markers should they use?',
     )
   })
 })
