@@ -10378,15 +10378,15 @@ mod tests {
         for pair in answer.ranking.windows(2) {
             assert!(pair[0].score >= pair[1].score, "{:?}", answer.ranking);
         }
-        // The choice's per-kind facts: single → 1, any → top, multi k → top
-        // min(k, 5) for EVERY k the catalogue's no-list multi methods declare.
+        // The choice's per-kind facts: single → 1, any → top, multi k → top k
+        // for EVERY k the catalogue's no-list multi methods declare.
         assert_eq!(answer.markers_by_kind.single.len(), 1);
         assert_eq!(answer.markers_by_kind.any.len(), answer.top.len());
         assert_eq!(answer.markers_by_kind.single[0], answer.top[0]);
         for (k, markers) in &answer.markers_by_kind.multi {
-            assert_eq!(markers.len(), (*k as usize).min(answer.top.len()));
+            assert_eq!(markers.len(), (*k as usize).min(answer.offered.len()));
             assert_eq!(markers[0], answer.top[0]);
-            assert_eq!(markers, &answer.top[..markers.len()], "multi k takes the top k");
+            assert_eq!(markers, &answer.offered[..markers.len()], "multi k takes the top k");
         }
 
         // The person's choice: a chosen marker leads, then the ranking

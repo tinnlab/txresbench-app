@@ -54,10 +54,11 @@ describe('isNoFixedList / planLimit', () => {
     ).toBe(false)
   })
 
-  it('the slice limit is the server rule (single 1, multi min(k,5), any/panel 5)', () => {
+  it('the slice limit is the server rule (single 1, multi k exactly k, any/panel 5)', () => {
     expect(planLimit('single', 1)).toBe(1)
     expect(planLimit('multi', 2)).toBe(2)
-    expect(planLimit('multi', 7)).toBe(5)
+    expect(planLimit('multi', 6)).toBe(6)
+    expect(planLimit('multi', 7)).toBe(7)
     expect(planLimit('any', 0)).toBe(5)
     expect(planLimit('panel', 49)).toBe(5)
   })
@@ -69,10 +70,22 @@ describe('plannedMarkerNames', () => {
     expect(plannedMarkerNames('single', 1, false, RANKED)).toBeNull()
   })
 
-  it('ranked slices the top: single → 1, multi k → k, any → 5', () => {
+  it('ranked slices: single → 1, multi k → k, any → 5', () => {
     expect(plannedMarkerNames('single', 1, true, RANKED)).toEqual(['M2'])
     expect(plannedMarkerNames('multi', 2, true, RANKED)).toEqual(['M2', 'M1'])
     expect(plannedMarkerNames('any', 0, true, RANKED)).toEqual(['M2', 'M1', 'M3'])
+  })
+
+  it('a multi above 5 reads the OFFERED order (the top list is the display five)', () => {
+    const TEN: PlanBlock = {
+      mode: 'ranked',
+      top: ['M7', 'M8', 'M9', 'M10', 'M1'],
+      offered: ['M7', 'M8', 'M9', 'M10', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6'],
+    }
+    expect(plannedMarkerNames('multi', 6, true, TEN)).toEqual([
+      'M7', 'M8', 'M9', 'M10', 'M1', 'M2',
+    ])
+    expect(plannedMarkerNames('any', 0, true, TEN)).toEqual(['M7', 'M8', 'M9', 'M10', 'M1'])
   })
 
   it('chosen leads with the marker and the ranking follows without it', () => {

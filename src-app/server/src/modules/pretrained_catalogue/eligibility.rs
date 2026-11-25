@@ -67,8 +67,8 @@ use std::collections::BTreeMap;
 
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::eligibility::{
-    estimate_quality_for, estimate_seconds_for, marker_count_params, marker_count_unmet,
-    required_marker_match, UnitMarkerRow,
+    estimate_quality_for, estimate_seconds_for, file_main_marker_count, marker_count_params,
+    marker_count_unmet, required_marker_match, UnitMarkerRow,
 };
 use crate::modules::method_catalogue::types::{
     CovariateMode, Coverage, EligibilityStatus, InventoryEligibilityRequest, InventoryMarker,
@@ -171,7 +171,11 @@ fn eligible_in(
         // markers than it takes is refused there, so the verdict hides it.
         reasons.push(PretrainedReason {
             code: PretrainedReasonCode::MarkerCountUnmet,
-            params: marker_count_params(expected, &given),
+            params: marker_count_params(
+                expected,
+                &given,
+                file_main_marker_count(inv),
+            ),
             group_id: None,
         });
     }
@@ -888,6 +892,7 @@ mod tests {
             .unwrap_or_else(|| panic!("no MARKER_COUNT_UNMET in {:?}", code_names(&v)));
         assert_eq!(r.params["expected"], serde_json::json!(1));
         assert_eq!(r.params["found"], serde_json::json!(2));
+        assert_eq!(r.params["file_markers"], serde_json::json!(2));
 
         let listed = entry("fx-listed-001", "cox-cutpoint-risk",
             Some(RequiredMarkers {

@@ -885,7 +885,8 @@ pub enum ReasonCode {
     /// count) and the file gives it a different number: the run engine's
     /// marker rule (`bundle::method_marker_set`) would refuse the run with
     /// `BUNDLE_MARKER_COUNT_UNMET`, so the verdict hides the method instead.
-    /// Params: `expected`, `found`, `markers` (the file markers it would get).
+    /// Params: `expected`, `found`, `file_markers` (the file's own main-marker
+    /// count, companions excluded), `markers` (the file markers it would get).
     #[serde(rename = "MARKER_COUNT_UNMET")]
     MarkerCountUnmet,
     /// The method's disease fact excludes the filters' answered disease node

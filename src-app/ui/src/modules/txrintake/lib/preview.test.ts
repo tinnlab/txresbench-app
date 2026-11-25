@@ -26,7 +26,7 @@ import type {
   ReasonCode,
   SingleMarkerChoice,
 } from '@/api-client/types'
-import { formatReasonLine } from '@/modules/txrlist/lib/format'
+import { formatReasonLine, type TxrReasonParams } from '@/modules/txrlist/lib/format'
 import {
   EXCLUDED_LIST_LIMIT,
   PREVIEW_REASON_FALLBACK,
@@ -603,6 +603,56 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     ])
   })
 
+  it('a method needing more markers than the file has is left out with its own line', () => {
+    const r = response([
+      method('m-count', 'cannot_run', [
+        { code: 'MARKER_COUNT_UNMET', params: { expected: 5, found: 3, file_markers: 3, markers: ['M1', 'M2', 'M3'] } },
+      ]),
+    ])
+    expect(excludedMethods(r, FORMATTERS).map(m => m.id)).toEqual(['m-count'])
+    expect(excludedMethods(r, FORMATTERS)[0]).toEqual({
+      id: 'm-count',
+      reasonText: 'needs 5 markers; your file has 3',
+      reasonCode: 'MARKER_COUNT_UNMET',
+      reasonParams: { expected: 5, found: 3, file_markers: 3, markers: ['M1', 'M2', 'M3'] },
+    })
+    // The B panel's row names the two counts (the E row's bytes); without
+    // the params (old data) the bucket is not "needs more" — the fallback.
+    expect(excludedReasonLine(method('m-count', 'cannot_run', [{ code: 'MARKER_COUNT_UNMET' }]), FORMATTERS)).toBe(
+      PREVIEW_REASON_FALLBACK,
+    )
+    // The file gives MORE than the method takes (a panel no-list method):
+    // not a "needs more" — the module's fallback line, never the new words.
+    expect(
+      excludedReasonLine(
+        method('m-panel', 'cannot_run', [
+          { code: 'MARKER_COUNT_UNMET', params: { expected: 2, found: 3, file_markers: 3, markers: ['M1', 'M2', 'M3'] } },
+        ]),
+        FORMATTERS,
+      ),
+    ).toBe(PREVIEW_REASON_FALLBACK)
+  })
+
+  it('a panel no-list method and a fixed-list wrong count do not land in the needs-more section', () => {
+    // (a) A panel no-list method on a 3-marker file: found 3 > expected 2.
+    // (b) A fixed-list method whose list resolves to the wrong count (found
+    // 3 > expected 1 with a 3-marker file).
+    const r = response([
+      method('m-panel', 'cannot_run', [
+        { code: 'MARKER_COUNT_UNMET', params: { expected: 2, found: 3, file_markers: 3, markers: ['M1', 'M2', 'M3'] } },
+      ]),
+      method('m-list', 'cannot_run', [
+        { code: 'MARKER_COUNT_UNMET', params: { expected: 1, found: 3, file_markers: 3, markers: ['M1', 'M2', 'M3'] } },
+      ]),
+    ])
+    const excluded = excludedMethods(r, FORMATTERS)
+    expect(excluded.map(m => m.reasonCode)).toEqual(['MARKER_COUNT_UNMET', 'MARKER_COUNT_UNMET'])
+    expect(excluded.map(m => m.reasonText)).toEqual([PREVIEW_REASON_FALLBACK, PREVIEW_REASON_FALLBACK])
+    // The grouping sends them to the do-not-fit bucket, never the
+    // marker-count section.
+    expect(groupExcludedMethods(excluded).map(g => g.code)).toEqual(['other'])
+  })
+
   it('exposes the board clip limit (Show all N lives at the page, N = the list length)', () => {
     expect(EXCLUDED_LIST_LIMIT).toBe(6)
     const many = Array.from({ length: EXCLUDED_LIST_LIMIT + 2 }, (_, i) =>
@@ -700,22 +750,24 @@ describe('label helpers (TEST-INT-13 rows for this item)', () => {
 
 describe('groupExcludedMethods (brief 5b — the grouped left-out list)', () => {
   /** One excluded row (the code is the row's grouping id). */
-  function row(id: string, code: ReasonCode): ExcludedMethod {
-    return { id, reasonText: id, reasonCode: code }
+  function row(id: string, code: ReasonCode, params?: TxrReasonParams): ExcludedMethod {
+    return { id, reasonText: id, reasonCode: code, reasonParams: params }
   }
 
-  it('buckets the answer-caused codes first (disease, treatment, outcome), every other code together', () => {
+  it('buckets the answer-caused codes first (disease, treatment, outcome, marker-count), every other code together', () => {
     const rows = [
       row('m-marker', 'REQUIRED_MARKER_MISSING'),
       row('m-disease', 'DISEASE_NOT_MATCHED'),
       row('m-outcome', 'OUTCOME_NOT_MATCHED'),
       row('m-draws', 'MIN_DRAWS_UNMET'),
       row('m-treatment', 'TREATMENT_NOT_MATCHED'),
+      row('m-count', 'MARKER_COUNT_UNMET', { expected: 5, file_markers: 3 }),
     ]
     expect(groupExcludedMethods(rows).map(g => g.code)).toEqual([
       'DISEASE_NOT_MATCHED',
       'TREATMENT_NOT_MATCHED',
       'OUTCOME_NOT_MATCHED',
+      'MARKER_COUNT_UNMET',
       'other',
     ])
     // The rows keep the list's own order inside each bucket.
@@ -723,8 +775,22 @@ describe('groupExcludedMethods (brief 5b — the grouped left-out list)', () => 
       ['m-disease'],
       ['m-treatment'],
       ['m-outcome'],
+      ['m-count'],
       ['m-marker', 'm-draws'],
     ])
+  })
+
+  it('a MARKER_COUNT_UNMET whose file does NOT have fewer markers is the do-not-fit bucket', () => {
+    // The file gives MORE than the method takes (a panel no-list method, a
+    // fixed list resolving to the wrong count): the bucket must not claim
+    // "needs more markers than your file has".
+    const more = [
+      row('m-panel', 'MARKER_COUNT_UNMET', { expected: 2, file_markers: 3 }),
+      row('m-list', 'MARKER_COUNT_UNMET', { expected: 1, file_markers: 3 }),
+    ]
+    expect(groupExcludedMethods(more).map(g => g.code)).toEqual(['other'])
+    // Params missing (old saved data): never the needs-more section either.
+    expect(groupExcludedMethods([row('m-old', 'MARKER_COUNT_UNMET')]).map(g => g.code)).toEqual(['other'])
   })
 
   it('omits empty sections and maps every foreign code to the do-not-fit bucket', () => {
@@ -738,6 +804,14 @@ describe('groupExcludedMethods (brief 5b — the grouped left-out list)', () => 
     expect(excludedGroupCode('DISEASE_NOT_MATCHED')).toBe('DISEASE_NOT_MATCHED')
     expect(excludedGroupCode('TREATMENT_NOT_MATCHED')).toBe('TREATMENT_NOT_MATCHED')
     expect(excludedGroupCode('OUTCOME_NOT_MATCHED')).toBe('OUTCOME_NOT_MATCHED')
+    // The marker-count rule keeps its own section ("needs more markers than
+    // your file has") only when the reason says the file has FEWER markers
+    // than the method takes; without the file count the generic bucket.
+    expect(excludedGroupCode('MARKER_COUNT_UNMET', { expected: 5, file_markers: 3 })).toBe(
+      'MARKER_COUNT_UNMET',
+    )
+    expect(excludedGroupCode('MARKER_COUNT_UNMET', { expected: 2, file_markers: 3 })).toBe('other')
+    expect(excludedGroupCode('MARKER_COUNT_UNMET')).toBe('other')
     expect(excludedGroupCode('MIN_DRAWS_UNMET')).toBe('other')
     expect(excludedGroupCode('ENV_IMAGE_MISSING')).toBe('other')
   })

@@ -272,12 +272,24 @@ describe('markerLineText', () => {
     })
   })
 
-  it('ranked + single and multi both shown: "(one marker) and up to the top 5"', () => {
-    const line = markerLineText(RANKED, ranking({ top: TOP }), false, [singleCard(), multiCard(2)], 'progression')
+  it('ranked + single and multi both shown: "(one marker) and up to the top N" names the largest shown count', () => {
+    const line = markerLineText(RANKED, ranking({ top: TOP, offered: TOP }), false, [singleCard(), multiCard(2)], 'progression')
     expect(line).toEqual({
-      text: 'Methods that pick markers from your file use ctdna_mm (one marker) and up to the top 5: ctdna_mm, ldh, cea, ca19_9 and albumin, ranked by how well each separates progression in your patients.',
+      text: 'Methods that pick markers from your file use ctdna_mm (one marker) and up to the top 2: ctdna_mm and ldh, ranked by how well each separates progression in your patients.',
       changeable: true,
     })
+  })
+
+  it('a multi 6 gets its k on a 10-marker file: the ranked line names and lists the top 6', () => {
+    const MANY = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10']
+    const line = markerLineText(RANKED, ranking({ top: MANY.slice(0, 5), offered: MANY }), false, [multiCard(6)], 'death')
+    expect(line).toEqual({
+      text: 'Methods that pick markers from your file use the top 6: m1, m2, m3, m4, m5 and m6, ranked by how well each separates death in your patients.',
+      changeable: true,
+    })
+    // Any still takes the top 5 (the display cut).
+    const anyLine = markerLineText(RANKED, ranking({ top: MANY.slice(0, 5), offered: MANY }), false, [anyCard()], 'death')
+    expect(anyLine?.text).toContain('use the top 5: m1, m2, m3, m4 and m5')
   })
 
   it('the changeable link text is the registered step-navigation label', () => {

@@ -1519,6 +1519,19 @@ describe('StudyPage single-marker-choice round 2', () => {
     },
   ]
 
+  /** A third main marker — the round-2b 3-marker file for the counting rule. */
+  const THIRD_MARKER = {
+    key: 'cema_mm',
+    display_name: 'CEMA',
+    n_patients_with_value: 7,
+    n_patients_with_baseline: 7,
+    n_patients_with_ontreatment: 7,
+    is_detection_call: false,
+    has_detection_companion: false,
+    standard_ids: [],
+    unit_family: 'ratio',
+  }
+
   /** A runnable catalogue summary with the marker facts the step-3 facts read. */
   function summaryOf(
     id: string,
@@ -1659,13 +1672,99 @@ describe('StudyPage single-marker-choice round 2', () => {
 
   it('a multi no-list method still gives the n = 1 question ("uses fewer")', async () => {
     api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'multi', 2)], total: 1 } as never)
-    seedStudyFile()
+    // Two markers is exactly multi 2's count: it fits but is NOT in the
+    // question (the group shows only methods that take fewer).
+    seedStudyFile([...MAIN_MARKERS, THIRD_MARKER])
     renderStudy()
     await answerOneGroup()
     const group = await screen.findByTestId('txr-intake-study-single-marker')
     expect(group.textContent).toContain(
-      'Your file has 2 markers, but 1 of the methods that fit uses fewer. Which markers should it use?',
+      'Your file has 3 markers, but 1 of the methods that fit uses fewer. Which markers should it use?',
     )
+  })
+
+  it('on a 3-marker file single and multi 2 are in the question; multi 3 fits without one', async () => {
+    // (a)-(c) of the brief: fewer → counted, exactly → fits but not counted
+    // — all three are FIT (the excluded list has nothing for them).
+    api.list.mockResolvedValue({
+      methods: [
+        summaryOf('m-one', 'single', 1),
+        summaryOf('m-two', 'multi', 2),
+        summaryOf('m-three', 'multi', 3),
+      ],
+      total: 3,
+    } as never)
+    seedStudyFile([...MAIN_MARKERS, THIRD_MARKER])
+    const canRun = (id: string) => ({
+      id,
+      status: 'can_run',
+      reasons: [],
+      coverage: { eligible: 8, total: 8, fraction: 1 },
+      min_draws: { required: 1, met: 8, unmet_patients: 0 },
+      missing_markers: [],
+      missing_groups: [],
+      estimated_seconds: 0,
+      estimate_quality: 'estimate',
+    })
+    api.eligibility.mockResolvedValue({
+      methods: [canRun('m-one'), canRun('m-two'), canRun('m-three')],
+      total_fit: 3,
+      total_some: 0,
+      total_cannot: 0,
+      total_no_env: 0,
+    } as never)
+    renderStudy()
+    await answerOneGroup()
+    const group = await screen.findByTestId('txr-intake-study-single-marker')
+    expect(group.textContent).toContain(
+      'Your file has 3 markers, but 2 of the methods that fit use fewer. Which markers should they use?',
+    )
+    // The panel fits all three (no left-out rows: the list says None).
+    await waitFor(() => {
+      expect(within(screen.getByTestId('txr-intake-panel-excluded')).getByText('None')).toBeTruthy()
+    })
+  })
+
+  it('a method needing more markers than the file has is a step-3 left-out with its own line', async () => {
+    // case (d): multi 5 on a 2-marker file — never a fit, never in the
+    // question; the left-out list's marker-count section says why.
+    api.list.mockResolvedValue({ methods: [summaryOf('m-too-many', 'multi', 5)], total: 1 } as never)
+    seedStudyFile()
+    api.eligibility.mockResolvedValue({
+      ...eligibilityResponse(),
+      methods: [
+        ...eligibilityResponse().methods,
+        {
+          id: 'm-too-many',
+          status: 'cannot_run',
+          reasons: [
+            {
+              code: 'MARKER_COUNT_UNMET',
+              params: { expected: 5, found: 2, file_markers: 2, markers: ['ctdna_mm', 'ldh'] },
+            },
+          ],
+          coverage: { eligible: 0, total: 8, fraction: 0 },
+          min_draws: { required: 1, met: 0, unmet_patients: 8 },
+          missing_markers: [],
+          missing_groups: [],
+          estimated_seconds: 0,
+          estimate_quality: 'estimate',
+        },
+      ],
+    } as never)
+    renderStudy()
+    await answerOneGroup()
+    // The question group is NOT shown (it asks only about methods that take
+    // fewer than the file has).
+    await screen.findByTestId('txr-intake-panel-excluded')
+    expect(screen.queryByTestId('txr-intake-study-single-marker')).toBeNull()
+    // The left-out list gets the marker-count section with its count words.
+    const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
+    const section = await excluded.findByTestId('txr-intake-excluded-section-marker-count')
+    expect(section.textContent).toContain('1 needs more markers than your file has')
+    openExcludedSection('marker-count')
+    expect(excluded.getByText('m-too-many')).toBeTruthy()
+    expect(excluded.getByText('needs 5 markers; your file has 2')).toBeTruthy()
   })
 
   it('is hidden when the file has one main marker', async () => {

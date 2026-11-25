@@ -52,10 +52,11 @@
 //!    ceil(0.80 * ranking_patients))`; none → [`RankingError::NoCoverage`].
 //! 5. **Top**: the first [`TOP_N`] offered markers ([`MarkerRanking::top`]).
 //! 6. **Who gets what** ([`markers_for`]): single → the top 1; multi k → the
-//!    top `min(k, 5)`; any → the top 5. The person's choice ([
-//!    `SingleMarkerChoice`]) leads with the chosen marker; with no ranking at
-//!    all a single method needs none (the chosen marker alone) and a multi/any
-//!    method gets only the chosen marker (the count check then decides).
+//!    top k (the runner gives a declared k exactly k); any → the top 5. The
+//!    person's choice ([`SingleMarkerChoice`]) leads with the chosen marker;
+//!    with no ranking at all a single method needs none (the chosen marker
+//!    alone) and a multi/any method gets only the chosen marker (the count
+//!    check then decides).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -659,7 +660,7 @@ pub fn is_no_list(kind: MarkerKind, required: Option<&RequiredMarkers>) -> bool 
 }
 
 /// The markers a no-list method receives from the run's marker plan:
-/// single → the top 1; multi k → the top `min(k, 5)`; any → the top 5
+/// single → the top 1; multi k → the top k; any → the top 5
 /// (`n_markers_for` + `run_method_cell` lines 331-334); the chosen marker
 /// (the app's own mode) leads and the rest follow the offered ranking without
 /// it. With `Chosen` a single method needs no ranking (the chosen marker
@@ -689,9 +690,13 @@ pub fn markers_slice(
 ) -> Vec<String> {
     let limit = match kind {
         MarkerKind::Single => 1,
-        MarkerKind::Multi => (count as usize).min(TOP_N),
+        MarkerKind::Multi => count as usize,
         MarkerKind::Any | MarkerKind::Panel => TOP_N,
     };
+    // The ranked slice reads the OFFERED order (the runner gives a declared k
+    // exactly k — `n_markers_for`; `top` is only the display's first five),
+    // so a multi method above 5 still gets its k.
+    let ranked: &[String] = if top.len() >= limit { top } else { offered };
     match choice {
         SingleMarkerChoice::Chosen { marker } => {
             let mut out = vec![marker.clone()];
@@ -702,7 +707,7 @@ pub fn markers_slice(
             out
         }
         SingleMarkerChoice::Ranked | SingleMarkerChoice::LeaveOut => {
-            top.iter().take(limit).cloned().collect()
+            ranked.iter().take(limit).cloned().collect()
         }
     }
 }
@@ -938,8 +943,13 @@ mod tests {
         assert_eq!(markers_for(MarkerKind::Single, 1, &plan), vec!["A"]);
         assert_eq!(markers_for(MarkerKind::Multi, 3, &plan), vec!["A", "B", "C"]);
         assert_eq!(markers_for(MarkerKind::Any, 0, &plan), vec!["A", "B", "C", "D", "E"]);
-        // k above the top 5 slices at the top.
-        assert_eq!(markers_for(MarkerKind::Multi, 9, &plan), vec!["A", "B", "C", "D", "E"]);
+        // A multi k above the top-5 display cut still gets its k: the ranked
+        // slice reads the OFFERED order (the runner gives a declared k
+        // exactly k), so the 6 offered markers are the plan's slice.
+        assert_eq!(
+            markers_for(MarkerKind::Multi, 9, &plan),
+            vec!["A", "B", "C", "D", "E", "F"]
+        );
 
         // Chosen leads, the rest follow without it.
         let mut chosen = plan.clone();
@@ -957,6 +967,39 @@ mod tests {
         assert_eq!(markers_for(MarkerKind::Multi, 3, &no_rank), vec!["C"]);
         assert_eq!(markers_for(MarkerKind::Any, 0, &no_rank), vec!["C"]);
         assert_eq!(markers_for(MarkerKind::Single, 1, &no_rank), vec!["C"]);
+    }
+
+    /// The audit fix for the runner port: a multi k gets exactly k markers
+    /// from a 10-marker file (top carries only the display's 5; the slice
+    /// reads the offered order), and any still takes the top 5.
+    #[test]
+    fn multi_k_gets_k_markers_on_a_ten_marker_file() {
+        let plan = plan_from(
+            (0..10)
+                .map(|i| {
+                    let m = format!("M{:02}", i + 1);
+                    let score = 0.5 - (i as f64) * 0.01;
+                    (m, score, 12, 1.0)
+                })
+                .collect(),
+        );
+        assert_eq!(markers_for(MarkerKind::Multi, 6, &plan).len(), 6);
+        assert_eq!(
+            markers_for(MarkerKind::Multi, 6, &plan),
+            vec![
+                "M01".to_string(),
+                "M02".to_string(),
+                "M03".to_string(),
+                "M04".to_string(),
+                "M05".to_string(),
+                "M06".to_string(),
+            ]
+        );
+        // Any and panel keep the top 5.
+        assert_eq!(markers_for(MarkerKind::Any, 0, &plan).len(), 5);
+        assert_eq!(markers_for(MarkerKind::Panel, 3, &plan).len(), 5);
+        // Single stays at the top 1.
+        assert_eq!(markers_for(MarkerKind::Single, 1, &plan), vec!["M01".to_string()]);
     }
 
     fn plan_from(rows: Vec<(String, f64, usize, f64)>) -> MarkerPlan {
@@ -1093,7 +1136,7 @@ mod tests {
 
         let mains = vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()];
 
-        // Ranked: the shared slice (single → top 1, multi → top min(k,5), any
+        // Ranked: the shared slice (single → top 1, multi → top k, any
         // → top 5; the ranked fixture carries only the top 2).
         assert_eq!(
             plan_markers(MarkerKind::Single, 1, &mains, &ranked).unwrap(),

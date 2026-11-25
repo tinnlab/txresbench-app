@@ -1375,7 +1375,7 @@ fn inventory_method(
             marker_count_unmet_for_candidates(m.markers.kind, m.markers.count, &resolved)
                 .map(|(expected, given)| Reason {
                     code: ReasonCode::MarkerCountUnmet,
-                    params: marker_count_params(expected, &given),
+                    params: marker_count_params(expected, &given, file_main_marker_count(inv)),
                     group_id: None,
                 })
         } else {
@@ -1575,15 +1575,37 @@ fn reason_of(code: ReasonCode, params: BTreeMap<String, serde_json::Value>) -> R
     }
 }
 
-/// The params of a `MARKER_COUNT_UNMET` reason: `expected`, `found` and
-/// `markers` (the display names of the markers the run would be given).
+/// The number of the FILE's main markers (companions excluded, deduplicated)
+/// — the count a `MARKER_COUNT_UNMET` reason carries as `file_markers`, so
+/// the consumer can say "your file has N" truthfully even when the reason's
+/// `found` is a planned slice (the plan's markers, not the file's).
+pub(crate) fn file_main_marker_count(inv: &InventoryEligibilityRequest) -> usize {
+    let mut keys: BTreeSet<&str> = BTreeSet::new();
+    for mk in &inv.markers {
+        if is_companion(&mk.key) {
+            continue;
+        }
+        keys.insert(mk.key.as_str());
+    }
+    keys.len()
+}
+
+/// The params of a `MARKER_COUNT_UNMET` reason: `expected`, `found` (the
+/// markers the run would be given — the planned slice under a plan),
+/// `file_markers` (the file's own main-marker count; companions excluded)
+/// and `markers` (the display names of the markers the run would be given).
 pub(crate) fn marker_count_params(
     expected: usize,
     given: &[&InventoryMarker],
+    file_markers: usize,
 ) -> BTreeMap<String, serde_json::Value> {
     BTreeMap::from([
         ("expected".to_string(), serde_json::Value::from(expected as u64)),
         ("found".to_string(), serde_json::Value::from(given.len() as u64)),
+        (
+            "file_markers".to_string(),
+            serde_json::Value::from(file_markers as u64),
+        ),
         (
             "markers".to_string(),
             serde_json::Value::Array(
@@ -1619,7 +1641,7 @@ fn marker_count_reason(
     )?;
     Some(Reason {
         code: ReasonCode::MarkerCountUnmet,
-        params: marker_count_params(expected, &given),
+        params: marker_count_params(expected, &given, file_main_marker_count(inv)),
         group_id: None,
     })
 }
@@ -1785,14 +1807,19 @@ fn preview_marker_verdicts(
         {
             reasons.push(Reason {
                 code: ReasonCode::MarkerCountUnmet,
-                params: marker_count_params(expected, &given),
+                params: marker_count_params(expected, &given, file_main_marker_count(inv)),
                 group_id: None,
             });
         }
         return (reasons, missing_markers);
     }
-    // No fixed list: the plan's markers when given, else the file's all-marker
-    // count rule (the inventory path's plain rule — no draw coverage here).
+    // No fixed list: the plan's markers when given, else the file's markers
+    // under the single-marker choice rule (the inventory path's plain
+    // exact-count rule applies to the run with a plan; the step-3
+    // preview has no ranking yet, so a method taking FEWER markers than the
+    // file has FITS here and the choice question picks the subset — only a
+    // file with fewer main markers than the method takes is a hard refusal,
+    // the "needs more markers than your file has" case).
     let mut planned_inv = inv.clone();
     if let Some(block) = plan {
         planned_inv.marker_plan = Some(block.clone());
@@ -1807,7 +1834,7 @@ fn preview_marker_verdicts(
                 {
                     reasons.push(Reason {
                         code: ReasonCode::MarkerCountUnmet,
-                        params: marker_count_params(expected, &given),
+                        params: marker_count_params(expected, &given, file_main_marker_count(inv)),
                         group_id: None,
                     });
                 }
@@ -1817,11 +1844,21 @@ fn preview_marker_verdicts(
             if let Some((expected, given)) =
                 marker_count_unmet(m.markers.kind, m.markers.count, false, &[], inv)
             {
-                reasons.push(Reason {
-                    code: ReasonCode::MarkerCountUnmet,
-                    params: marker_count_params(expected, &given),
-                    group_id: None,
-                });
+                // The choice rule: a single / multi no-list method that
+                // takes FEWER markers than the file has fits at step 3 —
+                // the choice question picks the subset. Only a file with
+                // FEWER main markers than the method takes is the count
+                // refusal. `panel` is NOT in the choice scope: it keeps the
+                // exact count rule, both directions.
+                let choice_kind =
+                    matches!(m.markers.kind, MarkerKind::Single | MarkerKind::Multi);
+                if !choice_kind || given.len() < expected {
+                    reasons.push(Reason {
+                        code: ReasonCode::MarkerCountUnmet,
+                        params: marker_count_params(expected, &given, file_main_marker_count(inv)),
+                        group_id: None,
+                    });
+                }
             }
         }
     }
@@ -3103,6 +3140,7 @@ mod tests {
         let r = count_reason(&v);
         assert_eq!(r.params["expected"], serde_json::json!(1));
         assert_eq!(r.params["found"], serde_json::json!(3));
+        assert_eq!(r.params["file_markers"], serde_json::json!(3));
         assert_eq!(
             r.params["markers"],
             serde_json::json!(["M1 display name", "M2 display name", "M3 display name"])
@@ -3128,6 +3166,7 @@ mod tests {
         let v = verdict_of(&cat, &req, "fx-single");
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert_eq!(count_reason(&v).params["found"], serde_json::json!(2));
+        assert_eq!(count_reason(&v).params["file_markers"], serde_json::json!(2));
     }
 
     /// A two-marker method without a list runs on exactly two markers only.
@@ -3149,6 +3188,7 @@ mod tests {
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert_eq!(count_reason(&v).params["expected"], serde_json::json!(2));
         assert_eq!(count_reason(&v).params["found"], serde_json::json!(3));
+        assert_eq!(count_reason(&v).params["file_markers"], serde_json::json!(3));
     }
 
     /// A panel whose fixed list names fewer markers than its declared count
@@ -3169,6 +3209,7 @@ mod tests {
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert_eq!(count_reason(&v).params["expected"], serde_json::json!(2));
         assert_eq!(count_reason(&v).params["found"], serde_json::json!(1));
+        assert_eq!(count_reason(&v).params["file_markers"], serde_json::json!(2));
         assert_eq!(count_reason(&v).params["markers"], serde_json::json!(["CEA display name"]));
     }
 
@@ -3321,6 +3362,9 @@ mod tests {
         let v = verdict_of(&multi, &mreq, "fx-multi");
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert_eq!(count_reason(&v).params["found"], serde_json::json!(1));
+        // The file's own count rides as a separate param: the planned slice is
+        // 1, the file has 2 main markers.
+        assert_eq!(count_reason(&v).params["file_markers"], serde_json::json!(2));
         // With two planned markers it runs.
         let mut mreq2 = inventory_req(3, vec![plain_marker("M1"), plain_marker("M2")], vec![]);
         mreq2.marker_plan = Some(ranked_block(vec!["M2", "M1"]));
@@ -3355,11 +3399,79 @@ mod tests {
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert_eq!(count_reason(&v).params["expected"], serde_json::json!(2));
         assert_eq!(count_reason(&v).params["found"], serde_json::json!(3));
+        assert_eq!(count_reason(&v).params["file_markers"], serde_json::json!(3));
+    }
+
+    /// A multi k gets exactly k markers under a ranked plan (the count rule
+    /// then fits on a big file and refuses on a smaller one, naming the
+    /// file's OWN marker count — never the planned slice's).
+    #[test]
+    fn multi_six_gets_six_markers_under_a_ranked_plan() {
+        use crate::modules::execution_engine::marker_rank::{PlanBlock, PlanMode};
+        let multi6 = one_method_catalogue(method_json("fx-multi6", &[("markers", serde_json::json!({"kind": "multi", "count": 6}))]));
+        // The plan block a 10-marker file's ranking carries: top = the display
+        // top 5, offered = the full 10.
+        let ten: Vec<String> = (1..=10).map(|i| format!("M{i:02}")).collect();
+        let top_ten = PlanBlock {
+            mode: PlanMode::Ranked,
+            marker: None,
+            top: Some(ten.iter().take(5).cloned().collect()),
+            offered: Some(ten.clone()),
+            error: None,
+        };
+        let markers_with = |keys: usize, patients: u32| -> Vec<InventoryMarker> {
+            (1..=keys)
+                .map(|i| {
+                    let mut mk = plain_marker(&format!("M{i:02}"));
+                    let rows: Vec<PatientDrawCounts> = (0..patients)
+                        .map(|p| pat(&format!("p{p}"), 1, 2))
+                        .collect();
+                    mk.per_patient = Some(rows.clone());
+                    mk.n_patients_with_value = patients;
+                    mk.n_patients_with_baseline = patients;
+                    mk.n_patients_with_ontreatment = patients;
+                    mk
+                })
+                .collect()
+        };
+        let mut big = inventory_req(10, markers_with(10, 10), vec![]);
+        big.marker_plan = Some(top_ten.clone());
+        let v = verdict_of(&multi6, &big, "fx-multi6");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+        assert!(!count_codes(&v).contains(&ReasonCode::MarkerCountUnmet), "{:?}", count_codes(&v));
+
+        // A 5-marker file's plan offers only 5: the count reason names the
+        // file's own 5 (`file_markers`), never the planned slice found by
+        // another number.
+        let five: Vec<String> = ten.iter().take(5).cloned().collect();
+        let top_five = PlanBlock {
+            mode: PlanMode::Ranked,
+            marker: None,
+            top: Some(five.clone()),
+            offered: Some(five),
+            error: None,
+        };
+        let mut small = inventory_req(5, markers_with(5, 5), vec![]);
+        small.marker_plan = Some(top_five);
+        let v = verdict_of(&multi6, &small, "fx-multi6");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        let r = count_reason(&v);
+        assert_eq!(r.params["expected"], serde_json::json!(6));
+        assert_eq!(r.params["found"], serde_json::json!(5));
+        assert_eq!(r.params["file_markers"], serde_json::json!(5));
+
+        // any keeps the top 5 on the 10-marker file.
+        let any = one_method_catalogue(method_json("fx-any", &[]));
+        let v = verdict_of(&any, &big, "fx-any");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
     }
 
     /// The step-3 preview with the file inventory: the marker verdicts are the
     /// inventory path's (count with the plan; no draw coverage) — and WITHOUT
-    /// the inventory block, exactly today.
+    /// the inventory block, exactly today. Under the single-marker choice
+    /// rule, a no-list method with no plan takes FEWER markers
+    /// than the file has fits at step 3 (the choice question picks the
+    /// subset); only a method needing MORE is the count refusal.
     #[test]
     fn preview_uses_the_inventory_marker_verdicts_only_with_the_block() {
         use crate::modules::execution_engine::marker_rank::{PlanBlock, PlanMode};
@@ -3391,11 +3503,12 @@ mod tests {
             vec![],
         );
 
-        // With the inventory, no plan: the count rule says the single method
-        // cannot run on three markers.
+        // With the inventory, no plan: a single method takes FEWER markers
+        // than the file has, so it fits at step 3 (no count
+        // refusal; the choice question picks the one marker).
         let v = preview(Some(three.clone()), None);
-        assert_eq!(v.status, EligibilityStatus::CannotRun);
-        assert!(count_codes(&v).contains(&ReasonCode::MarkerCountUnmet));
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+        assert!(!count_codes(&v).contains(&ReasonCode::MarkerCountUnmet), "{:?}", count_codes(&v));
 
         // With the inventory + a ranked plan: the planned top 1 runs.
         let v = preview(Some(three.clone()), Some(ranked_block(vec!["M2", "M1", "M3"])));
@@ -3414,6 +3527,69 @@ mod tests {
         );
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert!(v.reasons.iter().any(|r| r.code == ReasonCode::MarkersLeftOut));
+    }
+
+    /// The step-3 preview's four marker-count cases on a 3-main-marker file
+    /// (each with no plan, the ranked default): single (fewer,
+    /// fits), multi 2 (fewer, fits), multi 3 (exactly, fits, no choice), and
+    /// multi 5 (needs MORE than the file has — the left-out at step 3, with
+    /// the count reason naming `expected` 5 and `found` 3).
+    #[test]
+    fn preview_marker_count_cases_on_three_markers() {
+        let single = one_method_catalogue(method_json("fx-single", &[("markers", serde_json::json!({"kind": "single", "count": 1}))]));
+        let multi2 = one_method_catalogue(method_json("fx-multi2", &[("markers", serde_json::json!({"kind": "multi", "count": 2}))]));
+        let multi3 = one_method_catalogue(method_json("fx-multi3", &[("markers", serde_json::json!({"kind": "multi", "count": 3}))]));
+        let multi5 = one_method_catalogue(method_json("fx-multi5", &[("markers", serde_json::json!({"kind": "multi", "count": 5}))]));
+        let preview = |cat: &Catalogue| {
+            let p = PreviewEligibilityRequest {
+                marker_groups: BTreeMap::new(),
+                before_treatment: None,
+                draws_during_treatment: None,
+                last_draw_day: None,
+                filters: MethodFilters::default(),
+                inventory: Some(inventory_req(
+                    3,
+                    vec![plain_marker("M3"), plain_marker("M1"), plain_marker("M2")],
+                    vec![],
+                )),
+                marker_plan: None,
+            };
+            let resp = eligibility_for(cat, &EligibilityRequest::Preview { preview: p })
+                .expect("no filters in the fixture");
+            resp.methods.into_iter().next().expect("the one method")
+        };
+
+        // (a) single, (b) multi 2: fewer than the file has → fit at step 3.
+        for (cat, label) in [(&single, "single"), (&multi2, "multi 2")] {
+            let v = preview(cat);
+            assert_eq!(v.status, EligibilityStatus::CanRun, "{label}: {:?}", count_codes(&v));
+            assert!(
+                !count_codes(&v).contains(&ReasonCode::MarkerCountUnmet),
+                "{label}: {:?}",
+                count_codes(&v)
+            );
+        }
+        // (c) multi 3: exactly the file's count → fits, no refusal.
+        let v = preview(&multi3);
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+        assert!(!count_codes(&v).contains(&ReasonCode::MarkerCountUnmet), "{:?}", count_codes(&v));
+        // (d) multi 5: needs MORE markers than the file has → the step-3
+        // left-out, the count reason with the two counts.
+        let v = preview(&multi5);
+        assert_eq!(v.status, EligibilityStatus::CannotRun, "{:?}", count_codes(&v));
+        let r = count_reason(&v);
+        assert_eq!(r.params["expected"], serde_json::json!(5));
+        assert_eq!(r.params["found"], serde_json::json!(3));
+        assert_eq!(r.params["file_markers"], serde_json::json!(3));
+
+        // A panel no-list method stays OUT of the choice scope: even at
+        // step 3 it keeps the exact count rule (found 3 > expected 2 is
+        // still a refusal, never a fit).
+        let panel = one_method_catalogue(method_json("fx-nopanel", &[("markers", serde_json::json!({"kind": "panel", "count": 2}))]));
+        let v = preview(&panel);
+        assert_eq!(v.status, EligibilityStatus::CannotRun, "{:?}", count_codes(&v));
+        assert_eq!(count_reason(&v).params["expected"], serde_json::json!(2));
+        assert_eq!(count_reason(&v).params["found"], serde_json::json!(3));
     }
 
     fn resp_method(m: serde_json::Value, outcomes: Option<FileOutcomes>) -> (MethodEligibility, Catalogue) {
