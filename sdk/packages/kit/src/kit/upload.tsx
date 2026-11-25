@@ -61,6 +61,9 @@ export const Upload = React.forwardRef<HTMLInputElement, UploadProps>(function U
     <div className="contents" data-testid={testid}>
     <div
       role="button"
+      // The stray-file-drop guard (src-app/ui/src/core/dom/preventStrayFileDrop.ts)
+      // detects an upload box by this marker — the dropzone's own element.
+      data-file-dropzone=""
       tabIndex={locked ? -1 : 0}
       aria-label={label}
       aria-disabled={locked || undefined}
