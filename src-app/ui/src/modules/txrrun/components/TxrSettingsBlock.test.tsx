@@ -472,7 +472,7 @@ describe('TxrSettingsBlock ITEM-2 — the "What do you want to predict?" card', 
       'Progression or death by day 238 of treatment, from the blood draws up to day 56.',
     )
     for (const help of [
-      'The day you decide, counted from the start of treatment.',
+      'The day you make the prediction, counted from the start of treatment. Predictions use only blood draws up to this day.',
       'The day the prediction is for, counted from the start of treatment.',
       'Other columns of your file the methods may use.',
     ]) {

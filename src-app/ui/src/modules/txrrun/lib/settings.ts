@@ -146,7 +146,8 @@ export function mergeRunSettings(
 export const SETTING_HELP: Record<'endpoint' | 'decision_day' | 'look_ahead_day' | 'covariates', string> =
   {
     endpoint: 'What each method should predict for each patient.',
-    decision_day: 'The day you decide, counted from the start of treatment.',
+    decision_day:
+      'The day you make the prediction, counted from the start of treatment. Predictions use only blood draws up to this day.',
     look_ahead_day: 'The day the prediction is for, counted from the start of treatment.',
     covariates: 'Other columns of your file the methods may use.',
   }
