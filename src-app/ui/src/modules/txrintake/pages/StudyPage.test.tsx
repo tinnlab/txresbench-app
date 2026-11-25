@@ -53,6 +53,7 @@ const api = vi.hoisted(() => ({
   markers: vi.fn(),
   filterOptions: vi.fn(),
   validate: vi.fn(),
+  list: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -60,6 +61,7 @@ vi.mock('@/api-client', () => ({
       eligibility: api.eligibility,
       markers: api.markers,
       filterOptions: api.filterOptions,
+      list: api.list,
     },
     FileValidation: {
       validate: api.validate,
@@ -291,6 +293,8 @@ beforeEach(() => {
   api.eligibility.mockReset()
   api.markers.mockReset()
   api.filterOptions.mockReset()
+  api.list.mockReset()
+  api.list.mockResolvedValue({ methods: [], total: 0 })
   api.markers.mockResolvedValue({ groups: GROUPS, markers: [] })
   api.filterOptions.mockResolvedValue(FILTER_OPTIONS)
   api.eligibility.mockResolvedValue(eligibilityResponse())
@@ -1486,5 +1490,204 @@ describe('demo mode (ITEM-6) — the panel' + "s example-study note", () => {
     fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
     expect(await screen.findByText(/of .* methods fit your study/)).toBeTruthy()
     expect(screen.queryByTestId('txr-intake-panel-demo-note')).toBeNull()
+  })
+})
+
+describe('StudyPage single-marker-choice round 2', () => {
+  const MAIN_MARKERS = [
+    {
+      key: 'ctdna_mm',
+      display_name: 'ctDNA',
+      n_patients_with_value: 6,
+      n_patients_with_baseline: 6,
+      n_patients_with_ontreatment: 6,
+      is_detection_call: false,
+      has_detection_companion: false,
+      standard_ids: [],
+      unit_family: 'ratio',
+    },
+    {
+      key: 'ldh',
+      display_name: 'LDH',
+      n_patients_with_value: 8,
+      n_patients_with_baseline: 8,
+      n_patients_with_ontreatment: 8,
+      is_detection_call: false,
+      has_detection_companion: false,
+      standard_ids: [],
+      unit_family: 'percent',
+    },
+  ]
+
+  /** A runnable catalogue summary with the marker facts the step-3 facts read. */
+  function summaryOf(
+    id: string,
+    kind: 'single' | 'multi' | 'any' | 'panel',
+    count: number,
+  ): unknown {
+    return {
+      id,
+      container: true,
+      covariates: 'none',
+      disease: { scope: 'any-solid-tumour', groups: [] },
+      treatment: { classes: ['chemotherapy'], confidence: 'stated' },
+      embeds_training_data: false,
+      frozen_model: false,
+      group: 'response-probability',
+      group_label: 'Response probability',
+      title: id,
+      summary: `Summary of ${id}.`,
+      paper_title: 'The fixture paper',
+      journal: 'Fixture Journal',
+      marker_groups_required: [],
+      markers: { kind, count },
+      min_draws: 1,
+      needs_baseline: false,
+      needs_detection_call: false,
+      paper_doi: '10.0000/fixture',
+      runnable: true,
+      spec_status: 'stable',
+      tasks: ['response'],
+      timing: { base_seconds_per_fold: 60, benchmarked_units: 2, quality: 'measured' },
+      uses_history: 'landmark',
+      required_markers: null,
+    }
+  }
+
+  function seedStudyFile(markers: unknown[] = MAIN_MARKERS): void {
+    useTxrIntakeStore.setState({
+      validation: {
+        ...VALIDATION,
+        // The file's validated summary says 8 patients (the markers' counts
+        // 6 of 8 / 8 of 8 are the "{a} of {b} patients" select labels; the
+        // base VALIDATION's 3-patient inventory is the older describes').
+        inventory: { ...VALIDATION.inventory, patients: 8, markers },
+      } as never,
+      measurements: loadedFile('measurements'),
+    })
+  }
+
+  async function answerOneGroup(): Promise<void> {
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
+  }
+
+  it('shows the group when the file is in, a fitting single no-list method exists and the file has more than one main marker', async () => {
+    api.list.mockResolvedValue({
+      methods: [summaryOf('m-fit', 'single', 1)],
+      total: 1,
+    } as never)
+    seedStudyFile()
+    renderStudy()
+    await answerOneGroup()
+
+    const group = await screen.findByTestId('txr-intake-study-single-marker')
+    expect(group.textContent).toContain('Methods that pick markers from your file')
+    expect(group.textContent).toContain(
+      '1 of the methods that fit takes one marker, and your file has 2 markers. Which should it use?',
+    )
+    expect(screen.getByTestId('txr-intake-single-marker-recommended').textContent).toBe(
+      'Recommended',
+    )
+    // The select offers the file's main markers with the patient counts.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-single-marker-select'))
+    })
+    expect(screen.getByTestId('txr-intake-single-marker-select-opt-ctdna_mm').textContent).toBe(
+      'ctDNA (6 of 8 patients)',
+    )
+    expect(screen.getByTestId('txr-intake-single-marker-select-opt-ldh').textContent).toBe(
+      'LDH (8 of 8 patients)',
+    )
+    // The ranked default is pressed.
+    expect(
+      screen.getByTestId('txr-intake-single-marker-ranked').getAttribute('aria-checked'),
+    ).toBe('true')
+    // The preview request carries the validated inventory; the ranked choice
+    // sends NO plan (step 4 is the ranking authority).
+    const preview = api.eligibility.mock.calls.at(-1)![0].preview
+    expect(preview.inventory.markers.map((m: { key: string }) => m.key)).toEqual([
+      'ctdna_mm',
+      'ldh',
+    ])
+    expect(preview.marker_plan).toBeUndefined()
+  })
+
+  it('the select picks the marker through the registered action; the preview then carries the chosen plan', async () => {
+    api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'single', 1)], total: 1 } as never)
+    seedStudyFile()
+    renderStudy()
+    await answerOneGroup()
+    await screen.findByTestId('txr-intake-study-single-marker')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-single-marker-select'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-single-marker-select-opt-ctdna_mm'))
+    })
+    expect(store().singleMarkerChoice).toEqual({ mode: 'chosen', marker: 'ctdna_mm' })
+    expect(
+      screen.getByTestId('txr-intake-single-marker-chosen').getAttribute('aria-checked'),
+    ).toBe('true')
+    // The preview is re-issued with the plan (the request content changed).
+    await waitFor(() => {
+      const preview = api.eligibility.mock.calls.at(-1)![0].preview
+      expect(preview.marker_plan).toEqual({ mode: 'chosen', marker: 'ctdna_mm' })
+    })
+  })
+
+  it('the leave-out radio runs the registered action and the preview carries the leave_out plan', async () => {
+    api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'single', 1)], total: 1 } as never)
+    seedStudyFile()
+    renderStudy()
+    await answerOneGroup()
+    await screen.findByTestId('txr-intake-study-single-marker')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-single-marker-leave-out'))
+    })
+    expect(store().singleMarkerChoice).toEqual({ mode: 'leave_out' })
+    await waitFor(() => {
+      const preview = api.eligibility.mock.calls.at(-1)![0].preview
+      expect(preview.marker_plan).toEqual({ mode: 'leave_out' })
+    })
+    expect(
+      screen.getByTestId('txr-intake-single-marker-leave-out').getAttribute('aria-checked'),
+    ).toBe('true')
+  })
+
+  it('a multi no-list method names "a set number of markers" in the n = 1 question', async () => {
+    api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'multi', 2)], total: 1 } as never)
+    seedStudyFile()
+    renderStudy()
+    await answerOneGroup()
+    const group = await screen.findByTestId('txr-intake-study-single-marker')
+    expect(group.textContent).toContain(
+      '1 of the methods that fit takes a set number of markers, and your file has 2 markers. Which should it use?',
+    )
+  })
+
+  it('is hidden when the file has one main marker', async () => {
+    api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'single', 1)], total: 1 } as never)
+    seedStudyFile([MAIN_MARKERS[0]])
+    renderStudy()
+    await answerOneGroup()
+    expect(screen.queryByTestId('txr-intake-study-single-marker')).toBeNull()
+  })
+
+  it('is hidden when no fitting method takes one marker or a set number (any/panel or a fixed list)', async () => {
+    api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'any', 2)], total: 1 } as never)
+    seedStudyFile()
+    renderStudy()
+    await answerOneGroup()
+    expect(screen.queryByTestId('txr-intake-study-single-marker')).toBeNull()
+  })
+
+  it('is hidden when there is no checked file', async () => {
+    api.list.mockResolvedValue({ methods: [summaryOf('m-fit', 'single', 1)], total: 1 } as never)
+    renderStudy()
+    await answerOneGroup()
+    expect(screen.queryByTestId('txr-intake-study-single-marker')).toBeNull()
   })
 })

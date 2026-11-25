@@ -21,7 +21,11 @@ vi.mock('@/api-client', () => ({
 }))
 
 import './intakeActions'
-import { FILTER_OPTIONS_UNREACHABLE } from './intakeActions'
+import {
+  FILTER_OPTIONS_UNREACHABLE,
+  MARKER_CHOICE_FILE_NOT_READY,
+  MARKER_CHOICE_NO_MARKER,
+} from './intakeActions'
 
 const VOCABULARY: FilterOptions = {
   disease_categories: [
@@ -181,5 +185,105 @@ describe('intake.setStudyAnswers', () => {
       outcome: null,
     })
     expect(state().study.treatments).toEqual(['chemotherapy', 'immune checkpoint inhibitor'])
+  })
+})
+
+describe('intake.setSingleMarkerChoice', () => {
+  const MAIN_MARKERS = [
+    {
+      key: 'ctdna_mm',
+      display_name: 'ctDNA',
+      n_patients_with_value: 8,
+      n_patients_with_baseline: 8,
+      n_patients_with_ontreatment: 8,
+      is_detection_call: false,
+      has_detection_companion: false,
+      standard_ids: [],
+      unit_family: 'ratio',
+    },
+    {
+      key: 'ldh',
+      display_name: 'LDH',
+      n_patients_with_value: 8,
+      n_patients_with_baseline: 8,
+      n_patients_with_ontreatment: 8,
+      is_detection_call: false,
+      has_detection_companion: false,
+      standard_ids: [],
+      unit_family: 'percent',
+    },
+  ]
+
+  function seedValidation(markers: unknown[] = MAIN_MARKERS): void {
+    useTxrIntakeStore.setState({
+      validation: {
+        problems: [],
+        markers: [],
+        measurements: { rows: 8, patients: 8, distinct_draw_days: [21] },
+        inventory: {
+          patients: 8,
+          decision_day: 21,
+          baseline_max_day: 0,
+          covariates: [],
+          markers,
+        },
+      } as never,
+    })
+  }
+
+  it('is registered: McpUse, mutating, a global action', () => {
+    const meta = getActionMeta('intake.setSingleMarkerChoice')
+    expect(meta?.permission).toBe(Permissions.McpUse)
+    expect(meta?.mutating).toBe(true)
+    expect(meta?.kind).toBe('global')
+    expect(meta?.context).toBe('global')
+    expect(meta?.surfaces).toEqual({ palette: true, ai: true })
+  })
+
+  it('writes ranked and leave_out; chosen trims and stores the marker', async () => {
+    seedValidation()
+    await expect(runAction('intake.setSingleMarkerChoice', { mode: 'ranked' })).resolves.toEqual({
+      mode: 'ranked',
+      marker: undefined,
+    })
+    expect(state().singleMarkerChoice).toEqual({ mode: 'ranked' })
+    await expect(runAction('intake.setSingleMarkerChoice', { mode: 'leave_out' })).resolves.toEqual({
+      mode: 'leave_out',
+      marker: undefined,
+    })
+    expect(state().singleMarkerChoice).toEqual({ mode: 'leave_out' })
+    await expect(
+      runAction('intake.setSingleMarkerChoice', { mode: 'chosen', marker: '  ldh  ' }),
+    ).resolves.toEqual({ mode: 'chosen', marker: 'ldh' })
+    expect(state().singleMarkerChoice).toEqual({ mode: 'chosen', marker: 'ldh' })
+  })
+
+  it('refuses chosen without a marker, plainly, and changes nothing', async () => {
+    seedValidation()
+    await expect(runAction('intake.setSingleMarkerChoice', { mode: 'chosen' })).rejects.toThrow(
+      MARKER_CHOICE_NO_MARKER,
+    )
+    expect(state().singleMarkerChoice).toEqual({ mode: 'ranked' })
+  })
+
+  it('refuses a marker that is not one of the file main markers, and a companion name', async () => {
+    seedValidation()
+    await expect(
+      runAction('intake.setSingleMarkerChoice', { mode: 'chosen', marker: 'cea' }),
+    ).rejects.toThrow('"cea" is not a marker of your file.')
+    expect(state().singleMarkerChoice).toEqual({ mode: 'ranked' })
+    // A `__detected` companion is exactly a non-main marker.
+    seedValidation([...MAIN_MARKERS, { ...MAIN_MARKERS[0], key: 'ldh__detected', display_name: 'LDH detected' }])
+    await expect(
+      runAction('intake.setSingleMarkerChoice', { mode: 'chosen', marker: 'ldh__detected' }),
+    ).rejects.toThrow('"ldh__detected" is not a marker of your file.')
+  })
+
+  it('refuses chosen while the file is not checked (no validated inventory)', async () => {
+    useTxrIntakeStore.setState({ validation: null })
+    await expect(
+      runAction('intake.setSingleMarkerChoice', { mode: 'chosen', marker: 'ldh' }),
+    ).rejects.toThrow(MARKER_CHOICE_FILE_NOT_READY)
+    expect(state().singleMarkerChoice).toEqual({ mode: 'ranked' })
   })
 })

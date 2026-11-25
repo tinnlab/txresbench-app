@@ -1307,6 +1307,7 @@ mod tests {
                 cpus: Some(4),
                 save_models: true,
                 label_day: None,
+                single_marker: None,
             },
             input_summary: summary,
             model_ids,

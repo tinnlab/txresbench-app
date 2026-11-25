@@ -579,6 +579,7 @@ pub fn finish_outcome() -> orchestrator::MethodOutcome {
             size_bytes: 1234,
             own_auc: Some(0.7),
         }),
+        markers_used: None,
     }
 }
 

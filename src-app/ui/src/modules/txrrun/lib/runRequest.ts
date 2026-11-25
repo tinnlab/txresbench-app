@@ -9,7 +9,7 @@
  * computes nothing (INV-4 — the bar's time text is the list hooks' own),
  * it only carries the user's choices.
  */
-import type { CreateRunRequest, TxrRunInput } from '@/api-client/types'
+import type { CreateRunRequest, SingleMarkerChoice, TxrRunInput } from '@/api-client/types'
 import type { RunSettings } from './settings'
 import { toRunConfig } from './settings'
 
@@ -23,7 +23,9 @@ import { toRunConfig } from './settings'
  * - `input` is the intake store's `buildTxrRunInput` result VERBATIM —
  *   the CONS-UI-RUN-13 rule, the one builder for the whole analysis;
  * - `config` is the settings through `toRunConfig` (`label_day: null` =
- *   derive from the file per the engine, DEC-7);
+ *   derive from the file per the engine, DEC-7), plus the step-3 marker
+ *   choice as `single_marker` (single-marker-choice round 2: how the
+ *   no-list methods pick their markers — absent = the runner's ranked rule);
  * - `method_ids` is the current selection (the engine validates ≥ 1).
  */
 export function buildRunRequest(
@@ -31,11 +33,14 @@ export function buildRunRequest(
   input: TxrRunInput,
   settings: RunSettings,
   methodIds: string[],
+  singleMarkerChoice: SingleMarkerChoice | null = null,
 ): CreateRunRequest {
+  const config = toRunConfig(settings)
+  if (singleMarkerChoice !== null) config.single_marker = singleMarkerChoice
   return {
     mode,
     input,
-    config: toRunConfig(settings),
+    config,
     method_ids: methodIds,
   }
 }

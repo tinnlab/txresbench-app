@@ -512,6 +512,56 @@ describe('the E-picker copy formatters (qa-fixes3 ITEM-1)', () => {
     )
   })
 
+  it('formatMethodNeedsLine reads the marker plan fact ("uses …", single-marker-choice round 2)', () => {
+    const needs: TxrMethodNeeds = {
+      markers: '1 marker',
+      covariates: null,
+      covariatesMode: 'none',
+      draws: '1+ draws',
+      markerKind: 'single',
+      markerCount: 1,
+      noFixedList: true,
+      markersUsed: ['M1'],
+    }
+    expect(formatMethodNeedsLine(needs, null)).toBe('Needs: 1 marker · 1+ draws · uses M1')
+    expect(
+      formatMethodNeedsLine({ ...needs, markersUsed: ['M1', 'M2'] }, 'Runs on 120 of 151 patients'),
+    ).toBe('Runs on 120 of 151 patients · Needs: 1 marker · 1+ draws · uses M1 and M2')
+    // No plan fact (fixed-list method, or the plan not settled yet): no
+    // "uses …" segment, exactly the pre-round-2 bytes.
+    expect(formatMethodNeedsLine({ ...needs, markersUsed: null }, null)).toBe(
+      'Needs: 1 marker · 1+ draws',
+    )
+    expect(formatMethodNeedsLine({ ...needs, markersUsed: [] }, null)).toBe(
+      'Needs: 1 marker · 1+ draws',
+    )
+  })
+
+  it('renders the single-marker-choice reason codes (round 1b)', () => {
+    const minDraws = { required: 3, met: 120, unmet_patients: 31 }
+    expect(formatReasonLine('cannot', SOME('MARKERS_LEFT_OUT'), COVERAGE(38, 38), minDraws, [])).toBe(
+      'left out: it picks its markers from your file, and you chose to leave these out',
+    )
+    expect(
+      formatReasonLine('cannot', SOME('MARKER_RANKING_UNAVAILABLE'), COVERAGE(38, 38), minDraws, []),
+    ).toBe('its markers cannot be ranked on this file')
+    expect(formatReasonLine('cannot', SOME('MARKER_NOT_IN_FILE'), COVERAGE(38, 38), minDraws, [])).toBe(
+      'the chosen marker is not in your file',
+    )
+  })
+
+  it('renders MODEL_FEATURE_MISSING with the recorded feature name (round 1b)', () => {
+    const minDraws = { required: 3, met: 120, unmet_patients: 31 }
+    expect(
+      formatReasonLine('cannot', SOME('MODEL_FEATURE_MISSING'), COVERAGE(38, 38), minDraws, [
+        { display_name: 'LDH' },
+      ]),
+    ).toBe('needs the marker LDH it was trained on, which your file does not have')
+    expect(
+      formatReasonLine('cannot', SOME('MODEL_FEATURE_MISSING'), COVERAGE(38, 38), minDraws, []),
+    ).toBe('needs the marker a required marker it was trained on, which your file does not have')
+  })
+
   it('formatMethodCoverage reads the coverage facts plainly', () => {
     expect(formatMethodCoverage({ eligible: 151, total: 151 })).toBe('Runs on all 151 patients')
     expect(formatMethodCoverage({ eligible: 120, total: 151 })).toBe('Runs on 120 of 151 patients')

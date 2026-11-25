@@ -84,7 +84,7 @@
 //!   file posting an empty covariate block IS the required-covariate absence
 //!   case ([`ReasonCode::CovariateRequiredUnmet`]); the code stays in the
 //!   closed PROV-MC-5 vocabulary and its trigger lands with a covariate-name
-//!   fact. (The reason-code contract is fixed at 18; a consumer renderer can
+//!   fact. (The reason-code contract is fixed at 21; a consumer renderer can
 //!   still switch over all of them exhaustively.)
 //!
 //! ## The method filters (disease, treatment, what to predict)
@@ -116,6 +116,7 @@ use std::sync::OnceLock;
 use regex::Regex;
 
 use crate::modules::execution_engine::envmanifest::{EnvArch, EnvManifest};
+use crate::modules::execution_engine::marker_rank::{self, PlanRefusal};
 use crate::modules::method_catalogue::calibration;
 use crate::modules::method_catalogue::estimate::host_cpus;
 use crate::modules::method_list::MethodList;
@@ -125,7 +126,7 @@ use crate::modules::method_catalogue::types::{
     MatchMode,
     Method, MethodEligibility, MinDraws, MissingGroup, MissingMarker, PreviewEligibilityRequest,
     Reason, ReasonCode, RequiredMarker, RequiredMarkers, MethodFilters, FilterOptions,
-    TreatmentConfidence, TimingQuality, UnitFamily,
+    StandardId, TreatmentConfidence, TimingQuality, UnitFamily, VocabularyMarker,
     DEFAULT_ESTIMATE_CPUS,
 };
 
@@ -503,6 +504,69 @@ pub fn parse_standard_ids(text: &str) -> BTreeSet<String> {
         out.insert(caps.get(1).expect("capture 1").as_str().to_ascii_lowercase());
     }
     out
+}
+
+/// The ONE name/id surface of a file marker for recorded-saved-model-feature
+/// matching (audit fix 2 — the engine's
+/// [`model_store::eligibility::features_resolution`] and the reuse executor's
+/// recorded-feature selection must resolve a recorded feature with the SAME
+/// inputs, or "can run" and the run disagree): the marker's own `name` (the
+/// inventory key / the bundle feature), its `display_name`, and EVERY
+/// `(system, id)` entry with its vocabulary name/alias surface (the
+/// `other`-system fallback names — the vocabulary is the only source of
+/// names, never an app-side marker list). Both sides feed their marker's
+/// facts to this ONE helper — the day a recorded display name or a secondary
+/// standard id resolves at eligibility, it resolves in the run too.
+pub fn marker_matching_surface(
+    vocabulary: &[VocabularyMarker],
+    name: &str,
+    display_name: &str,
+    standard_ids: &[StandardId],
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut names = BTreeSet::new();
+    names.insert(name.trim().to_ascii_lowercase());
+    names.insert(display_name.trim().to_ascii_lowercase());
+    let mut ids = BTreeSet::new();
+    for sid in standard_ids {
+        ids.insert(sid.id.to_ascii_lowercase());
+        if let Some(v) = vocabulary.iter().find(|v| {
+            v.system.as_str().eq_ignore_ascii_case(&sid.system)
+                && v.id.eq_ignore_ascii_case(&sid.id)
+        }) {
+            names.insert(v.id.to_ascii_lowercase());
+            names.insert(v.display_name.trim().to_ascii_lowercase());
+            for a in &v.aliases {
+                names.insert(a.trim().to_ascii_lowercase());
+            }
+        }
+    }
+    (names, ids)
+}
+
+/// The ONE recorded-saved-model-feature matcher core (audit fix 2 — the
+/// engine's [`model_store::eligibility::features_resolution`] and the reuse
+/// executor's recorded-feature selection must resolve a recorded feature with
+/// the SAME rules, or "can run" and the run disagree): the feature text
+/// resolves when it equals a name of the file marker (case-insensitive — the
+/// `key`/`display_name` equality) or its parsed standard ids hit one of the
+/// marker's ids, or it is one of the vocabulary name/alias surface (the
+/// `other`-system fallback names). `names`/`ids` are the file marker's
+/// lower-cased names and ids (see [`marker_matching_surface`] — the ONE
+/// builder of that pair).
+pub fn recorded_feature_matches(
+    feature: &str,
+    names: &BTreeSet<String>,
+    ids: &BTreeSet<String>,
+) -> bool {
+    let f = feature.trim();
+    if names.contains(&f.to_ascii_lowercase()) {
+        return true;
+    }
+    let parsed = parse_standard_ids(f);
+    if parsed.is_empty() {
+        return false;
+    }
+    parsed.iter().any(|p| ids.contains(&p.to_ascii_lowercase()))
 }
 
 /// The port of data.py `is_companion`: a `__detected`/`__lod` column travels
@@ -1066,7 +1130,22 @@ fn preview_eligibility(
         // The schedule's patient split: a "sometimes" before-treatment answer
         // means some patients have no baseline draw.
         let some_baseline = m.needs_baseline && req.before_treatment.as_deref() == Some("sometimes");
-        let status = if !missing_groups.is_empty() || !schedule_ok || !filters_ok {
+        // The file-inventory marker verdicts (single-marker-choice round 1b):
+        // with the inventory block (the plan's markers for a no-list method),
+        // the preview's marker verdicts are the inventory path's — count /
+        // required-marker presence / plan refusal, no draw coverage. Without
+        // it, exactly today. Every marker reason here is a hard refusal.
+        let (marker_reasons, marker_missing) = preview_marker_verdicts(
+            cat,
+            req.inventory.as_ref(),
+            req.marker_plan
+                .as_ref()
+                .or_else(|| req.inventory.as_ref().and_then(|i| i.marker_plan.as_ref())),
+            m,
+        );
+        let marker_failed = !marker_reasons.is_empty();
+        reasons.extend(marker_reasons);
+        let status = if marker_failed || !missing_groups.is_empty() || !schedule_ok || !filters_ok {
             EligibilityStatus::CannotRun
         } else if some_baseline {
             EligibilityStatus::CanRunSome
@@ -1077,7 +1156,7 @@ fn preview_eligibility(
             id: m.id.clone(),
             status,
             reasons,
-            missing_markers: Vec::new(),
+            missing_markers: marker_missing,
             missing_groups,
             coverage: Coverage {
                 eligible: if schedule_ok { 1 } else { 0 },
@@ -1180,51 +1259,10 @@ fn inventory_method(
     // the `other`-system name/alias fallback (the vocabulary resolution gives
     // the names set; the join offer's alias surface counts).
     let resolved = if let Some(req) = &m.required_markers {
-        let r = inventory_required_match(cat, inv, req);
-        if !r.ok {
-            reasons.push(Reason {
-                code: ReasonCode::RequiredMarkerMissing,
-                params: BTreeMap::from([
-                    (
-                        "missing".to_string(),
-                        serde_json::Value::Array(
-                            r.missing_ids
-                                .iter()
-                                .map(|s| serde_json::Value::String(s.clone()))
-                                .collect(),
-                        ),
-                    ),
-                    ("fraction".to_string(), serde_json::Value::from(r.fraction)),
-                ]),
-                group_id: None,
-            });
-            for id in &r.missing_ids {
-                let orig = req
-                    .markers
-                    .iter()
-                    .find(|rm| rm.id.trim().to_ascii_lowercase() == *id)
-                    .cloned()
-                    .unwrap_or(RequiredMarker {
-                        name: String::new(),
-                        id_system: String::new(),
-                        id: id.clone(),
-                    });
-                let vocab = cat.markers.iter().find(|v| {
-                    v.system.as_str().eq_ignore_ascii_case(&orig.id_system)
-                        && v.id.eq_ignore_ascii_case(&orig.id)
-                });
-                missing_markers.push(MissingMarker {
-                    id: orig.id.clone(),
-                    id_system: orig.id_system.clone(),
-                    display_name: vocab
-                        .map(|v| v.display_name.clone())
-                        .filter(|d| !d.is_empty())
-                        .unwrap_or_else(|| orig.name.clone()),
-                    group_id: vocab.and_then(|v| v.groups.first().cloned()),
-                });
-            }
-        }
-        r.used
+        let (req_reasons, req_missing, used) = required_marker_verdict(cat, inv, req);
+        reasons.extend(req_reasons);
+        missing_markers = req_missing;
+        used
     } else {
         // No fixed marker list: the method consumes markers of the file (any /
         // single / multi kind); every measure column is a candidate —
@@ -1233,6 +1271,22 @@ fn inventory_method(
             .iter()
             .filter(|mk| !mk.is_detection_call)
             .collect::<Vec<_>>()
+    };
+    // The marker plan (single-marker-choice round 1b): a no-list method is
+    // evaluated on its PLANNED markers (the same markers_for + choice rule as
+    // the run engine), and the plan's refusals are the verdict's reasons — a
+    // refused method is never ALSO counted/draw-scored (`refused`).
+    let (resolved, refused) = if m.required_markers.is_none() {
+        match planned_resolution(inv, m.markers.kind, m.markers.count) {
+            Some((used, plan_reasons)) => {
+                let refused = !plan_reasons.is_empty();
+                reasons.extend(plan_reasons);
+                (used, refused)
+            }
+            None => (resolved, false),
+        }
+    } else {
+        (resolved, false)
     };
 
     // Detection call: a method that consumes the detectability call needs a
@@ -1313,15 +1367,44 @@ fn inventory_method(
     // verdict applies the same rule, so such a method is hidden instead of being
     // offered and then failing (FOLLOW-UP 1, decided: hide it). A fixed list
     // that already misses a marker is reported as REQUIRED_MARKER_MISSING only.
+    // With the marker plan, a no-list method's count is over its PLANNED
+    // markers; a plan-refused method is never counted (the refusal stands).
     let list_missing = reasons.iter().any(|r| r.code == ReasonCode::RequiredMarkerMissing);
-    if !list_missing {
-        if let Some(reason) = marker_count_reason(m, inv, &resolved) {
+    if !refused && !list_missing {
+        if let Some(reason) = if m.required_markers.is_none() && inv.marker_plan.is_some() {
+            marker_count_unmet_for_candidates(m.markers.kind, m.markers.count, &resolved)
+                .map(|(expected, given)| Reason {
+                    code: ReasonCode::MarkerCountUnmet,
+                    params: marker_count_params(expected, &given),
+                    group_id: None,
+                })
+        } else {
+            marker_count_reason(m, inv, &resolved)
+        } {
             reasons.push(reason);
         }
     }
 
-    // Coverage (draw rule) over the method's markers.
-    let (coverage, min_draws, no_value) = draw_coverage(inv, m, &resolved);
+    // Coverage (draw rule) over the method's markers (the planned ones under
+    // the plan — a refused method keeps the empty verdict, the refusal is the
+    // row's only marker fact).
+    let (coverage, min_draws, no_value) = if refused {
+        (
+            Coverage {
+                eligible: 0,
+                total: inv.patients,
+                fraction: 0.0,
+            },
+            MinDraws {
+                required: m.min_draws,
+                met: 0,
+                unmet_patients: inv.patients,
+            },
+            0,
+        )
+    } else {
+        draw_coverage(inv, m, &resolved)
+    };
     if no_value > 0 {
         reasons.push(Reason {
             code: ReasonCode::DecisionDayUnmet,
@@ -1384,15 +1467,26 @@ pub(crate) fn marker_count_unmet<'a>(
     used: &[&'a InventoryMarker],
     inv: &'a InventoryEligibilityRequest,
 ) -> Option<(usize, Vec<&'a InventoryMarker>)> {
-    let expected = match kind {
-        MarkerKind::Single => 1usize,
-        MarkerKind::Multi | MarkerKind::Panel => count as usize,
-        MarkerKind::Any => return None,
-    };
     let candidates: Vec<&'a InventoryMarker> = if has_fixed_list {
         used.to_vec()
     } else {
         inv.markers.iter().collect()
+    };
+    marker_count_unmet_for_candidates(kind, count, &candidates)
+}
+
+/// The count rule over an explicit candidate set ([`marker_count_unmet`]'s
+/// core — the marker-plan path passes the PLANNED markers, the same rule,
+/// no duplicate).
+fn marker_count_unmet_for_candidates<'a>(
+    kind: MarkerKind,
+    count: u32,
+    candidates: &[&'a InventoryMarker],
+) -> Option<(usize, Vec<&'a InventoryMarker>)> {
+    let expected = match kind {
+        MarkerKind::Single => 1usize,
+        MarkerKind::Multi | MarkerKind::Panel => count as usize,
+        MarkerKind::Any => return None,
     };
     let mut given: Vec<&'a InventoryMarker> = Vec::new();
     for mk in candidates {
@@ -1406,6 +1500,79 @@ pub(crate) fn marker_count_unmet<'a>(
     }
     given.sort_by(|a, b| a.key.cmp(&b.key));
     Some((expected, given))
+}
+
+/// The marker-plan verdict for a NO-LIST method over the inventory
+/// (single-marker-choice round 1b — the shared [`marker_rank::plan_markers`]
+/// rule): `Some((planned markers, refusal reasons))` when the request carries
+/// a plan; `None` without one, for a fixed-list method, or for `panel`
+/// (audit fix 5 — panel keeps today's rule, with or without a list). A
+/// refusal's reason(s) replace the marker-count/draw verdicts — a no-list
+/// method is never counted under a plan that refuses it, and never receives
+/// a marker the file lacks.
+fn planned_resolution<'a>(
+    inv: &'a InventoryEligibilityRequest,
+    kind: MarkerKind,
+    count: u32,
+) -> Option<(Vec<&'a InventoryMarker>, Vec<Reason>)> {
+    // Audit fix 5: only the no-list kinds are plan-evaluated; `panel` (with
+    // or without a fixed list) keeps today's count rule.
+    if !crate::modules::execution_engine::marker_rank::is_no_list(kind, None) {
+        return None;
+    }
+    let block = inv.marker_plan.as_ref()?;
+    let mains: Vec<String> = inv
+        .markers
+        .iter()
+        .map(|mk| mk.key.clone())
+        .filter(|key| !is_companion(key))
+        .collect();
+    match marker_rank::plan_markers(kind, count, &mains, block) {
+        Ok(names) => {
+            // The planned names are the file's own marker keys (the ranking
+            // ran on the same canonical file); resolve them in the plan's
+            // order. A name the inventory does not carry is not resolved (the
+            // planned set came from this same file, so there is none).
+            let mut used = Vec::new();
+            for name in &names {
+                if let Some(mk) = inv.markers.iter().find(|mk| &mk.key == name) {
+                    if !used.iter().any(|u: &&InventoryMarker| std::ptr::eq(*u, mk)) {
+                        used.push(mk);
+                    }
+                }
+            }
+            Some((used, Vec::new()))
+        }
+        Err(PlanRefusal::LeftOut) => Some((
+            Vec::new(),
+            vec![reason_of(ReasonCode::MarkersLeftOut, BTreeMap::new())],
+        )),
+        Err(PlanRefusal::RankingUnavailable { code, message }) => Some((
+            Vec::new(),
+            vec![reason_of(
+                ReasonCode::MarkerRankingUnavailable,
+                BTreeMap::from([
+                    ("code".to_string(), serde_json::Value::String(code)),
+                    ("message".to_string(), serde_json::Value::String(message)),
+                ]),
+            )],
+        )),
+        Err(PlanRefusal::ChosenMarkerNotInFile { marker }) => Some((
+            Vec::new(),
+            vec![reason_of(
+                ReasonCode::MarkerNotInFile,
+                BTreeMap::from([("marker".to_string(), serde_json::Value::String(marker))]),
+            )],
+        )),
+    }
+}
+
+fn reason_of(code: ReasonCode, params: BTreeMap<String, serde_json::Value>) -> Reason {
+    Reason {
+        code,
+        params,
+        group_id: None,
+    }
 }
 
 /// The params of a `MARKER_COUNT_UNMET` reason: `expected`, `found` and
@@ -1533,6 +1700,132 @@ fn inventory_required_match<'a>(
         fraction,
         used,
     }
+}
+
+/// The structured required-marker verdict of one method over the inventory:
+/// the `REQUIRED_MARKER_MISSING` reason + its `MissingMarker` rows (vocabulary
+/// display names), and the marker the rule resolved to — the INVENTORY path's
+/// marker block, shared with the preview's inventory block.
+fn required_marker_verdict<'a>(
+    cat: &Catalogue,
+    inv: &'a InventoryEligibilityRequest,
+    required: &RequiredMarkers,
+) -> (Vec<Reason>, Vec<MissingMarker>, Vec<&'a InventoryMarker>) {
+    let r = inventory_required_match(cat, inv, required);
+    let mut reasons = Vec::new();
+    let mut missing_markers = Vec::new();
+    if !r.ok {
+        reasons.push(Reason {
+            code: ReasonCode::RequiredMarkerMissing,
+            params: BTreeMap::from([
+                (
+                    "missing".to_string(),
+                    serde_json::Value::Array(
+                        r.missing_ids
+                            .iter()
+                            .map(|s| serde_json::Value::String(s.clone()))
+                            .collect(),
+                    ),
+                ),
+                ("fraction".to_string(), serde_json::Value::from(r.fraction)),
+            ]),
+            group_id: None,
+        });
+        for id in &r.missing_ids {
+            let orig = required
+                .markers
+                .iter()
+                .find(|rm| rm.id.trim().to_ascii_lowercase() == *id)
+                .cloned()
+                .unwrap_or(RequiredMarker {
+                    name: String::new(),
+                    id_system: String::new(),
+                    id: id.clone(),
+                });
+            let vocab = cat.markers.iter().find(|v| {
+                v.system.as_str().eq_ignore_ascii_case(&orig.id_system)
+                    && v.id.eq_ignore_ascii_case(&orig.id)
+            });
+            missing_markers.push(MissingMarker {
+                id: orig.id.clone(),
+                id_system: orig.id_system.clone(),
+                display_name: vocab
+                    .map(|v| v.display_name.clone())
+                    .filter(|d| !d.is_empty())
+                    .unwrap_or_else(|| orig.name.clone()),
+                group_id: vocab.and_then(|v| v.groups.first().cloned()),
+            });
+        }
+    }
+    (reasons, missing_markers, r.used)
+}
+
+/// The marker verdicts one method gets from the file inventory in the PREVIEW
+/// path (single-marker-choice round 1b): the inventory's marker block —
+/// required-marker presence + the count rule (the plan's markers for a
+/// no-list method) — WITHOUT any draw coverage. `None` = the request carries
+/// no inventory (exactly today's preview verdicts).
+fn preview_marker_verdicts(
+    cat: &Catalogue,
+    inv: Option<&InventoryEligibilityRequest>,
+    plan: Option<&crate::modules::execution_engine::marker_rank::PlanBlock>,
+    m: &Method,
+) -> (Vec<Reason>, Vec<MissingMarker>) {
+    let Some(inv) = inv else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut reasons = Vec::new();
+    let mut missing_markers = Vec::new();
+    if let Some(required) = &m.required_markers {
+        let (req_reasons, req_missing, used) = required_marker_verdict(cat, inv, required);
+        reasons.extend(req_reasons);
+        missing_markers = req_missing;
+        if let Some((expected, given)) =
+            marker_count_unmet_for_candidates(m.markers.kind, m.markers.count, &used)
+        {
+            reasons.push(Reason {
+                code: ReasonCode::MarkerCountUnmet,
+                params: marker_count_params(expected, &given),
+                group_id: None,
+            });
+        }
+        return (reasons, missing_markers);
+    }
+    // No fixed list: the plan's markers when given, else the file's all-marker
+    // count rule (the inventory path's plain rule — no draw coverage here).
+    let mut planned_inv = inv.clone();
+    if let Some(block) = plan {
+        planned_inv.marker_plan = Some(block.clone());
+    }
+    match planned_resolution(&planned_inv, m.markers.kind, m.markers.count) {
+        Some((used, plan_reasons)) => {
+            let refused = !plan_reasons.is_empty();
+            reasons.extend(plan_reasons);
+            if !refused {
+                if let Some((expected, given)) =
+                    marker_count_unmet_for_candidates(m.markers.kind, m.markers.count, &used)
+                {
+                    reasons.push(Reason {
+                        code: ReasonCode::MarkerCountUnmet,
+                        params: marker_count_params(expected, &given),
+                        group_id: None,
+                    });
+                }
+            }
+        }
+        None => {
+            if let Some((expected, given)) =
+                marker_count_unmet(m.markers.kind, m.markers.count, false, &[], inv)
+            {
+                reasons.push(Reason {
+                    code: ReasonCode::MarkerCountUnmet,
+                    params: marker_count_params(expected, &given),
+                    group_id: None,
+                });
+            }
+        }
+    }
+    (reasons, missing_markers)
 }
 
 /// The names a file marker answers to for the `other`-system fallback: the
@@ -2269,6 +2562,7 @@ mod tests {
         covariates: Vec<crate::modules::method_catalogue::types::InventoryCovariate>,
     ) -> InventoryEligibilityRequest {
         InventoryEligibilityRequest {
+            marker_plan: None,
             patients,
             decision_day: 56.0,
             baseline_max_day: 0.0,
@@ -2654,6 +2948,8 @@ mod tests {
         let methods = serde_json::json!([m, method_json("fx-free", &[]), method_json("fx-nope", &[("runnable", serde_json::json!(false))])]);
         let cat = catalogue_with(methods, serde_json::json!([]));
         let preview = PreviewEligibilityRequest {
+            inventory: None,
+            marker_plan: None,
             marker_groups: BTreeMap::from([("methylation-sequencing".to_string(), true)]),
             before_treatment: Some("always".to_string()),
             draws_during_treatment: Some(2),
@@ -2688,6 +2984,8 @@ mod tests {
         ]);
         let cat = one_method_catalogue(m);
         let preview = PreviewEligibilityRequest {
+            inventory: None,
+            marker_plan: None,
             marker_groups: BTreeMap::new(),
             before_treatment: None,
             draws_during_treatment: None,
@@ -2705,6 +3003,8 @@ mod tests {
         // applies the known count; the unanswered baseline question adds
         // nothing (and never reclassifies).
         let answered = PreviewEligibilityRequest {
+            inventory: None,
+            marker_plan: None,
             marker_groups: BTreeMap::new(),
             before_treatment: None,
             draws_during_treatment: Some(1),
@@ -2722,6 +3022,8 @@ mod tests {
         let m = method_json("fx-baseline", &[("needs_baseline", serde_json::json!(true))]);
         let cat = one_method_catalogue(m);
         let preview = PreviewEligibilityRequest {
+            inventory: None,
+            marker_plan: None,
             marker_groups: BTreeMap::new(),
             before_treatment: Some("sometimes".to_string()),
             draws_during_treatment: Some(2),
@@ -2737,7 +3039,7 @@ mod tests {
     // ---- TEST-MC-27: the reason-code vocabulary + the outcome codes --------
 
     #[test]
-    fn reason_code_vocabulary_is_the_closed_eighteen() {
+    fn reason_code_vocabulary_is_the_closed_twenty_one() {
         assert_eq!(
             ReasonCode::ALL.map(|c| c.as_str()).to_vec(),
             vec![
@@ -2759,6 +3061,9 @@ mod tests {
                 "DISEASE_NOT_MATCHED",
                 "TREATMENT_NOT_MATCHED",
                 "OUTCOME_NOT_MATCHED",
+                "MARKERS_LEFT_OUT",
+                "MARKER_RANKING_UNAVAILABLE",
+                "MARKER_NOT_IN_FILE",
             ]
         );
     }
@@ -2892,6 +3197,223 @@ mod tests {
         );
         let v = verdict_of(&any, &req, "fx-any");
         assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+    }
+
+    // ---- round 1b: the marker plan on the inventory/preview requests -------
+
+    fn ranked_block(top: Vec<&str>) -> crate::modules::execution_engine::marker_rank::PlanBlock {
+        use crate::modules::execution_engine::marker_rank::{PlanBlock, PlanMode};
+        PlanBlock {
+            mode: PlanMode::Ranked,
+            marker: None,
+            top: Some(top.iter().map(|s| s.to_string()).collect()),
+            offered: Some(top.iter().map(|s| s.to_string()).collect()),
+            error: None,
+        }
+    }
+
+    /// Each mode + the ranking error + the chosen-not-in-file refusal over the
+    /// inventory; a request WITHOUT the block is exactly today's verdict.
+    #[test]
+    fn inventory_marker_plan_evaluates_no_list_methods_on_planned_markers() {
+        use crate::modules::execution_engine::marker_rank::{PlanBlock, PlanError, PlanMode};
+        let m = method_json("fx-single", &[("markers", serde_json::json!({"kind": "single", "count": 1}))]);
+        let cat = one_method_catalogue(m);
+        let three = inventory_req(
+            3,
+            vec![plain_marker("M3"), plain_marker("M1"), plain_marker("M2")],
+            vec![],
+        );
+
+        // Without the block: today (the count rule hides the method).
+        let v = verdict_of(&cat, &three, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(count_codes(&v).contains(&ReasonCode::MarkerCountUnmet));
+
+        // Ranked with the plan's top: the planned top 1 runs (and its
+        // coverage/draw checks use that marker).
+        let mut req = three.clone();
+        req.marker_plan = Some(ranked_block(vec!["M2", "M1", "M3"]));
+        let v = verdict_of(&cat, &req, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+        assert!(v.reasons.is_empty(), "{:?}", count_codes(&v));
+        assert_eq!(v.coverage.eligible, 3);
+
+        // Chosen: the planned chosen marker leads.
+        let mut chosen = three.clone();
+        chosen.marker_plan = Some(PlanBlock {
+            mode: PlanMode::Chosen,
+            marker: Some("M1".to_string()),
+            top: Some(vec!["M2".to_string(), "M1".to_string(), "M3".to_string()]),
+            offered: Some(vec!["M2".to_string(), "M1".to_string(), "M3".to_string()]),
+            error: None,
+        });
+        let v = verdict_of(&cat, &chosen, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+
+        // A chosen marker the file lacks: the refusal names it (never a
+        // selection holding a missing marker — no count reason either).
+        let mut missing = three.clone();
+        missing.marker_plan = Some(PlanBlock {
+            mode: PlanMode::Chosen,
+            marker: Some("NOPE".to_string()),
+            top: Some(vec!["M2".to_string()]),
+            offered: Some(vec!["M2".to_string()]),
+            error: None,
+        });
+        let v = verdict_of(&cat, &missing, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(v.reasons.iter().any(|r| {
+            r.code == ReasonCode::MarkerNotInFile && r.params["marker"] == serde_json::json!("NOPE")
+        }));
+        assert!(!count_codes(&v).contains(&ReasonCode::MarkerCountUnmet), "{:?}", count_codes(&v));
+
+        // A companion name is refused too.
+        let mut companion = three.clone();
+        companion.marker_plan = Some(PlanBlock {
+            mode: PlanMode::Chosen,
+            marker: Some("M1__detected".to_string()),
+            top: Some(vec!["M2".to_string()]),
+            offered: Some(vec!["M2".to_string()]),
+            error: None,
+        });
+        let v = verdict_of(&cat, &companion, "fx-single");
+        assert!(v.reasons.iter().any(|r| r.code == ReasonCode::MarkerNotInFile));
+
+        // LeaveOut: the no-list methods are left out.
+        let mut left = three.clone();
+        left.marker_plan = Some(PlanBlock {
+            mode: PlanMode::LeaveOut,
+            marker: None,
+            top: None,
+            offered: None,
+            error: None,
+        });
+        let v = verdict_of(&cat, &left, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(v.reasons.iter().any(|r| r.code == ReasonCode::MarkersLeftOut));
+
+        // A ranking error: the refusal carries the plan's code + message.
+        let mut erred = three.clone();
+        erred.marker_plan = Some(PlanBlock {
+            mode: PlanMode::Ranked,
+            marker: None,
+            top: None,
+            offered: None,
+            error: Some(PlanError {
+                code: "MARKER_RANKING_TOO_FEW".to_string(),
+                message: "Fewer than 10 patients have a draw before and during treatment and a known outcome by day 56, so the markers cannot be ranked.".to_string(),
+            }),
+        });
+        let v = verdict_of(&cat, &erred, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(v.reasons.iter().any(|r| {
+            r.code == ReasonCode::MarkerRankingUnavailable
+                && r.params["code"] == serde_json::json!("MARKER_RANKING_TOO_FEW")
+                && r.params["message"].as_str().unwrap().contains("Fewer than 10 patients")
+        }));
+
+        // Multi k with a plan: the planned slice is counted (k 2 gets only
+        // the planned 1 when the plan's top carries one → count unmet).
+        let multi = one_method_catalogue(method_json("fx-multi", &[("markers", serde_json::json!({"kind": "multi", "count": 2}))]));
+        let mut mreq = inventory_req(3, vec![plain_marker("M1"), plain_marker("M2")], vec![]);
+        mreq.marker_plan = Some(ranked_block(vec!["M1"]));
+        let v = verdict_of(&multi, &mreq, "fx-multi");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(count_reason(&v).params["found"], serde_json::json!(1));
+        // With two planned markers it runs.
+        let mut mreq2 = inventory_req(3, vec![plain_marker("M1"), plain_marker("M2")], vec![]);
+        mreq2.marker_plan = Some(ranked_block(vec!["M2", "M1"]));
+        let v = verdict_of(&multi, &mreq2, "fx-multi");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+    }
+
+    /// Audit fix 5: `panel` is NOT in scope — even a panel WITHOUT a fixed
+    /// list keeps today's count rule under a plan block (never the plan's
+    /// ranked markers).
+    #[test]
+    fn panel_keeps_the_count_rule_under_a_marker_plan() {
+        let m = method_json("fx-panel", &[("markers", serde_json::json!({"kind": "panel", "count": 2}))]);
+        let cat = one_method_catalogue(m);
+        let req = inventory_req(3, vec![plain_marker("M1"), plain_marker("M2")], vec![]);
+        let mut with_plan = req.clone();
+        with_plan.marker_plan = Some(ranked_block(vec!["M1"]));
+        // With exactly two file markers the panel runs today; the plan's
+        // top-1 must NOT change that (no count reason, no refusal).
+        let v = verdict_of(&cat, &with_plan, "fx-panel");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+        assert!(!count_codes(&v).contains(&ReasonCode::MarkerCountUnmet), "{:?}", count_codes(&v));
+        // With three file markers the count rule refuses it (the plan's top
+        // marker never enters the verdict).
+        let mut three = inventory_req(
+            3,
+            vec![plain_marker("M1"), plain_marker("M2"), plain_marker("M3")],
+            vec![],
+        );
+        three.marker_plan = Some(ranked_block(vec!["M1"]));
+        let v = verdict_of(&cat, &three, "fx-panel");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(count_reason(&v).params["expected"], serde_json::json!(2));
+        assert_eq!(count_reason(&v).params["found"], serde_json::json!(3));
+    }
+
+    /// The step-3 preview with the file inventory: the marker verdicts are the
+    /// inventory path's (count with the plan; no draw coverage) — and WITHOUT
+    /// the inventory block, exactly today.
+    #[test]
+    fn preview_uses_the_inventory_marker_verdicts_only_with_the_block() {
+        use crate::modules::execution_engine::marker_rank::{PlanBlock, PlanMode};
+        let m = method_json("fx-single", &[("markers", serde_json::json!({"kind": "single", "count": 1}))]);
+        let cat = one_method_catalogue(m);
+        let preview = |inventory: Option<InventoryEligibilityRequest>, plan: Option<PlanBlock>| {
+            let p = PreviewEligibilityRequest {
+                marker_groups: BTreeMap::new(),
+                before_treatment: None,
+                draws_during_treatment: None,
+                last_draw_day: None,
+                filters: MethodFilters::default(),
+                inventory: inventory.clone(),
+                marker_plan: plan,
+            };
+            let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview: p })
+                .expect("no filters in the fixture");
+            resp.methods.into_iter().next().expect("the one method")
+        };
+
+        // Without the inventory block: today (no patient data → CanRun).
+        let v = preview(None, None);
+        assert_eq!(v.status, EligibilityStatus::CanRun);
+        assert!(v.reasons.is_empty(), "{:?}", count_codes(&v));
+
+        let three = inventory_req(
+            3,
+            vec![plain_marker("M3"), plain_marker("M1"), plain_marker("M2")],
+            vec![],
+        );
+
+        // With the inventory, no plan: the count rule says the single method
+        // cannot run on three markers.
+        let v = preview(Some(three.clone()), None);
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(count_codes(&v).contains(&ReasonCode::MarkerCountUnmet));
+
+        // With the inventory + a ranked plan: the planned top 1 runs.
+        let v = preview(Some(three.clone()), Some(ranked_block(vec!["M2", "M1", "M3"])));
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+
+        // With the inventory + leave_out: left out.
+        let v = preview(
+            Some(three.clone()),
+            Some(PlanBlock {
+                mode: PlanMode::LeaveOut,
+                marker: None,
+                top: None,
+                offered: None,
+                error: None,
+            }),
+        );
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(v.reasons.iter().any(|r| r.code == ReasonCode::MarkersLeftOut));
     }
 
     fn resp_method(m: serde_json::Value, outcomes: Option<FileOutcomes>) -> (MethodEligibility, Catalogue) {
@@ -3113,6 +3635,8 @@ mod tests {
                 draws_during_treatment: None,
                 last_draw_day: None,
                 filters: MethodFilters::default(),
+                inventory: None,
+                marker_plan: None,
             },
         };
         let pure = eligibility_for(&cat, &preview).expect("no method filters in the fixture");
@@ -3323,6 +3847,8 @@ mod tests {
         list.sequence = 41;
         let req = EligibilityRequest::Preview {
             preview: PreviewEligibilityRequest {
+            inventory: None,
+            marker_plan: None,
                 marker_groups: BTreeMap::new(),
                 before_treatment: None,
                 draws_during_treatment: None,
@@ -3419,6 +3945,8 @@ mod tests {
     /// question unanswered, so only the method filters are exercised).
     fn filter_preview(ans: MethodFilters) -> PreviewEligibilityRequest {
         PreviewEligibilityRequest {
+            inventory: None,
+            marker_plan: None,
             marker_groups: BTreeMap::new(),
             before_treatment: None,
             draws_during_treatment: None,
@@ -3947,6 +4475,8 @@ mod tests {
         ]);
         let cat = one_method_catalogue(m);
         let preview = PreviewEligibilityRequest {
+            inventory: None,
+            marker_plan: None,
             marker_groups: BTreeMap::new(),
             before_treatment: None,
             draws_during_treatment: Some(2),

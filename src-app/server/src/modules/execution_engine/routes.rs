@@ -98,7 +98,7 @@ pub struct TxrRouteState {
     pub executor: std::sync::Arc<dyn orchestrator::MethodExecutor>,
 }
 
-/// The 16 registered endpoints (the inventory IS the registration surface:
+/// The 17 registered endpoints (the inventory IS the registration surface:
 /// [`txr_routes`] builds the router from [`TxrRoute::ALL`], so a route
 /// cannot be mounted with one path and documented with another).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,11 +119,12 @@ pub enum TxrRoute {
     DownloadPredictions,
     GetAnalysisConfig,
     UpdateAnalysisConfig,
+    MarkerRanking,
 }
 
 impl TxrRoute {
     /// The registration order (the inventory's stability pin).
-    pub const ALL: [TxrRoute; 16] = [
+    pub const ALL: [TxrRoute; 17] = [
         TxrRoute::CreateRun,
         TxrRoute::ListRuns,
         TxrRoute::GetRun,
@@ -140,6 +141,7 @@ impl TxrRoute {
         TxrRoute::DownloadPredictions,
         TxrRoute::GetAnalysisConfig,
         TxrRoute::UpdateAnalysisConfig,
+        TxrRoute::MarkerRanking,
     ];
 
     /// The route's doc id (the `Txr.*` vocabulary of [`super::types::ROUTE_DOC_IDS`]).
@@ -161,6 +163,7 @@ impl TxrRoute {
             TxrRoute::DownloadPredictions => "Txr.downloadPredictions",
             TxrRoute::GetAnalysisConfig => "Txr.getAnalysisConfig",
             TxrRoute::UpdateAnalysisConfig => "Txr.updateAnalysisConfig",
+            TxrRoute::MarkerRanking => "Txr.markerRanking",
         }
     }
 
@@ -172,7 +175,8 @@ impl TxrRoute {
             | TxrRoute::StopMethod
             | TxrRoute::SkipMethod
             | TxrRoute::RerunRun
-            | TxrRoute::SetAtATime => "POST",
+            | TxrRoute::SetAtATime
+            | TxrRoute::MarkerRanking => "POST",
             TxrRoute::ListRuns
             | TxrRoute::GetRun
             | TxrRoute::StreamRun
@@ -203,6 +207,7 @@ impl TxrRoute {
             TxrRoute::GetPredictions => "/txr/runs/{id}/predictions",
             TxrRoute::DownloadPredictions => "/txr/runs/{id}/predictions.csv",
             TxrRoute::GetAnalysisConfig | TxrRoute::UpdateAnalysisConfig => "/txr/analysis-config",
+            TxrRoute::MarkerRanking => "/txr/runs/marker-ranking",
         }
     }
 }
@@ -234,6 +239,7 @@ pub fn txr_routes(state: TxrRouteState) -> ApiRouter {
             TxrRoute::UpdateAnalysisConfig => {
                 put_with(update_analysis_config, update_analysis_config_docs)
             }
+            TxrRoute::MarkerRanking => post_with(marker_ranking, marker_ranking_docs),
         };
         router = router.api_route(route.path(), method_router);
     }
@@ -256,6 +262,7 @@ pub trait BodyErrorCode {
 pub enum CreateBodyCode {}
 pub enum AtATimeBodyCode {}
 pub enum ConfigBodyCode {}
+pub enum MarkerRankingBodyCode {}
 
 impl BodyErrorCode for CreateBodyCode {
     const CODE: &'static str = "INVALID_MODE";
@@ -266,6 +273,10 @@ impl BodyErrorCode for AtATimeBodyCode {
 }
 
 impl BodyErrorCode for ConfigBodyCode {
+    const CODE: &'static str = "INVALID_BODY";
+}
+
+impl BodyErrorCode for MarkerRankingBodyCode {
     const CODE: &'static str = "INVALID_BODY";
 }
 
@@ -1475,6 +1486,48 @@ fn update_analysis_config_docs(op: TransformOperation) -> TransformOperation {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PROV-EE-11 — POST /api/txr/runs/marker-ranking (the step-4 line's call)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The step-4 marker-ranking call (single-marker-choice round 1b): the SAME
+/// parsed tables a run create request carries, plus the endpoint, decision
+/// day and the person's choice. The server canonicalises like run create
+/// (one code path) and ranks the file's main markers on the run endpoint's
+/// outcome — the one ranking the run itself computes. Same auth/permission as
+/// run create.
+async fn marker_ranking(
+    _auth: RequirePermissions<(JobsUse,)>,
+    body: BodyJson<super::types::MarkerRankingRequest, MarkerRankingBodyCode>,
+) -> ApiResult<Json<super::types::MarkerRankingResponse>> {
+    let req = body.into_inner();
+    // Audit fix 6: the validate + canonicalise + rank work is CPU work on the
+    // in-memory tables — off the executor, like run create's prepare pass.
+    let response = tokio::task::spawn_blocking(move || super::orchestrator::marker_ranking_answer(&req))
+        .await
+        .map_err(|e| AppError::internal_error(format!("marker ranking task join: {e}")))??;
+    Ok((StatusCode::OK, Json(response)))
+}
+
+fn marker_ranking_docs(op: TransformOperation) -> TransformOperation {
+    with_permission::<(JobsUse,)>(op)
+        .description(
+            "Rank the checked file's markers on the run endpoint's outcome (the ONE \
+             ranking a learn run computes at its decision day): the per-marker \
+             score/n/coverage, the offered markers and the top 5, the ranking-patient \
+             count, the error (code + message) when there is no ranking result, and \
+             what each no-list kind receives under the current choice. The step-4 \
+             line and the step-3 select read this; the plan block is copied onto the \
+             eligibility requests.",
+        )
+        .id("Txr.markerRanking")
+        .tag("txr")
+        .response::<200, Json<super::types::MarkerRankingResponse>>()
+        .response_with::<400, (), _>(|r| {
+            r.description("INVALID_BODY / the validator's rejection of the tables")
+        })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests — the ITEM-10 unit half
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1543,6 +1596,7 @@ mod tests {
             env_arch: None,
             env_layer_tag: None,
             env_base_tag: None,
+            markers_used: None,
         }
     }
 

@@ -13,7 +13,7 @@
  * the boards; the row carries structured fields and the display text is
  * produced from them by `lib/format.ts`.
  */
-import type { CovariateMode } from '@/api-client/types'
+import type { CovariateMode, MarkerKind } from '@/api-client/types'
 
 /**
  * Can the method/model run on the host's uploaded file?
@@ -150,6 +150,24 @@ export interface TxrMethodNeeds {
   covariatesMode: CovariateMode
   /** "1+ draws" | "3+ draws". */
   draws: string
+  /** The catalogue's raw marker kind (single / multi / any / panel) — the
+   *  single-marker plan's per-kind slice rule reads it. Absent on a card
+   *  assembled without the plan facts (the defensive fallback). */
+  markerKind?: MarkerKind
+  /** The catalogue's raw marker count (the `markers.count` fact — the plan's
+   *  per-kind slice ("top k") reads it, never the display string). */
+  markerCount?: number
+  /** The method has NO fixed marker list (`required_markers` null) — the
+   *  plan-given markers apply to it, never the count rule. Absent/false =
+   *  a fixed-list method (the plan does not touch it). */
+  noFixedList?: boolean
+  /**
+   * The planned markers of a no-list method under the step-4 marker plan
+   * ("uses M1" / "uses M1, M2"); `null` while the plan is unknown (no
+   * ranking yet), for a fixed-list method, or for a no-list method the plan
+   * refuses (leave out / a ranking error). Absent = no plan facts.
+   */
+  markersUsed?: string[] | null
 }
 
 /**

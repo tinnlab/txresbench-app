@@ -721,14 +721,23 @@ pub enum PretrainedReasonCode {
     TreatmentNotMatched,
     #[serde(rename = "OUTCOME_NOT_MATCHED")]
     OutcomeNotMatched,
+    /// The provider's marker-plan codes (a pretrained entry's eligibility
+    /// request carries the catalogue's `InventoryEligibilityRequest`, so the
+    /// wire language covers the catalogue's codes 1:1).
+    #[serde(rename = "MARKERS_LEFT_OUT")]
+    MarkersLeftOut,
+    #[serde(rename = "MARKER_RANKING_UNAVAILABLE")]
+    MarkerRankingUnavailable,
+    #[serde(rename = "MARKER_NOT_IN_FILE")]
+    MarkerNotInFile,
     #[serde(rename = "ASSET_NOT_AVAILABLE")]
     AssetNotAvailable,
 }
 
 impl PretrainedReasonCode {
-    /// The closed code list, in documentation order (18 provider codes + the
+    /// The closed code list, in documentation order (21 provider codes + the
     /// catalogue's own).
-    pub const ALL: [PretrainedReasonCode; 19] = [
+    pub const ALL: [PretrainedReasonCode; 22] = [
         PretrainedReasonCode::RequiredMarkerMissing,
         PretrainedReasonCode::MarkerGroupMissing,
         PretrainedReasonCode::DetectionCallMissing,
@@ -747,6 +756,9 @@ impl PretrainedReasonCode {
         PretrainedReasonCode::DiseaseNotMatched,
         PretrainedReasonCode::TreatmentNotMatched,
         PretrainedReasonCode::OutcomeNotMatched,
+        PretrainedReasonCode::MarkersLeftOut,
+        PretrainedReasonCode::MarkerRankingUnavailable,
+        PretrainedReasonCode::MarkerNotInFile,
         PretrainedReasonCode::AssetNotAvailable,
     ];
 
@@ -771,6 +783,9 @@ impl PretrainedReasonCode {
             PretrainedReasonCode::DiseaseNotMatched => "DISEASE_NOT_MATCHED",
             PretrainedReasonCode::TreatmentNotMatched => "TREATMENT_NOT_MATCHED",
             PretrainedReasonCode::OutcomeNotMatched => "OUTCOME_NOT_MATCHED",
+            PretrainedReasonCode::MarkersLeftOut => "MARKERS_LEFT_OUT",
+            PretrainedReasonCode::MarkerRankingUnavailable => "MARKER_RANKING_UNAVAILABLE",
+            PretrainedReasonCode::MarkerNotInFile => "MARKER_NOT_IN_FILE",
             PretrainedReasonCode::AssetNotAvailable => "ASSET_NOT_AVAILABLE",
         }
     }
@@ -797,6 +812,9 @@ impl PretrainedReasonCode {
             ReasonCode::DiseaseNotMatched => PretrainedReasonCode::DiseaseNotMatched,
             ReasonCode::TreatmentNotMatched => PretrainedReasonCode::TreatmentNotMatched,
             ReasonCode::OutcomeNotMatched => PretrainedReasonCode::OutcomeNotMatched,
+            ReasonCode::MarkersLeftOut => PretrainedReasonCode::MarkersLeftOut,
+            ReasonCode::MarkerRankingUnavailable => PretrainedReasonCode::MarkerRankingUnavailable,
+            ReasonCode::MarkerNotInFile => PretrainedReasonCode::MarkerNotInFile,
         }
     }
 }
@@ -1065,8 +1083,8 @@ mod tests {
     fn reason_code_vocabulary_is_closed_and_maps_provider_codes() {
         assert_eq!(
             PretrainedReasonCode::ALL.len(),
-            19,
-            "18 provider codes + ASSET_NOT_AVAILABLE"
+            22,
+            "21 provider codes + ASSET_NOT_AVAILABLE"
         );
         let mut wires: Vec<&str> = PretrainedReasonCode::ALL
             .iter()
@@ -1074,7 +1092,7 @@ mod tests {
             .collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 19, "wire strings are distinct");
+        assert_eq!(wires.len(), 22, "wire strings are distinct");
         for code in PretrainedReasonCode::ALL {
             let json = serde_json::to_value(code).expect("serialize");
             let back: PretrainedReasonCode =
@@ -1085,7 +1103,7 @@ mod tests {
 
         assert_eq!(
             crate::modules::method_catalogue::types::ReasonCode::ALL.len(),
-            18,
+            21,
             "the provider vocabulary"
         );
         let mut mapped: Vec<&str> = ReasonCode::ALL
@@ -1096,8 +1114,8 @@ mod tests {
         mapped.dedup();
         assert_eq!(
             mapped.len(),
-            18,
-            "the 18 provider codes map 1:1, no collisions"
+            21,
+            "the 21 provider codes map 1:1, no collisions"
         );
     }
 
@@ -1108,6 +1126,7 @@ mod tests {
     #[test]
     fn inventory_request_shape_is_mc5_byte_compatible() {
         let inv = InventoryEligibilityRequest {
+            marker_plan: None,
             patients: 38,
             decision_day: 56.0,
             baseline_max_day: 7.0,

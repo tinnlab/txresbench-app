@@ -18,9 +18,13 @@ import type {
   EligibilityResponse,
   EligibilityStatus,
   FilterOptions,
+  InventoryEligibilityRequest,
+  InventoryMarker,
   MethodEligibility,
+  PlanBlock,
   Reason,
   ReasonCode,
+  SingleMarkerChoice,
 } from '@/api-client/types'
 import { formatReasonLine } from '@/modules/txrlist/lib/format'
 import {
@@ -45,6 +49,7 @@ import {
   groupExcludedMethods,
   hasStudyAnswers,
   PREVIEW_ANSWER_INVITE,
+  step3MarkerPlan,
   type ExcludedMethod,
   type FitCounts,
   type TxrPreviewFormatters,
@@ -735,5 +740,70 @@ describe('groupExcludedMethods (brief 5b — the grouped left-out list)', () => 
     expect(excludedGroupCode('OUTCOME_NOT_MATCHED')).toBe('OUTCOME_NOT_MATCHED')
     expect(excludedGroupCode('MIN_DRAWS_UNMET')).toBe('other')
     expect(excludedGroupCode('ENV_IMAGE_MISSING')).toBe('other')
+  })
+})
+
+describe('step-3 inventory + marker plan (single-marker-choice round 2)', () => {
+  const INVENTORY: InventoryEligibilityRequest = {
+    baseline_max_day: 56,
+    covariates: [],
+    decision_day: 56,
+    markers: [
+      {
+        display_name: 'ctDNA',
+        has_detection_companion: false,
+        is_detection_call: false,
+        key: 'ctdna_mm',
+        n_patients_with_baseline: 8,
+        n_patients_with_ontreatment: 8,
+        n_patients_with_value: 8,
+        standard_ids: [],
+        unit_family: 'ratio',
+      } satisfies InventoryMarker,
+    ],
+    patients: 8,
+  }
+
+  it('rides the validated inventory block and the step-3 plan on the preview body', () => {
+    const req = buildStudyPreviewRequest(EMPTY_ANSWERS, GROUPS, VOCABULARY, INVENTORY, {
+      mode: 'chosen',
+      marker: 'ctdna_mm',
+    })
+    expect(req.inventory).toBe(INVENTORY)
+    expect(req.marker_plan).toEqual({ mode: 'chosen', marker: 'ctdna_mm' })
+  })
+
+  it('omits the inventory block when there is no validated file (and the plan with it)', () => {
+    const req = buildStudyPreviewRequest(EMPTY_ANSWERS, GROUPS, VOCABULARY)
+    expect(req.inventory).toBeUndefined()
+    // Without the file the inventory path is not the panel's; the Step-3
+    // hook passes no plan either (the plan's verdicts need the inventory).
+    expect(req.marker_plan).toBeUndefined()
+  })
+
+  it('carries the plan only when one is provided (each block rides independently)', () => {
+    const req = buildStudyPreviewRequest(EMPTY_ANSWERS, GROUPS, VOCABULARY, null, {
+      mode: 'leave_out',
+    })
+    expect(req.inventory).toBeUndefined()
+    expect(req.marker_plan).toEqual({ mode: 'leave_out' })
+  })
+
+  it('step3MarkerPlan: the ranked choice sends NO plan (step 4 is the ranking authority)', () => {
+    const ranked: SingleMarkerChoice = { mode: 'ranked' }
+    expect(step3MarkerPlan(ranked)).toBeNull()
+  })
+
+  it('step3MarkerPlan: chosen sends mode + marker only, leave_out sends mode only', () => {
+    expect(step3MarkerPlan({ mode: 'chosen', marker: 'ctdna_mm' })).toEqual({
+      mode: 'chosen',
+      marker: 'ctdna_mm',
+    })
+    expect(step3MarkerPlan({ mode: 'leave_out' })).toEqual({ mode: 'leave_out' })
+  })
+
+  it('step3MarkerPlan never carries top/offered/error (step 4 decides the order)', () => {
+    const block = step3MarkerPlan({ mode: 'chosen', marker: 'ctdna_mm' }) as PlanBlock
+    expect(Object.keys(block)).toEqual(['mode', 'marker'])
   })
 })

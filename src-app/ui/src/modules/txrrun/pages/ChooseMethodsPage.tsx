@@ -5,6 +5,7 @@ import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
 import type {
   InventoryEligibilityRequest,
+  MarkerRankingRequest,
   TxrRunStatus,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
@@ -66,10 +67,13 @@ import {
   mergeRunSettings,
   RUN_SETTINGS_SET_COVARIATES,
   RUN_SETTINGS_SET_DAY,
+  SETTING_ENDPOINT_WORD,
   TXR_RUN_SETTINGS_CONTEXT,
   type RunSettings,
 } from '../lib/settings'
 import { buildRunRequest } from '../lib/runRequest'
+import { eligibilityMarkerPlan, MARKER_CHANGE_IT, markerLineText } from '../lib/markerPlan'
+import { useMarkerRanking } from '../data/useMarkerRanking'
 import {
   buildCovariates,
   covariatesAutoOnLine,
@@ -499,6 +503,52 @@ export function ChooseMethodsPage() {
   // decision day back (the render closure only turns over on a re-render).
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+
+  // ── single-marker-choice round 2: the ranking call ──────────────────────────
+  // The SAME parsed tables the run request carries (the intake store's ONE
+  // builder) + the current endpoint, decision day and the person's step-3
+  // choice. The hook debounces and re-calls when any of them change; while it
+  // settles the eligibility request carries no plan (the method list does not
+  // wait) and the line above reads "Ranking your markers…". The demo keeps
+  // its recorded setup — no live ranking there.
+  const singleMarkerChoice = useStore(useTxrIntakeStore, s => s.singleMarkerChoice)
+  const markerRankingRequest = useMemo<MarkerRankingRequest | null>(() => {
+    if (isDemo || validation === null) return null
+    try {
+      const input = buildTxrRunInput(
+        {
+          patients,
+          measurements,
+          predictMeasurements,
+          joins,
+          mapping,
+        } as unknown as IntakeSnapshot,
+        'learn',
+      )
+      return {
+        ...input,
+        endpoint: settings.endpoint,
+        decision_day: settings.decision_day,
+        ...(singleMarkerChoice.mode === 'ranked' ? {} : { single_marker: singleMarkerChoice }),
+      } as MarkerRankingRequest
+    } catch {
+      // No measurements file (the page's empty state already says so).
+      return null
+    }
+  }, [
+    isDemo,
+    validation,
+    patients,
+    measurements,
+    predictMeasurements,
+    joins,
+    mapping,
+    settings.endpoint,
+    settings.decision_day,
+    singleMarkerChoice,
+  ])
+  const ranking = useMarkerRanking(markerRankingRequest)
+  const markerPlan = eligibilityMarkerPlan(singleMarkerChoice, ranking.response, ranking.loading)
   // The patients file's Extra-inputs facts (memoized: the settings card and
   // the eligibility request both read them; the object is rebuilt only when
   // the file object changes).
@@ -804,8 +854,13 @@ export function ChooseMethodsPage() {
                   ? inventory.covariates
                   : [],
             ...(hasMethodFilters(methodFilters) ? { filters: methodFilters } : {}),
+            // The step-4 marker plan (round 2): the ranking route's result
+            // copied onto the eligibility request so the no-list verdicts
+            // match the run; omitted while the ranking is still loading (a
+            // stale plan for the OLD endpoint/day is never used).
+            ...(markerPlan !== undefined ? { marker_plan: markerPlan } : {}),
           },
-    [inventory, settings.decision_day, covariates, settings.covariates, methodFilters],
+    [inventory, settings.decision_day, covariates, settings.covariates, methodFilters, markerPlan],
   )
   const [cardsState, setCards] = useState<TxrMethodCard[]>([])
   // While the validation is null (Change files has just changed a file),
@@ -814,6 +869,26 @@ export function ChooseMethodsPage() {
   // its general line), until the new files' first answer arrives.
   const cards = settingsInventory === null ? NO_CARDS : cardsState
   cardsRef.current = cards
+  // The step-4 marker line (single-marker-choice round 2): the ranking's
+  // sentence for the choice, the route's no-ranking message, or the waiting
+  // line — only when a SHOWN method has no fixed list (the list itself does
+  // not wait for the ranking). The demo keeps its recorded setup: no line.
+  const markerLine = isDemo
+    ? null
+    : markerLineText(
+        singleMarkerChoice,
+        ranking.response,
+        ranking.loading,
+        cards,
+        SETTING_ENDPOINT_WORD[settings.endpoint].toLowerCase(),
+      )
+  // "Change it in step 3" runs the SAME registered step-navigation action as
+  // the step's Back (`flow.back`; no new route).
+  const changeMarkerInStep3 = useCallback((): void => {
+    void runAction('flow.back', {}).catch((error: unknown) => {
+      message.error(error instanceof Error ? error.message : 'Could not go back.')
+    })
+  }, [])
   // The method list the cards on screen come from: a run request sends it back, so a
   // selection made on one list never starts a run on another (409 METHOD_LIST_CHANGED).
   // Never the latest status read: that moves ahead of the cards until they reload.
@@ -908,6 +983,7 @@ export function ChooseMethodsPage() {
           { ...input, keep_copies: keepCopies },
           { ...settings, at_a_time: opts.atATime, save_models: opts.saveModels },
           keys,
+          singleMarkerChoice,
         )
         // The method list the cards came from: a run is never started from a
         // selection made on another list (409 METHOD_LIST_CHANGED).
@@ -968,6 +1044,7 @@ export function ChooseMethodsPage() {
       cards,
       navigate,
       updateSelection,
+      singleMarkerChoice,
     ],
   )
 
@@ -1101,6 +1178,25 @@ export function ChooseMethodsPage() {
               ) : null}
               {runNotice !== null ? (
                 <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
+              ) : null}
+              {markerLine !== null ? (
+                <p data-testid="txr-run-single-marker-line" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+                  {markerLine.text}
+                  {markerLine.changeable ? (
+                    <>
+                      {' '}
+                      <Button
+                        data-testid="txr-run-single-marker-change"
+                        variant="link"
+                        className="p-0"
+                        style={{ fontSize: 13.5, color: 'var(--txr-brand)' }}
+                        onClick={changeMarkerInStep3}
+                      >
+                        {MARKER_CHANGE_IT}
+                      </Button>{' '}
+                    </>
+                  ) : null}
+                </p>
               ) : null}
               {settingsInventory === null ? (
                 <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>

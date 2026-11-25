@@ -408,6 +408,22 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // skipped rows again surface through the same execution_engine
           // run-record pick (execution_engine/repository.rs, already
           // sanctioned above).
+          // single-marker-choice (rounds 1a/1b/2, its DRIFT-1): the marker-plan server half — the ranking module, the run records + migration, the eligibility/preview/model reuse + the generation fixtures — plus the regenerated frontend-action manifest (server/mcp).
+          p !== 'src-app/server/src/modules/demo/allowlist.rs' &&
+          p !== 'src-app/server/src/modules/demo/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/demo/replay.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/bundle.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/envimage.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/marker_rank.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/migrations/202611240001_txr_run_methods_markers_used.sql' &&
+          p !== 'src-app/server/src/modules/model_store/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/pretrained_catalogue/eligibility.rs' &&
+          p !== 'src-app/server/tests/execution_engine/covariates_test.rs' &&
+          p !== 'src-app/server/tests/execution_engine/mod.rs' &&
+          !p.startsWith('src-app/server/tests/fixtures/') &&
+          p !== 'src-app/server/tests/sqlite/apply_chain.rs' &&
+          p !== 'src-app/server/tests/sqlite/final_layout.rs' &&
+          p !== 'src-app/server/src/modules/mcp/frontend-actions.json' &&
           p !== 'src-app/server/src/modules/history_store/repository.rs',
       ),
     ).toEqual([])

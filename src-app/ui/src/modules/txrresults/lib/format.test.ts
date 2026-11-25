@@ -42,6 +42,7 @@ import {
   formatDecisionDay,
   formatDifferSentence,
   formatLearnedFrom,
+  formatMarkersUsedLine,
   formatMixedOutcomeNote,
   formatPatientList,
   formatPct,
@@ -574,6 +575,30 @@ describe('chanceExplanationOf (the "How the chance is calculated" sentences)', (
       chanceExplanationOf('os', 365, [col('native', true), col('converted')]).calibration,
     ).toBe(
       '1 of the 2 methods turn their score into a chance with the conversion learned when the model was trained.',
+    )
+  })
+})
+
+describe('formatMarkersUsedLine (single-marker-choice round 2)', () => {
+  it('spells one marker as "Marker used … (best separates the outcome)"', () => {
+    expect(formatMarkersUsedLine(['ctDNA'], false)).toBe(
+      'Marker used: ctDNA (best separates the outcome)',
+    )
+  })
+
+  it('spells a set as "Markers used … (best separate the outcome)"', () => {
+    expect(formatMarkersUsedLine(['ctDNA', 'LDH'], false)).toBe(
+      'Markers used: ctDNA and LDH (best separate the outcome)',
+    )
+    expect(formatMarkersUsedLine(['ctDNA', 'LDH', 'Ca 19-9'], false)).toBe(
+      'Markers used: ctDNA, LDH and Ca 19-9 (best separate the outcome)',
+    )
+  })
+
+  it('reads "(your choice)" when the run\u2019s marker rule was the person\u2019s chosen one', () => {
+    expect(formatMarkersUsedLine(['ctDNA'], true)).toBe('Marker used: ctDNA (your choice)')
+    expect(formatMarkersUsedLine(['ctDNA', 'LDH'], true)).toBe(
+      'Markers used: ctDNA and LDH (your choice)',
     )
   })
 })

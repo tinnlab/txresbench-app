@@ -62,6 +62,14 @@ export interface TxrHeatmapColumn {
    * replay).
    */
   native?: TxrNativeValues | null
+  /**
+   * The markers the run's marker rule gave a no-list method (the run
+   * detail's row `markers_used`, joined by method id — single-marker-choice
+   * round 2); `undefined`/empty = nothing (a fixed-list method, a reuse run,
+   * an older row). The heatmap and own-results headers render the third
+   * "uses …" line from it.
+   */
+  markersUsed?: string[]
 }
 
 /**

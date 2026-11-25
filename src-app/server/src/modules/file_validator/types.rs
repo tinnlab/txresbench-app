@@ -24,7 +24,9 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub use crate::modules::method_catalogue::types::{InventoryEligibilityRequest, UnitFamily};
+pub use crate::modules::method_catalogue::types::{
+    InventoryEligibilityRequest, StandardId, UnitFamily,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Named limits (DEC-9: the validator's own tunables are NAMED constants in one
@@ -757,14 +759,28 @@ pub struct CanonicalValue {
 
 /// One feature fact of the canonical bundle — the per-marker metadata the
 /// engine's feature list needs (the tidy `features` table folded into marker
-/// metadata, DEC-4): the joined spelling, the vocabulary id when mapped, and
-/// the companion flag (a `__detected`/`__lod` column never ranks or matches —
+/// metadata, DEC-4): the joined spelling, the vocabulary id when mapped, the
+/// confirmed mapping's display name and standard ids (the SAME facts the
+/// inventory's `display_name`/`standard_ids` carry — the recorded-feature
+/// matcher builds both sides' name/id set from them, round 1d), and the
+/// companion flag (a `__detected`/`__lod` column never ranks or matches —
 /// R13 semantics).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CanonicalFeature {
     pub feature: String,
     pub unit: Option<String>,
     pub marker_id: Option<String>,
+    /// The confirmed mapping's display name (the inventory's `display_name`;
+    /// `None` when the column is unmapped — the recorded-feature matcher then
+    /// falls back to the file's own name, exactly as the inventory does).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    /// Every `(system, id)` of the confirmed mapping (the inventory's
+    /// `standard_ids`), not just [`Self::marker_id`]: a model recorded under
+    /// a secondary standard id resolves in the run the way eligibility
+    /// resolved it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub standard_ids: Vec<StandardId>,
     pub is_detection_companion: bool,
 }
 

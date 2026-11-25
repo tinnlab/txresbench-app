@@ -45,6 +45,7 @@ import type {
   FileProblem,
   MarkerMapping,
   MarkerMatch,
+  SingleMarkerChoice,
   ValidationResponse,
 } from '@/api-client/types'
 
@@ -229,6 +230,13 @@ export interface IntakeSnapshot {
   intent: IntakeIntent
   mode: 'study' | 'predict'
   study: StudyAnswers
+  /**
+   * How the methods that pick their markers from the file choose them
+   * (single-marker-choice round 2): the step-3 group's answer, beside the
+   * study answers. `ranked` is the default; the run request carries it as
+   * `single_marker` and the step-4 eligibility request as the plan's mode.
+   */
+  singleMarkerChoice: SingleMarkerChoice
   patients: LoadedFile | null
   measurements: LoadedFile | null
   predictMeasurements: LoadedFile | null

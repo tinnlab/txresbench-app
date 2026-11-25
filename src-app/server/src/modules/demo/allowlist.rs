@@ -128,6 +128,11 @@ pub const ROUTE_POLICY: &[RouteRow] = &[
     RouteRow::adapted("POST", "/txr/models/eligibility"),
     RouteRow::adapted("POST", "/txr/pretrained/eligibility"),
     RouteRow::adapted("PUT", "/txr/history/preferences"),
+    // single-marker-choice round 1b: the step-4 ranking is a read-only
+    // computation over the request's own tables (the same pure pass the
+    // eligibility endpoints already run) — it creates nothing, so demo
+    // forwards it unchanged, like POST /methods/eligibility.
+    RouteRow::allowed("POST", "/txr/runs/marker-ranking"),
     // ─────────────────────────────── BLOCKED ───────────────────────────────
     // The spec's blocked mutations (delete / rename / import / export / the
     // copy-clearing routes / pretrained install-download-refresh).

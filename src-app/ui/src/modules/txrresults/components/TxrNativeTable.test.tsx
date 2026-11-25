@@ -175,3 +175,39 @@ describe('TxrNativeTable — the own-results scroll box (results-table-height)',
 })
 
 afterEach(cleanup)
+
+describe('TxrNativeTable — the own-results marker line (single-marker-choice round 2)', () => {
+  it('renders the "uses …" third header line for a method the run gave markers', () => {
+    render(
+      <TxrNativeTable
+        columns={[
+          column('with-markers', { markersUsed: ['ctDNA'], native: { scores: [0.4, 0.6], calls: null } }),
+          column('without', { native: { scores: [0.4, 0.6], calls: null } }),
+        ]}
+        rows={rows}
+        patients={PATIENTS}
+      />,
+    )
+    expect(
+      within(screen.getByTestId('txr-own-results')).getByTestId('txr-own-uses-with-markers')
+        .textContent,
+    ).toBe('uses ctDNA')
+    expect(screen.queryByTestId('txr-own-uses-without')).toBeNull()
+  })
+
+  it('joins a marker set the plain list way', () => {
+    render(
+      <TxrNativeTable
+        columns={[
+          column('with-markers', { markersUsed: ['ctDNA', 'LDH'], native: { scores: [0.4, 0.6], calls: null } }),
+        ]}
+        rows={rows}
+        patients={PATIENTS}
+      />,
+    )
+    expect(
+      within(screen.getByTestId('txr-own-results')).getByTestId('txr-own-uses-with-markers')
+        .textContent,
+    ).toBe('uses ctDNA and LDH')
+  })
+})

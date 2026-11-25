@@ -690,6 +690,16 @@ pub struct PreviewEligibilityRequest {
     /// fields are top-level in the preview JSON.
     #[serde(flatten)]
     pub filters: MethodFilters,
+    /// The validated file inventory (single-marker-choice round 1b): with it
+    /// (and the `marker_plan`), the preview's marker verdicts are the
+    /// inventory path's — the marker count on the planned markers, the
+    /// plan's refusal — without any draw coverage. Absent = exactly today.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inventory: Option<InventoryEligibilityRequest>,
+    /// The run's marker plan (copied from the ranking route's result; used
+    /// with the `inventory` block). Absent = today's count rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_plan: Option<crate::modules::execution_engine::marker_rank::PlanBlock>,
 }
 
 /// A standard identifier of a file marker column (`(system, id)`).
@@ -779,6 +789,15 @@ pub struct InventoryEligibilityRequest {
     /// `UNKNOWN_TREATMENT_CLASS`), never a silent "any".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filters: Option<MethodFilters>,
+    /// The run's marker plan (the step-4 ranking route's result, copied by the
+    /// UI — single-marker-choice round 1b): with it, a no-list method
+    /// (`single` / `multi` k / `any` with no fixed list) is evaluated on its
+    /// PLANNED markers, the plan's refusal (`leave_out` / a ranking error / a
+    /// chosen marker the file lacks) is the verdict's reason, and the
+    /// coverage/draw checks use those markers. Absent = exactly today's
+    /// verdicts (the count rule over the file's markers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_plan: Option<crate::modules::execution_engine::marker_rank::PlanBlock>,
 }
 
 /// The eligibility request body — a tagged union carrying exactly one of the two
@@ -804,7 +823,7 @@ pub enum EligibilityStatus {
     CannotRun,
 }
 
-/// The eligibility reason-code vocabulary — the FIXED, structured set of 18
+/// The eligibility reason-code vocabulary — the FIXED, structured set of 21
 /// codes a method verdict can carry. Display text is the consumer's; a renderer
 /// switches on the code, so the set is closed and documented here (PROV-MC-5's
 /// acceptance: every emitted code is one of these — consumers can never meet an
@@ -886,12 +905,30 @@ pub enum ReasonCode {
     /// group), `answer` (the answered group).
     #[serde(rename = "OUTCOME_NOT_MATCHED")]
     OutcomeNotMatched,
+    /// The person chose to leave the no-list methods out (the step-3 choice
+    /// `leave_out`): a method that picks its markers from the file is not
+    /// run at all. Params: none.
+    #[serde(rename = "MARKERS_LEFT_OUT")]
+    MarkersLeftOut,
+    /// The file's markers cannot be ranked for the run (fewer than 10 ranking
+    /// patients / no 80 % coverage / no outcome column), so a no-list method
+    /// cannot run on this file. Params: `code` (the ranking code,
+    /// `MARKER_RANKING_TOO_FEW` / `MARKER_RANKING_NO_COVERAGE` /
+    /// `MARKER_RANKING_NO_OUTCOME`) and `message` (the ranking error's text).
+    #[serde(rename = "MARKER_RANKING_UNAVAILABLE")]
+    MarkerRankingUnavailable,
+    /// The chosen marker is not one of the file's main markers (absent, or a
+    /// detection companion) — the run engine refuses the selection
+    /// (`BUNDLE_MARKER_NOT_IN_FILE`), so the verdict says so. Params:
+    /// `marker` (the chosen name).
+    #[serde(rename = "MARKER_NOT_IN_FILE")]
+    MarkerNotInFile,
 }
 
 impl ReasonCode {
     /// The closed code vocabulary, in documentation order — the compile-time
     /// constant the vocabulary test pins (TEST-MC-27).
-    pub const ALL: [ReasonCode; 18] = [
+    pub const ALL: [ReasonCode; 21] = [
         ReasonCode::RequiredMarkerMissing,
         ReasonCode::MarkerGroupMissing,
         ReasonCode::DetectionCallMissing,
@@ -910,6 +947,9 @@ impl ReasonCode {
         ReasonCode::DiseaseNotMatched,
         ReasonCode::TreatmentNotMatched,
         ReasonCode::OutcomeNotMatched,
+        ReasonCode::MarkersLeftOut,
+        ReasonCode::MarkerRankingUnavailable,
+        ReasonCode::MarkerNotInFile,
     ];
 
     /// The code's wire string.
@@ -933,6 +973,9 @@ impl ReasonCode {
             ReasonCode::DiseaseNotMatched => "DISEASE_NOT_MATCHED",
             ReasonCode::TreatmentNotMatched => "TREATMENT_NOT_MATCHED",
             ReasonCode::OutcomeNotMatched => "OUTCOME_NOT_MATCHED",
+            ReasonCode::MarkersLeftOut => "MARKERS_LEFT_OUT",
+            ReasonCode::MarkerRankingUnavailable => "MARKER_RANKING_UNAVAILABLE",
+            ReasonCode::MarkerNotInFile => "MARKER_NOT_IN_FILE",
         }
     }
 }
@@ -1095,16 +1138,16 @@ mod tests {
     }
 
     /// TEST-MC-27 (unit half): the reason-code vocabulary is a CLOSED compile-
-    /// time set — exactly the 18 documented codes, each with a distinct wire
+    /// time set — exactly the 21 documented codes, each with a distinct wire
     /// string, so a consumer's per-code renderer can never meet an
     /// undocumented code and the serde side can never emit duplicates.
     #[test]
     fn reason_code_vocabulary_is_closed_and_distinct() {
-        assert_eq!(ReasonCode::ALL.len(), 18, "the 18 documented codes");
+        assert_eq!(ReasonCode::ALL.len(), 21, "the 21 documented codes");
         let mut wires: Vec<&str> = ReasonCode::ALL.iter().map(|c| c.as_str()).collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 18, "wire strings are distinct");
+        assert_eq!(wires.len(), 21, "wire strings are distinct");
         for code in ReasonCode::ALL {
             // The round-trip: serialize → deserialize must yield the same code
             // (the serde renames are the wire strings the engine emits).
@@ -1186,6 +1229,8 @@ mod tests {
                 treatment_classes: Some(vec!["chemotherapy".to_string()]),
                 method_group: Some(MethodGroup::ResponseCall),
             },
+            inventory: None,
+            marker_plan: None,
         };
         let json = serde_json::to_value(&preview).expect("serialize");
         assert_eq!(json["disease_group"], "lung cancer");
@@ -1202,6 +1247,8 @@ mod tests {
             draws_during_treatment: None,
             last_draw_day: None,
             filters: MethodFilters::default(),
+            inventory: None,
+            marker_plan: None,
         };
         let json = serde_json::to_value(&empty).expect("serialize");
         assert!(json.get("disease_group").is_none());
@@ -1224,6 +1271,7 @@ mod tests {
                 disease_group: Some("lung cancer".to_string()),
                 ..Default::default()
             }),
+            marker_plan: None,
         };
         let json = serde_json::to_value(&inv).expect("serialize");
         assert_eq!(json["filters"]["disease_group"], "lung cancer");

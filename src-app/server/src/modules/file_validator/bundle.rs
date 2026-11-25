@@ -18,7 +18,7 @@
 //! byte-equal serialization (TEST-FV-12).
 
 use crate::modules::file_validator::types::{
-    CanonCell, CanonicalBundle, CanonicalFeature, CanonicalPatient, CanonicalValue,
+    CanonCell, CanonicalBundle, CanonicalFeature, CanonicalPatient, CanonicalValue, StandardId,
     ValidationError, ValidationRequest,
 };
 use crate::modules::file_validator::validate::resolve_request;
@@ -125,18 +125,32 @@ pub fn canonical_bundle_with(
             continue;
         }
         seen.push(effective.clone());
-        let marker_id = resolved
+        let mapping = resolved
             .marker_columns
             .iter()
             .find(|c| {
                 c.key == effective || c.spellings.iter().any(|s| s.spelling == effective)
             })
-            .and_then(|c| c.mapping.as_ref())
-            .map(|e| e.id.clone());
+            .and_then(|c| c.mapping.as_ref());
+        // The SAME mapping facts the inventory's marker carries (validate.rs
+        // `build_inventory` — one source): the confirmed vocabulary entry's
+        // display name and every standard id, not just its id. The
+        // recorded-feature matcher (round 1d) builds the executor's name/id
+        // set from them, so a recorded display name or a secondary standard id
+        // resolves in the run exactly as the eligibility resolved it.
         features.push(CanonicalFeature {
             feature: effective.clone(),
             unit: row.unit.as_ref().and_then(|u| u.text()).map(|t| t.to_string()),
-            marker_id,
+            marker_id: mapping.map(|e| e.id.clone()),
+            display_name: mapping.map(|e| e.display_name.clone()),
+            standard_ids: mapping
+                .map(|e| {
+                    vec![StandardId {
+                        system: e.system.as_str().to_string(),
+                        id: e.id.clone(),
+                    }]
+                })
+                .unwrap_or_default(),
             is_detection_companion: is_companion(&effective),
         });
     }
@@ -157,7 +171,7 @@ mod tests {
     use super::*;
     use crate::modules::file_validator::types::{
         AnalysisParameters, JoinOffer, MarkerMapping, ParsedTable, ParsedTableSource,
-        ProblemCode, TableFormat, ValidationMode,
+        ProblemCode, StandardId, TableFormat, ValidationMode,
     };
     use crate::modules::file_validator::validate::validate;
 
@@ -310,8 +324,28 @@ mod tests {
         assert_eq!(ldh.marker_id.as_deref(), Some("14804-9"));
         assert_eq!(ldh.unit.as_deref(), Some("U/L"));
         assert!(!ldh.is_detection_companion);
+        // Round 1d: the bundle carries the confirmed mapping's display name
+        // and standard ids — the SAME facts validate.rs`build_inventory`
+        // puts on the inventory marker (one resolved mapping), so the
+        // recorded-feature matcher builds BOTH sides' name/id set from them.
+        assert_eq!(
+            ldh.display_name.as_deref(),
+            Some("LDH"),
+            "the mapping's display name"
+        );
+        assert_eq!(
+            ldh.standard_ids,
+            vec![StandardId {
+                system: "LOINC".to_string(),
+                id: "14804-9".to_string(),
+            }]
+        );
         let ct = b.features.iter().find(|f| f.feature == "ctDNA").unwrap();
         assert!(!ct.is_detection_companion);
+        // An unmapped column carries neither fact (the inventory's key-only
+        // marker — the matcher's name set is then just the file's own name).
+        assert_eq!(ct.display_name, None);
+        assert!(ct.standard_ids.is_empty());
         let companion = b
             .features
             .iter()

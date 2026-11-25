@@ -40,6 +40,7 @@ import { RouterBridge } from '@/core/actions/navigateBridge'
 import type {
   EligibilityResponse,
   FileInspection,
+  InventoryMarker,
   MethodSummary,
   TxrAppConfig,
   TxrRunListResponse,
@@ -97,6 +98,7 @@ const api = vi.hoisted(() => ({
   getPrefs: vi.fn(),
   listUpdates: vi.fn(),
   filterOptions: vi.fn(),
+  markerRanking: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -105,6 +107,7 @@ vi.mock('@/api-client', () => ({
       updateAnalysisConfig: api.putConfig,
       createRun: api.createRun,
       listRuns: api.listRuns,
+      markerRanking: api.markerRanking,
     },
     MethodCatalogue: {
       list: api.listMethods,
@@ -514,6 +517,8 @@ beforeEach(() => {
   api.createRun.mockReset()
   api.listRuns.mockReset()
   api.getPrefs.mockReset()
+  api.markerRanking.mockReset()
+  api.markerRanking.mockRejectedValue(new Error('not ranked in this suite'))
   api.getConfig.mockResolvedValue({ config: null })
   api.putConfig.mockResolvedValue(undefined)
   api.listMethods.mockResolvedValue({ methods: catalogue(), total: 3 })
@@ -944,7 +949,9 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(request.mode).toBe('train')
     expect(request.method_ids).toEqual(['direct-on'])
     // The exact PROV-EE-2 config bytes: the screen's value (intake day 84 +
-    // the defaults), the engine-true nulls (cpus: null, label_day: null).
+    // the defaults), the engine-true nulls (cpus: null, label_day: null) and
+    // the step-3 marker choice (single-marker-choice round 2: the default
+    // ranked mode is sent explicitly so the run's record names the rule).
     expect(request.config).toEqual({
       endpoint: 'pfs',
       decision_day: 84,
@@ -954,6 +961,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       cpus: null,
       save_models: false,
       label_day: null,
+      single_marker: { mode: 'ranked' },
     })
     // The input is the intake's own builder result, verbatim.
     expect(request.input.patients.source.name).toBe('patients.csv')
@@ -2713,3 +2721,256 @@ describe('AOC part 2 — the Extra-inputs switch turns on / unticks with require
   })
 })
 
+
+describe('ChooseMethodsPage single-marker-choice round 2', () => {
+  /** The file's two main markers (the ranking's candidates). */
+  const MAIN_MARKERS: InventoryMarker[] = [
+    {
+      key: 'ctdna_mm',
+      display_name: 'ctDNA',
+      n_patients_with_value: 12,
+      n_patients_with_baseline: 12,
+      n_patients_with_ontreatment: 12,
+      is_detection_call: false,
+      has_detection_companion: false,
+      standard_ids: [],
+      unit_family: 'ratio',
+    },
+    {
+      key: 'ldh',
+      display_name: 'LDH',
+      n_patients_with_value: 15,
+      n_patients_with_baseline: 15,
+      n_patients_with_ontreatment: 15,
+      is_detection_call: false,
+      has_detection_companion: false,
+      standard_ids: [],
+      unit_family: 'percent',
+    },
+  ]
+
+  function rankingValidation(): ValidationResponse {
+    return {
+      ...validation(),
+      inventory: { ...validation().inventory, markers: [...MAIN_MARKERS] },
+    }
+  }
+
+  function rankingAnswer(
+    over: Partial<import('@/api-client/types').MarkerRankingResponse> = {},
+  ): import('@/api-client/types').MarkerRankingResponse {
+    return {
+      markers_by_kind: { any: [], multi: {}, single: [] },
+      offered: ['ldh', 'ctdna_mm'],
+      ranking: [],
+      ranking_patients: 12,
+      top: ['ldh', 'ctdna_mm'],
+      ...over,
+    }
+  }
+
+  beforeEach(() => {
+    api.markerRanking.mockResolvedValue(rankingAnswer())
+  })
+
+  /** The study step (B) stand-in: `flow.back` from the methods step goes here. */
+  function StudyStandIn() {
+    const navigate = useNavigate()
+    return (
+      <Button data-testid="stand-in-continue" onClick={() => navigate('/choose-methods')}>
+        Continue
+      </Button>
+    )
+  }
+
+  function renderRankingFlow() {
+    return render(
+      <MemoryRouter initialEntries={['/choose-methods']}>
+        <RouterBridge />
+        <Routes>
+          <Route path="/choose-methods" element={<ChooseMethodsPage />} />
+          <Route path="/study" element={<StudyStandIn />} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+  }
+
+  const routeAt = () => screen.getByTestId('route-location').textContent
+
+  it('calls the ranking route with the parsed tables + endpoint/day, and its result rides the eligibility marker_plan', async () => {
+    seedStore({ validation: rankingValidation() })
+    renderPage()
+    await settle()
+    // The eligibility request BEFORE the ranking settles carries no plan.
+    expect(api.eligibility.mock.calls[0][0].inventory.marker_plan).toBeUndefined()
+
+    await settle(300)
+    await settle(0)
+    // The ranking request carries the SAME parsed input the run carries +
+    // the endpoint and decision day; `ranking` mode sends no single_marker.
+    expect(api.markerRanking).toHaveBeenCalledTimes(1)
+    expect(api.markerRanking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: 'pfs',
+        decision_day: 84,
+      }),
+    )
+    expect(api.markerRanking.mock.calls[0][0].single_marker).toBeUndefined()
+    // The eligibility request now copies the answer as its marker_plan.
+    const plan = api.eligibility.mock.calls.at(-1)![0].inventory.marker_plan
+    expect(plan).toEqual({ mode: 'ranked', top: ['ldh', 'ctdna_mm'], offered: ['ldh', 'ctdna_mm'] })
+  })
+
+  it('re-calls when the endpoint, decision day or the choice changes (debounced)', async () => {
+    seedStore({ validation: rankingValidation() })
+    renderPage()
+    await settle(300)
+    await settle(0)
+    expect(api.markerRanking).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-endpoint-opt-os'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-endpoint-opt-os'))
+      await Promise.resolve()
+    })
+    await settle(300)
+    expect(api.markerRanking).toHaveBeenCalledTimes(2)
+    expect(api.markerRanking.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ endpoint: 'os', decision_day: 84 }),
+    )
+
+    await typeDay('txr-run-settings-decision-day', 28)
+    await settle(300)
+    expect(api.markerRanking).toHaveBeenCalledTimes(3)
+    expect(api.markerRanking.mock.calls[2][0]).toEqual(
+      expect.objectContaining({ decision_day: 28 }),
+    )
+
+    await act(async () => {
+      useTxrIntakeStore.getState().setSingleMarkerChoice({
+        mode: 'chosen',
+        marker: 'ctdna_mm',
+      })
+      await Promise.resolve()
+    })
+    await settle(300)
+    expect(api.markerRanking).toHaveBeenCalledTimes(4)
+    expect(api.markerRanking.mock.calls[3][0]).toEqual(
+      expect.objectContaining({ single_marker: { mode: 'chosen', marker: 'ctdna_mm' } }),
+    )
+  })
+
+  it('renders the ranked line above the list with the change link, and "Change it in step 3" runs flow.back', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/files', '/study'], current: null, leaving: false })
+    seedStore({ validation: rankingValidation() })
+    renderRankingFlow()
+    await settle(300)
+    await settle(0)
+    const line = screen.getByTestId('txr-run-single-marker-line')
+    expect(line.textContent).toContain(
+      'Methods that pick markers from your file use the top 5: ldh and ctdna_mm, ranked by how well each separates progression or death in your patients.',
+    )
+    expect(line.textContent).toContain('Change it in step 3')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-single-marker-change'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(routeAt()).toBe('/study')
+  })
+
+  it('while the ranking is loading the line reads "Ranking your markers…" and the eligibility request carries no plan', async () => {
+    api.markerRanking.mockReturnValue(new Promise(() => undefined))
+    seedStore({ validation: rankingValidation() })
+    renderPage()
+    await settle()
+    await settle(250)
+    expect(screen.getByTestId('txr-run-single-marker-line').textContent).toBe('Ranking your markers…')
+    expect(screen.queryByTestId('txr-run-single-marker-change')).toBeNull()
+    expect(api.markerRanking).toHaveBeenCalledTimes(1)
+    // The plan never lands: every eligibility request kept today's rule.
+    for (const call of api.eligibility.mock.calls) {
+      expect(call[0].inventory.marker_plan).toBeUndefined()
+    }
+  })
+
+  it('a ranking error shows the route message (never a fabricated sentence) and the plan carries the error', async () => {
+    api.markerRanking.mockResolvedValue(
+      rankingAnswer({
+        top: [],
+        offered: [],
+        error: {
+          code: 'MARKER_RANKING_TOO_FEW',
+          message:
+            'Fewer than 10 patients have a draw before and during treatment and a known outcome by day 84, so the markers cannot be ranked.',
+        },
+      }),
+    )
+    seedStore({ validation: rankingValidation() })
+    renderPage()
+    await settle(300)
+    await settle(0)
+    const line = screen.getByTestId('txr-run-single-marker-line')
+    expect(line.textContent).toBe(
+      'Fewer than 10 patients have a draw before and during treatment and a known outcome by day 84, so the markers cannot be ranked.',
+    )
+    expect(screen.queryByTestId('txr-run-single-marker-change')).toBeNull()
+    const plan = api.eligibility.mock.calls.at(-1)![0].inventory.marker_plan
+    expect(plan).toEqual({
+      mode: 'ranked',
+      error: {
+        code: 'MARKER_RANKING_TOO_FEW',
+        message:
+          'Fewer than 10 patients have a draw before and during treatment and a known outcome by day 84, so the markers cannot be ranked.',
+      },
+    })
+  })
+
+  it('the line is absent when no shown method has no fixed list (the plan does not touch them)', async () => {
+    const fixed = catalogue().map(m => ({
+      ...m,
+      required_markers: {
+        list_source: 'fixture',
+        match: 'all' as const,
+        min_fraction: 1,
+        markers: [{ id: 'ldh', id_system: 'LOINC', name: 'LDH' }],
+      },
+    }))
+    api.listMethods.mockResolvedValue({ methods: fixed, total: fixed.length })
+    seedStore({ validation: rankingValidation() })
+    renderPage()
+    await settle(300)
+    await settle(0)
+    expect(screen.queryByTestId('txr-run-single-marker-line')).toBeNull()
+    // The plan still rides the request (the server applies it to the
+    // no-list methods of the whole list) — only the LINE is about the shown
+    // cards, and with none no-list it stays away.
+    const plan = api.eligibility.mock.calls.at(-1)![0].inventory.marker_plan
+    expect(plan).toEqual({ mode: 'ranked', top: ['ldh', 'ctdna_mm'], offered: ['ldh', 'ctdna_mm'] })
+  })
+
+  it('the run request carries the step-3 choice (chosen) as the config single_marker', async () => {
+    seedStore({ validation: rankingValidation() })
+    act(() => {
+      useTxrIntakeStore.getState().setSingleMarkerChoice({ mode: 'chosen', marker: 'ctdna_mm' })
+    })
+    renderPage()
+    await settle(300)
+    await chooseOnly('direct-on')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(api.createRun.mock.calls[0][0].config.single_marker).toEqual({
+      mode: 'chosen',
+      marker: 'ctdna_mm',
+    })
+  })
+})

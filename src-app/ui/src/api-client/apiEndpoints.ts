@@ -131,6 +131,7 @@ export const ApiEndpoints = {
   'Txr.getRun': 'GET /api/txr/runs/{id}',
   'Txr.listRunLogs': 'GET /api/txr/runs/{id}/logs',
   'Txr.listRuns': 'GET /api/txr/runs',
+  'Txr.markerRanking': 'POST /api/txr/runs/marker-ranking',
   'Txr.rerunRun': 'POST /api/txr/runs/{id}/rerun',
   'Txr.setAtATime': 'POST /api/txr/runs/{id}/at-a-time',
   'Txr.skipMethod': 'POST /api/txr/runs/{id}/methods/{method_id}/skip',

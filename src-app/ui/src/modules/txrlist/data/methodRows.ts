@@ -37,7 +37,7 @@
  *   an eligibility entry whose id has no catalogue method is dropped (the
  *   catalogue is the list source).
  */
-import type { EligibilityResponse, EligibilityStatus, MethodSummary } from '@/api-client/types'
+import type { EligibilityResponse, EligibilityStatus, MethodSummary, PlanBlock } from '@/api-client/types'
 import type { TxrMethodCard, TxrMethodNeeds } from '../types'
 import {
   RUNNER_UNAVAILABLE_FIX,
@@ -46,6 +46,7 @@ import {
   formatReasonLines,
   type TxrReasonLabels,
 } from '../lib/format'
+import { isNoFixedList, plannedMarkerNames } from '../lib/markerPlan'
 
 /** The provider's three verdict codes → the three board status codes. */
 function toRunStatus(status: EligibilityStatus): TxrMethodCard['run']['status'] {
@@ -94,6 +95,14 @@ function needsOf(summary: MethodSummary): TxrMethodNeeds {
     // switch's auto-on / untick decisions read it, never the words).
     covariatesMode: summary.covariates,
     draws: `${summary.min_draws}+ draws`,
+    // The single-marker plan's per-kind facts (round 2): the raw kind/count
+    // and the fixed-list fact — the step-4 line's "shown method has no fixed
+    // list" test and the "uses …" needs-line fact read them; `markersUsed`
+    // is set by the card builder when the plan is known.
+    markerKind: summary.markers.kind,
+    markerCount: summary.markers.count,
+    noFixedList: isNoFixedList(summary),
+    markersUsed: null,
   }
 }
 
@@ -120,6 +129,16 @@ function reasonFixOf(code: string | null, missingMarkers: ReadonlyArray<{ displa
       return 'Add a detection-call column (present or absent)'
     case 'MARKER_COUNT_UNMET':
       return 'Use a file with just the markers this method takes.'
+    case 'MARKERS_LEFT_OUT':
+      return 'Choose a marker setting for them in step 3.'
+    case 'MARKER_RANKING_UNAVAILABLE':
+      return 'Use a file with more patients measured before and during treatment.'
+    case 'MARKER_NOT_IN_FILE':
+      return 'Choose another marker in step 3.'
+    case 'MODEL_FEATURE_MISSING': {
+      const name = firstMissingName(missingMarkers)
+      return `Use a file that has ${name ?? 'the marker'}.`
+    }
     case 'MARKER_GROUP_MISSING':
     case 'UNIT_MISMATCH':
       return 'Add a column with the marker the method needs.'
@@ -192,6 +211,13 @@ function unavailableCard(summary: MethodSummary): TxrMethodCard {
  * The redesigned screen-E join: catalogue method list × eligibility
  * verdicts → `TxrMethodCard[]`.
  *
+ * The optional `plan` (single-marker-choice round 2) is the ranking route's
+ * `marker_plan` block the host copies onto the eligibility request: a no-list
+ * method's card reads the planned marker names in its needs line ("uses
+ * M1"), the same slice rule the server applies for its verdict (and the same
+ * block, so the card fact and the verdict never disagree). `mains` are the
+ * file's main marker names for the `chosen` validation.
+ *
  * Pure: no fetch, no ApiClient, no state — the fetch hooks (`useMethodRows`,
  * `useListEstimate`) call the endpoints and hand the two payloads here, and
  * the gallery and the unit tests feed fixtures over the same wire shapes.
@@ -200,6 +226,8 @@ export function buildMethodCards(
   methods: MethodSummary[],
   eligibility: EligibilityResponse,
   labels: TxrReasonLabels = {},
+  plan: PlanBlock | null = null,
+  mains: ReadonlyArray<string> | null = null,
 ): TxrMethodCard[] {
   const verdictById = new Map(eligibility.methods.map(verdict => [verdict.id, verdict]))
   return methods.map(summary => {
@@ -227,6 +255,7 @@ export function buildMethodCards(
           )
         : [formatCoverage(verdict.coverage)]
     const reasonLine = reasonLines[0] ?? 'cannot run with this file'
+    const needs = needsOf(summary)
     return {
       key: summary.id,
       id: summary.id,
@@ -247,7 +276,16 @@ export function buildMethodCards(
           ? null
           : { seconds: verdict.estimated_seconds, quality: verdict.estimate_quality },
       rank: rankOf(summary),
-      needs: needsOf(summary),
+      needs: {
+        ...needs,
+        markersUsed: plannedMarkerNames(
+          summary.markers.kind,
+          summary.markers.count,
+          needs.noFixedList === true,
+          plan,
+          mains,
+        ),
+      },
       run: {
         status,
         coverageLine: formatMethodCoverage(verdict.coverage),

@@ -36,6 +36,7 @@
 pub mod bundle;
 pub mod envimage;
 pub mod envmanifest;
+pub mod marker_rank;
 pub mod orchestrator;
 pub mod predictions;
 pub mod reconcile;

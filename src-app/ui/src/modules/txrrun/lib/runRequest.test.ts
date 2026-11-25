@@ -74,4 +74,20 @@ describe('buildRunRequest (TEST-RUN-06, runRequest.test.ts)', () => {
     // 1..=8 clamp, PROV-EE-2).
     expect(SETTING_OPTIONS.at_a_time).toContain(2)
   })
+
+  it('carries the step-3 choice as the config single_marker (absent = the runner ranked rule)', () => {
+    const ranked = buildRunRequest('train', input, DEFAULT_RUN_SETTINGS, [], { mode: 'ranked' })
+    expect(ranked.config.single_marker).toEqual({ mode: 'ranked' })
+    const chosen = buildRunRequest('train', input, DEFAULT_RUN_SETTINGS, [], {
+      mode: 'chosen',
+      marker: 'ctdna_mm',
+    })
+    expect(chosen.config.single_marker).toEqual({ mode: 'chosen', marker: 'ctdna_mm' })
+    const leftOut = buildRunRequest('train', input, DEFAULT_RUN_SETTINGS, [], { mode: 'leave_out' })
+    expect(leftOut.config.single_marker).toEqual({ mode: 'leave_out' })
+    // No choice (nothing stored yet, or the demo): the key is absent —
+    // the engine's ranked rule.
+    const none = buildRunRequest('train', input, DEFAULT_RUN_SETTINGS, [])
+    expect('single_marker' in none.config).toBe(false)
+  })
 })

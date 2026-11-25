@@ -1093,6 +1093,9 @@ pub async fn resolve_assets(
         let env = row_env(&row)?;
         let conversions = row_conversions(&row)?;
         let method_facts = row_method_facts(&row)?;
+        // The row's recorded marker set (the engine's params `features`) — the
+        // reuse run's marker selection (single-marker-choice round 1b).
+        let features: Vec<String> = parse_row(&row.features, "txr_models.features")?;
         assets.push(ResolvedAsset {
             model_id: id.clone(),
             host_dir: row.dir,
@@ -1104,6 +1107,7 @@ pub async fn resolve_assets(
             conversions,
             method_facts,
             decision_day: Some(row.decision_day),
+            features,
         });
     }
     Ok(assets)

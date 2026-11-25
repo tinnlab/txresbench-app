@@ -53,10 +53,13 @@ import type {
   DiseaseCategory,
   EligibilityResponse,
   FilterOptions,
+  InventoryEligibilityRequest,
   MarkerGroup,
   MethodEligibility,
+  PlanBlock,
   PreviewEligibilityRequest,
   ReasonCode,
+  SingleMarkerChoice,
   TreatmentClass,
 } from '@/api-client/types'
 import type { TxrRunStatus } from '@/modules/txrlist/types'
@@ -96,11 +99,21 @@ export interface PreviewSchedule {
  *  answers, and the same builder the E screen's `filters` block uses).
  *  The vocabulary is the same builder's answer-validity gate (step2-filters,
  *  brief 5a3): only ids it knows are sent, and while it is not loaded the
- *  disease/treatment fields are omitted (the outcome is still sent). */
+ *  disease/treatment fields are omitted (the outcome is still sent).
+ *
+ *  Single-marker-choice round 2: when the file is in, the VALIDATED inventory
+ *  block rides the body (`inventory`) together with the step-3 marker plan
+ *  (`markerPlan`), so the panel's marker verdicts are the inventory path's
+ *  (the count on the plan's markers / the plan's refusal). The plan is
+ *  `mode` + the `marker` only — the ranking needs the endpoint and decision
+ *  day, which are step 4's authority, so step 3's plan cannot carry `top`
+ *  (and the ranked plan is OMITTED — see [`step3MarkerPlan`]). */
 export function buildStudyPreviewRequest(
   answers: StudyAnswers,
   groups: ReadonlyArray<MarkerGroup>,
   vocabulary: FilterOptions | null,
+  inventory: InventoryEligibilityRequest | null = null,
+  markerPlan: PlanBlock | null = null,
 ): PreviewEligibilityRequest {
   const marker_groups: Record<string, boolean> = {}
   for (const group of groups) {
@@ -113,7 +126,30 @@ export function buildStudyPreviewRequest(
   if (answers.beforeTreatment !== null) request.before_treatment = answers.beforeTreatment
   if (answers.drawsDuringTreatment !== null) request.draws_during_treatment = answers.drawsDuringTreatment
   if (answers.lastDrawDay !== null) request.last_draw_day = answers.lastDrawDay
+  if (inventory !== null) request.inventory = inventory
+  if (markerPlan !== null) request.marker_plan = markerPlan
   return request
+}
+
+/**
+ * The step-3 preview's marker plan (round 2): the choice's `mode` and, for
+ * `chosen`, the marker — and NOTHING else (no `top`/`offered`/`error`: the
+ * ranking is step 4's, the file check's day is not the run's day). The
+ * `ranked` choice sends NO plan: with a ranked block that carries no top the
+ * server's count rule would evaluate every no-list method on zero markers
+ * (a multi k=2 method on a two-marker file would flip from fitting to
+ * count-refused); without the block the panel keeps today's exact verdicts
+ * while step 4's ranking (the authority) fills the order in.
+ */
+export function step3MarkerPlan(choice: SingleMarkerChoice): PlanBlock | null {
+  switch (choice.mode) {
+    case 'ranked':
+      return null
+    case 'chosen':
+      return { mode: 'chosen', marker: choice.marker }
+    case 'leave_out':
+      return { mode: 'leave_out' }
+  }
 }
 
 /** The fit-count split (board's "N of M methods fit" / "N methods are left out"). */
@@ -198,8 +234,10 @@ function hasMachineReason(method: MethodEligibility): boolean {
 }
 
 /** Whether a method's causes include an answer fact (any non-machine
- *  reason — a missing marker group, too few draws, a task mismatch …). */
-function hasAnswerCause(method: MethodEligibility): boolean {
+ *  reason — a missing marker group, too few draws, a task mismatch …).
+ *  Exported to the single-marker facts (round 2): the step-3 group's "fits
+ *  the answers" is exactly this classification. */
+export function hasAnswerCause(method: MethodEligibility): boolean {
   return method.reasons.some(reason => !isMachineReason(reason.code))
 }
 

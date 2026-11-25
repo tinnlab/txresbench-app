@@ -39,8 +39,10 @@ export interface UseRunnableMethodCountResult {
   count: number | null
 }
 
-/** The stable key — the runnable set is ONE static response, fetched once. */
-const RUNNABLE_COUNT_KEY = 'methods:runnable'
+/** The stable key — the runnable set is ONE static response, fetched once.
+ *  Shared by `useMethodList` (round 2 reads the summaries for the step-3
+ *  single-marker group): one request serves both reads. */
+export const RUNNABLE_COUNT_KEY = 'methods:runnable'
 
 export function useRunnableMethodCount(): UseRunnableMethodCountResult {
   // A settled cache entry renders the count on the first frame: the

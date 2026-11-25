@@ -41,6 +41,7 @@ import {
   formatOwnCall,
   formatOwnNotRecordedNote,
   formatOwnScore,
+  formatPatientList,
 } from '../lib/format'
 import { hasOwnResults, ownResultOf, patientIndexOf } from '../lib/native'
 
@@ -219,6 +220,16 @@ export function TxrNativeTable({ columns, rows, patients, withHeading = true }: 
                     <span style={HEADER_SUB} data-testid={`txr-own-returned-${col.methodId}`}>
                       {col.native?.calls != null ? OWN_RETURNED_CALLS : OWN_RETURNED_SCORE}
                     </span>
+                    {/* single-marker-choice round 2: the plan's marker fact
+                        (the same "uses …" line as the chance table's header). */}
+                    {col.markersUsed !== undefined && col.markersUsed.length > 0 ? (
+                      <span
+                        style={HEADER_SUB}
+                        data-testid={`txr-own-uses-${col.methodId}`}
+                      >
+                        uses {formatPatientList(col.markersUsed)}
+                      </span>
+                    ) : null}
                     {col.probSource === 'native' ? (
                       <span style={HEADER_SUB} data-testid={`txr-own-chance-mark-${col.methodId}`}>
                         {OWN_CHANCE_MARK}

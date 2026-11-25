@@ -20,6 +20,7 @@ import {
   COMPARE_DIFFER_CAP,
   COMPARE_SHARED_CAP,
   COMPARE_TOP_N,
+  attachMarkersUsed,
   buildAvg,
   buildColumns,
   compareReport,
@@ -673,5 +674,34 @@ describe('sortByFirstMethod (the H table row order, DEC-6)', () => {
   it('never mutates the input and falls back to id asc for an unknown column', () => {
     expect(rows.map(r => r.patientId)).toEqual(patients)
     expect(sortByFirstMethod(cols, rows, 'no-such-method').map(r => r.patientId)).toEqual(patients)
+  })
+})
+
+describe('attachMarkersUsed (single-marker-choice round 2)', () => {
+  const cols = () => buildColumns(uniformPredictions(), 'pfs')
+
+  it('joins the run method rows by method id — a no-list method reads its recorded marker set', () => {
+    const out = attachMarkersUsed(cols(), [
+      { method_id: 'landmark-cox-current', markers_used: ['ctDNA'] },
+    ])
+    expect(out[0].markersUsed).toEqual(['ctDNA'])
+    expect(out[1].markersUsed).toBeUndefined()
+  })
+
+  it('leaves a column unset when the run row carries no marker set (a fixed-list method, or none recorded)', () => {
+    const out = attachMarkersUsed(cols(), [
+      { method_id: 'landmark-cox-current', markers_used: null },
+      { method_id: 'cox-cutpoint-risk', markers_used: [] },
+      { method_id: 'no-such-method', markers_used: ['x'] },
+    ])
+    expect(out[0].markersUsed).toBeUndefined()
+    expect(out[1].markersUsed).toBeUndefined()
+  })
+
+  it('never mutates the input columns', () => {
+    const before = cols()
+    const snapshot = JSON.stringify(before)
+    attachMarkersUsed(before, [{ method_id: 'landmark-cox-current', markers_used: ['ctDNA'] }])
+    expect(JSON.stringify(before)).toBe(snapshot)
   })
 })

@@ -11,6 +11,7 @@ import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { useMarkers } from '../data/useMarkers'
 import { useFilterOptions } from '../data/useFilterOptions'
 import { useStudyPreview } from '../data/useStudyPreview'
+import { useMethodList } from '../data/useMethodList'
 import {
   BEFORE_TREATMENT_OPTIONS,
   DRAWS_OPTIONS,
@@ -21,7 +22,13 @@ import {
   leftOutHeading,
   someFitLine,
 } from '../lib/format'
-import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../lib/preview'
+import {
+  descriptiveSentence,
+  hasStudyAnswers,
+  PREVIEW_ANSWER_INVITE,
+  step3MarkerPlan,
+} from '../lib/preview'
+import { singleMarkerFacts, singleMarkerQuestion } from '../lib/singleMarker'
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
 import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
 import { TxrDayField } from '../components/TxrDayField'
@@ -36,6 +43,7 @@ import { isExampleStudy } from '../lib/example'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
 import type { OutcomeId } from '../types'
+import type { SingleMarkerChoice } from '@/api-client/types'
 
 /**
  * Screen B — Your study (board Criteria.dc.html, ITEM-5): the six question
@@ -250,11 +258,48 @@ const RECHECK_NOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 const EXCLUDED_HEADING: CSSProperties = { fontWeight: 700, marginBottom: 4 }
 
+/** The single-marker group's question line (single-marker-choice round 2). */
+const GROUP_QUESTION: CSSProperties = {
+  margin: '0 0 10px',
+  color: 'var(--txr-text-2)',
+  fontSize: 14,
+  maxWidth: '62ch',
+}
+
+/** One choice block of the single-marker radio group. */
+const CHOICE_BLOCK: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  alignItems: 'flex-start',
+  marginBottom: 10,
+}
+
+/** The small line under a marker choice (the plan's plain-voice note). */
+const CHOICE_SMALL: CSSProperties = {
+  margin: '2px 0 0',
+  fontSize: 12.5,
+  color: 'var(--txr-muted)',
+  maxWidth: '56ch',
+}
+
+/** The "Recommended" tag of the ranked choice (the Start card's badge style). */
+const RECOMMENDED_TAG: CSSProperties = {
+  fontSize: 12.5,
+  padding: '2px 10px',
+  borderRadius: 999,
+  background: 'var(--txr-success-soft)',
+  color: 'var(--txr-success-ink)',
+  marginLeft: 8,
+  whiteSpace: 'nowrap',
+}
+
 export function StudyPage() {
   const navigate = useNavigate()
   const study = useStore(useTxrIntakeStore, s => s.study)
   const intent = useStore(useTxrIntakeStore, s => s.intent)
   const mode = useStore(useTxrIntakeStore, s => s.mode)
+  const singleMarkerChoice = useStore(useTxrIntakeStore, s => s.singleMarkerChoice)
   const patchStudy = useStore(useTxrIntakeStore, s => s.patchStudy)
   const dayFacts = useStore(useTxrIntakeStore, s => s.dayFacts)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
@@ -270,7 +315,23 @@ export function StudyPage() {
     treatmentClasses,
     error: filterOptionsError,
   } = useFilterOptions()
-  const panel = useStudyPreview(study, groups)
+  // The runnable catalogue summaries (round 2): the step-3 single-marker
+  // group's "methods that fit take one marker or a set number" fact needs
+  // the summary's marker kind + fixed-list fact beside the panel's verdicts.
+  const { methods } = useMethodList()
+  // The file facts of the current check (round 2): the validated inventory
+  // rides the preview request (with the step-3 marker plan) so the panel's
+  // marker verdicts are the inventory path's.
+  const inventory = validation?.inventory ?? null
+  const markerPlan = step3MarkerPlan(singleMarkerChoice)
+  const panel = useStudyPreview(study, groups, inventory, markerPlan)
+  // The single-marker group's facts: file in, a fitting single/multi no-list
+  // method, and more than one main marker. The learn path only (the predict
+  // side trips have no methods to pick markers for).
+  const smFacts = useMemo(
+    () => singleMarkerFacts(inventory, methods, panel.methods),
+    [inventory, methods, panel.methods],
+  )
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Tell us about your study')
@@ -304,6 +365,21 @@ export function StudyPage() {
         await runAction('intake.setStudyAnswers', patch)
       } catch (error) {
         message.error(error instanceof Error ? error.message : 'Could not set the answer.')
+      }
+    },
+    [],
+  )
+
+  /** The single-marker group's choice (round 2): the three radios and the
+   *  marker select run the REGISTERED `intake.setSingleMarkerChoice` action
+   *  — the same validating path the AI drives (a `chosen` marker must be one
+   *  of the file's main markers; a refusal is shown, never silent). */
+  const applyMarkerChoice = useCallback(
+    async (patch: Pick<SingleMarkerChoice, 'mode'> & { marker?: string }) => {
+      try {
+        await runAction('intake.setSingleMarkerChoice', patch)
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : 'Could not set the marker choice.')
       }
     },
     [],
@@ -483,6 +559,101 @@ export function StudyPage() {
                     ))
                   )}
                 </div>
+
+                {/* single-marker-choice round 2: the new group, shown only when
+                    the file is in, a fitting single/multi no-list method
+                    exists and the file has more than one main marker. The
+                    radios and the marker select run the registered
+                    `intake.setSingleMarkerChoice` action (the same path the
+                    AI drives); the ranked choice is the default. */}
+                {smFacts.visible && mode === 'study' ? (
+                  <div style={QUESTION_GROUP} data-testid="txr-intake-study-single-marker">
+                    <div style={QUESTION_LABEL}>Methods that pick markers from your file</div>
+                    <p style={GROUP_QUESTION} data-testid="txr-intake-single-marker-question">
+                      {singleMarkerQuestion(smFacts)}
+                    </p>
+                    <div role="radiogroup" aria-label="Methods that pick markers from your file">
+                      <div style={CHOICE_BLOCK}>
+                        <Button
+                          data-testid="txr-intake-single-marker-ranked"
+                          variant="outline"
+                          role="radio"
+                          aria-checked={singleMarkerChoice.mode === 'ranked'}
+                          style={singleMarkerChoice.mode === 'ranked' ? PILL_SELECTED : PILL}
+                          onClick={() => void applyMarkerChoice({ mode: 'ranked' })}
+                        >
+                          Use the markers that best separate the outcome
+                          <span
+                            data-testid="txr-intake-single-marker-recommended"
+                            style={RECOMMENDED_TAG}
+                          >
+                            Recommended
+                          </span>
+                        </Button>
+                        <p style={CHOICE_SMALL}>
+                          Ranked by how well each marker separates the outcome in your patients. Step
+                          4 shows the order.
+                        </p>
+                      </div>
+                      <div style={CHOICE_BLOCK}>
+                        <Button
+                          data-testid="txr-intake-single-marker-chosen"
+                          variant="outline"
+                          role="radio"
+                          aria-checked={singleMarkerChoice.mode === 'chosen'}
+                          style={singleMarkerChoice.mode === 'chosen' ? PILL_SELECTED : PILL}
+                          onClick={() => {
+                            if (
+                              singleMarkerChoice.mode === 'chosen' &&
+                              singleMarkerChoice.marker !== undefined
+                            ) {
+                              void applyMarkerChoice({
+                                mode: 'chosen',
+                                marker: singleMarkerChoice.marker,
+                              })
+                            }
+                          }}
+                        >
+                          Use this marker first:
+                        </Button>
+                        <Select
+                          id="txr-intake-single-marker-marker"
+                          data-testid="txr-intake-single-marker-select"
+                          aria-label="Marker to use first"
+                          value={
+                            singleMarkerChoice.mode === 'chosen'
+                              ? singleMarkerChoice.marker
+                              : undefined
+                          }
+                          onChange={value =>
+                            void applyMarkerChoice({ mode: 'chosen', marker: value })
+                          }
+                          placeholder="Choose a marker…"
+                          options={smFacts.markers.map(marker => ({
+                            label: `${marker.name} (${marker.a} of ${marker.b} patients)`,
+                            value: marker.key,
+                          }))}
+                        />
+                        <p style={CHOICE_SMALL}>
+                          Methods that take one marker use it; methods that take more use it and
+                          the next ones in the ranking.
+                        </p>
+                      </div>
+                      <div style={CHOICE_BLOCK}>
+                        <Button
+                          data-testid="txr-intake-single-marker-leave-out"
+                          variant="outline"
+                          role="radio"
+                          aria-checked={singleMarkerChoice.mode === 'leave_out'}
+                          style={singleMarkerChoice.mode === 'leave_out' ? PILL_SELECTED : PILL}
+                          onClick={() => void applyMarkerChoice({ mode: 'leave_out' })}
+                        >
+                          Leave those methods out
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div style={QUESTION_GROUP}>
                   <div style={QUESTION_LABEL}>When you drew blood</div>

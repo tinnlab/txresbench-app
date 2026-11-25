@@ -172,6 +172,7 @@ fn train_ctx(
         target: RunTarget::TrainMethod,
         sink: Arc::new(SilentSink),
         list: method_list::current(),
+        marker_plan: None,
     },
         cancel_tx,
     )

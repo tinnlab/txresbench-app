@@ -213,6 +213,9 @@ pub struct MethodRow {
     pub env_arch: Option<String>,
     pub env_layer_tag: Option<String>,
     pub env_base_tag: Option<String>,
+    /// The JSON list of main markers a no-list method of a learn run was given
+    /// (NULL = not recorded — single-marker-choice round 1a).
+    pub markers_used: Option<Json>,
 }
 
 impl MethodRow {
@@ -299,6 +302,10 @@ impl MethodRow {
             None
         };
         let bytes_downloaded = self.bytes_downloaded as u64;
+        let markers_used = match self.markers_used {
+            Some(v) => Some(json_parse(&v, "txr_run_methods.markers_used")?),
+            None => None,
+        };
         Ok(TxrRunMethod {
             method_id: self.method_id,
             label: self.label,
@@ -320,6 +327,7 @@ impl MethodRow {
             prob_source,
             coverage,
             env,
+            markers_used,
         })
     }
 }
@@ -444,6 +452,9 @@ pub struct MethodPatch {
     pub trained_on_patients: Option<u32>,
     pub size_bytes: Option<u64>,
     pub own_auc: Option<f64>,
+    /// The markers the run's marker rule gave a no-list method (the `markers_used`
+    /// JSON list; `None` keeps the column).
+    pub markers_used: Option<Vec<String>>,
 }
 
 impl MethodPatch {
@@ -988,7 +999,8 @@ impl TxrRepository {
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          trained_on_patients, size_bytes, own_auc,
-                         env_method_version, env_arch, env_layer_tag, env_base_tag"#,
+                         env_method_version, env_arch, env_layer_tag, env_base_tag,
+                         markers_used as "markers_used?: serde_json::Value""#,
             new.id,
             new.run_id,
             method_id,
@@ -1021,7 +1033,8 @@ impl TxrRepository {
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       trained_on_patients, size_bytes, own_auc,
-                      env_method_version, env_arch, env_layer_tag, env_base_tag
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      markers_used as "markers_used?: serde_json::Value"
                FROM txr_run_methods
                WHERE run_id = $1 AND method_id = $2"#,
             run_id,
@@ -1046,7 +1059,8 @@ impl TxrRepository {
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       trained_on_patients, size_bytes, own_auc,
-                      env_method_version, env_arch, env_layer_tag, env_base_tag
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      markers_used as "markers_used?: serde_json::Value"
                FROM txr_run_methods
                WHERE run_id = $1
                ORDER BY rowid"#,
@@ -1099,6 +1113,10 @@ impl TxrRepository {
         let env_arch = patch.env_arch.as_deref();
         let env_layer_tag = patch.env_layer_tag.as_deref();
         let env_base_tag = patch.env_base_tag.as_deref();
+        let markers_used: Option<Json> = match &patch.markers_used {
+            Some(v) => Some(json_value(v, "markers_used")?),
+            None => None,
+        };
         sqlx::query_as!(
             MethodRow,
             r#"UPDATE txr_run_methods SET
@@ -1128,7 +1146,8 @@ impl TxrRepository {
                  env_method_version = COALESCE($26, env_method_version),
                  env_arch = COALESCE($27, env_arch),
                  env_layer_tag = COALESCE($28, env_layer_tag),
-                 env_base_tag = COALESCE($29, env_base_tag)
+                 env_base_tag = COALESCE($29, env_base_tag),
+                 markers_used = COALESCE($30, markers_used)
                WHERE run_id = $1 AND method_id = $2
                RETURNING id as "id: Uuid", run_id as "run_id: Uuid", method_id, label,
                          version, "group",
@@ -1140,7 +1159,8 @@ impl TxrRepository {
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          trained_on_patients, size_bytes, own_auc,
-                         env_method_version, env_arch, env_layer_tag, env_base_tag"#,
+                         env_method_version, env_arch, env_layer_tag, env_base_tag,
+                         markers_used as "markers_used?: serde_json::Value""#,
             run_id,
             method_id,
             state,
@@ -1170,6 +1190,7 @@ impl TxrRepository {
             env_arch,
             env_layer_tag,
             env_base_tag,
+            markers_used,
         )
         .fetch_optional(&self.pool)
         .await
@@ -1456,7 +1477,8 @@ pub async fn produced_models(
                   started_at as "started_at?: DateTime<Utc>",
                   finished_at as "finished_at?: DateTime<Utc>",
                   trained_on_patients, size_bytes, own_auc,
-                  env_method_version, env_arch, env_layer_tag, env_base_tag
+                  env_method_version, env_arch, env_layer_tag, env_base_tag,
+                  markers_used as "markers_used?: serde_json::Value"
            FROM txr_run_methods
            WHERE run_id = $1
              AND model_out_digest IS NOT NULL
@@ -1917,6 +1939,50 @@ mod tests {
         // The catalogue fact fills the row's group_label (dynforest is a
         // real catalogue id — the fact is the fixture's own poster).
         assert!(!wire.group_label.is_empty());
+    }
+
+    /// single-marker-choice round 1a: `markers_used` is a nullable JSON list
+    /// set through the method patch path and read back on the wire row; an
+    /// untouched row stays NULL.
+    #[tokio::test]
+    async fn markers_used_patch_round_trips_to_the_wire_row() {
+        let pool = module_pool().await;
+        let repo = TxrRepository::new(pool);
+        let run = sample_new_run(None);
+        repo.insert_run(&run).await.expect("run");
+        repo.insert_method(&sample_new_method(run.id, "m", TxrMethodState::Waiting))
+            .await
+            .expect("m");
+        repo.insert_method(&sample_new_method(run.id, "m2", TxrMethodState::Waiting))
+            .await
+            .expect("m2");
+
+        let row = repo
+            .patch_method(
+                run.id,
+                "m",
+                &MethodPatch {
+                    markers_used: Some(vec!["LDH".to_string(), "CEA".to_string()]),
+                    ..MethodPatch::default()
+                },
+            )
+            .await
+            .expect("patch");
+        let wire = row.into_method().expect("wire");
+        assert_eq!(
+            wire.markers_used,
+            Some(vec!["LDH".to_string(), "CEA".to_string()]),
+            "the JSON list round-trips"
+        );
+
+        let wire2 = repo
+            .get_method(run.id, "m2")
+            .await
+            .expect("get")
+            .expect("row")
+            .into_method()
+            .expect("wire");
+        assert_eq!(wire2.markers_used, None, "an untouched row reads NULL");
     }
 
     /// ITEM-7: `progress_pct` is DERIVED at read (PROV-EE-10 has no column):

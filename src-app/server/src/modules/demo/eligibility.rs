@@ -427,6 +427,7 @@ mod tests {
         let bundle = test_bundle();
         let body = crate::modules::method_catalogue::types::EligibilityRequest::Inventory {
             inventory: crate::modules::method_catalogue::types::InventoryEligibilityRequest {
+                marker_plan: None,
                 patients: 94,
                 decision_day: 56.0,
                 baseline_max_day: 0.0,

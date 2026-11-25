@@ -44,8 +44,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMethodListRevision } from '@/lib/txr-method-list/revision'
 import { ApiClient } from '@/api-client'
-import type { EligibilityResponse, MarkerGroup, MethodEligibility } from '@/api-client/types'
+import type {
+  EligibilityResponse,
+  InventoryEligibilityRequest,
+  MarkerGroup,
+  MethodEligibility,
+  PlanBlock,
+} from '@/api-client/types'
 import { formatReasonLine } from '@/modules/txrlist/lib/format'
+import { stableInventoryKey } from '@/modules/txrlist'
 import { useFilterOptions } from './useFilterOptions'
 import {
   buildStudyPreviewRequest,
@@ -141,6 +148,8 @@ function errorMessage(err: unknown): string {
 export function useStudyPreview(
   answers: StudyAnswers,
   groups: MarkerGroup[] | null,
+  inventory: InventoryEligibilityRequest | null = null,
+  markerPlan: PlanBlock | null = null,
 ): UseStudyPreviewResult {
   // The method list's revision is part of the key: a new list asks again (the
   // verdicts are the list's), the old entries are simply never read.
@@ -151,9 +160,19 @@ export function useStudyPreview(
   // lands the request is re-issued with the known answers. The reason lines
   // also read the vocabulary's treatment-class labels.
   const { vocabulary } = useFilterOptions()
+  // The file facts (round 2): the validated inventory + the step-3 marker
+  // plan are part of the request CONTENT — a change re-issues the preview
+  // (a content-identical rebuild never does; the inventory's stable key is
+  // the discriminator).
+  const inventoryKey = useMemo(
+    () => (inventory === null ? 'no-inventory' : stableInventoryKey(inventory)),
+    [inventory],
+  )
+  const planKey = useMemo(() => JSON.stringify(markerPlan ?? null), [markerPlan])
   const key = useMemo(
-    () => `${requestKey(answers, groups)}#${revision}#${vocabulary === null ? 'vocab-not-loaded' : 'vocab-loaded'}`,
-    [answers, groups, revision, vocabulary],
+    () =>
+      `${requestKey(answers, groups)}#${revision}#${vocabulary === null ? 'vocab-not-loaded' : 'vocab-loaded'}#${inventoryKey}#${planKey}`,
+    [answers, groups, revision, vocabulary, inventoryKey, planKey],
   )
   const [state, setState] = useState<StudyPreviewState>(EMPTY_STATE)
   const [refresh, setRefresh] = useState(0)
@@ -177,7 +196,7 @@ export function useStudyPreview(
     setState(prev => ({ ...prev, loading: true, error: null }))
     const timer = setTimeout(() => {
       void ApiClient.MethodCatalogue.eligibility({
-        preview: buildStudyPreviewRequest(answers, groups, vocabulary),
+        preview: buildStudyPreviewRequest(answers, groups, vocabulary, inventory, markerPlan),
       })
         .then((response: EligibilityResponse) => {
           if (epoch.current !== requestEpoch) return

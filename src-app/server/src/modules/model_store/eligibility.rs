@@ -30,7 +30,11 @@
 //!   that IS a standard-id text, e.g. "LOINC 2039-6 CEA") + case-insensitive
 //!   name equality against the inventory marker's key/display name + the
 //!   vocabulary's name/alias surface (the catalogue engine's `other`-system
-//!   fallback names — never an app-side marker list).
+//!   fallback names — never an app-side marker list). The name/id set is
+//!   [`marker_matching_surface`]'s — the SAME set the reuse executor's
+//!   recorded-feature selection builds from the canonical bundle's marker
+//!   facts (round 1d), so a recorded display name or a secondary standard id
+//!   resolves in the run exactly as here.
 //! - Every other check (detection call, covariate block, unit families,
 //!   draw coverage) mirrors the catalogue engine's inventory semantics
 //!   verbatim — the SAME interpretation notes (coverage is the MAX per-marker
@@ -74,7 +78,7 @@
 //! null + the weaker `estimate` quality when the method is absent from the
 //! compiled catalogue (the verdict stands, the time is not promised).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use axum::http::StatusCode;
 use serde_json::Value as Json;
@@ -93,7 +97,7 @@ use crate::modules::execution_engine::types::TxrTask;
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::eligibility::{
     estimate_quality_for, estimate_seconds_for, marker_count_params, marker_count_unmet,
-    parse_standard_ids, required_marker_match, UnitMarkerRow,
+    marker_matching_surface, required_marker_match, UnitMarkerRow,
 };
 use crate::modules::method_catalogue::types::{
     CovariateMode, Coverage, EligibilityStatus, InventoryEligibilityRequest, InventoryMarker,
@@ -277,40 +281,62 @@ fn model_verdict_in(
         Some(rule) => required_resolution(list, inv, rule),
         None => features_resolution(list, inv, &features),
     };
+    // A no-fixed-list model with recorded features runs on THOSE markers
+    // (single-marker-choice round 1b — the reuse selection is the recorded
+    // set, not the count rule): a missing feature is the "needs the marker X
+    // it was trained on" refusal; the count rule applies only to the
+    // required-rule models and to models saved before features were kept.
+    let recorded_features = required.is_none() && !features.is_empty();
     if !resolved.missing.is_empty() {
-        reasons.push(ModelReason {
-            code: ModelReasonCode::RequiredMarkerMissing,
-            params: BTreeMap::from([
-                (
-                    "missing".to_string(),
-                    Json::Array(
-                        resolved
-                            .missing
-                            .iter()
-                            .map(|id| Json::String(id.clone()))
-                            .collect(),
+        if recorded_features {
+            for marker_row in &resolved.missing_markers {
+                reasons.push(ModelReason {
+                    code: ModelReasonCode::ModelFeatureMissing,
+                    params: BTreeMap::from([(
+                        "marker".to_string(),
+                        Json::String(marker_row.id.clone()),
+                    )]),
+                });
+            }
+        } else {
+            reasons.push(ModelReason {
+                code: ModelReasonCode::RequiredMarkerMissing,
+                params: BTreeMap::from([
+                    (
+                        "missing".to_string(),
+                        Json::Array(
+                            resolved
+                                .missing
+                                .iter()
+                                .map(|id| Json::String(id.clone()))
+                                .collect(),
+                        ),
                     ),
-                ),
-                ("fraction".to_string(), Json::from(resolved.fraction)),
-            ]),
-        });
+                    ("fraction".to_string(), Json::from(resolved.fraction)),
+                ]),
+            });
+        }
         missing_markers = resolved.missing_markers.clone();
-    } else if let Some((expected, given)) = marker_count_unmet(
-        marker_facts.kind,
-        marker_facts.count,
-        required.is_some(),
-        &resolved.used,
-        inv,
-    ) {
-        // The reuse run gives the model the file's main markers (no fixed
-        // list) or the markers its list resolves to, through the engine's
-        // count rule (`bundle::method_marker_set`) — NOT the marker set it was
-        // saved with; any other number than the model takes is refused there
-        // (BUNDLE_MARKER_COUNT_UNMET), so the verdict hides it (FOLLOW-UP 1).
-        reasons.push(ModelReason {
-            code: ModelReasonCode::MarkerCountUnmet,
-            params: marker_count_params(expected, &given),
-        });
+    } else if !recorded_features {
+        if let Some((expected, given)) = marker_count_unmet(
+            marker_facts.kind,
+            marker_facts.count,
+            required.is_some(),
+            &resolved.used,
+            inv,
+        ) {
+            // The reuse run gives the model the file's main markers (no fixed
+            // list) or the markers its list resolves to, through the engine's
+            // count rule (`bundle::method_marker_set`) — NOT the marker set
+            // it was saved with; any other number than the model takes is
+            // refused there (BUNDLE_MARKER_COUNT_UNMET), so the verdict hides
+            // it (FOLLOW-UP 1; round 1b: only a model with no recorded
+            // features keeps today's rule).
+            reasons.push(ModelReason {
+                code: ModelReasonCode::MarkerCountUnmet,
+                params: marker_count_params(expected, &given),
+            });
+        }
     }
 
     // A model that consumed the detection call needs the file to carry one.
@@ -581,21 +607,20 @@ fn features_resolution<'a>(
 /// Whether a recorded feature resolves in an inventory marker: case-
 /// insensitive equality against the marker's key/display name, a standard-id
 /// text of the feature against the marker's recorded ids, or the marker's
-/// vocabulary name/alias surface (the provider's `other`-system fallback).
+/// vocabulary name/alias surface (the provider's `other`-system fallback) —
+/// the SAME core the reuse executor's recorded-feature selection uses
+/// ([`crate::modules::method_catalogue::eligibility::recorded_feature_matches`]
+/// over [`marker_matching_surface`], audit fix 2), so eligibility "can run"
+/// and the run agree on a recorded display name and every standard id
+/// (round 1d).
 fn feature_matches(list: &MethodList, mk: &InventoryMarker, feature: &str) -> bool {
-    let f = feature.trim();
-    if mk.key.eq_ignore_ascii_case(f) || mk.display_name.eq_ignore_ascii_case(f) {
-        return true;
-    }
-    let ids = parse_standard_ids(f);
-    if !ids.is_empty() {
-        for sid in &mk.standard_ids {
-            if ids.contains(&sid.id.to_ascii_lowercase()) {
-                return true;
-            }
-        }
-    }
-    names_of(list, mk).contains(&f.to_ascii_lowercase())
+    let (names, ids) = marker_matching_surface(
+        list.marker_vocabulary(),
+        &mk.key,
+        &mk.display_name,
+        &mk.standard_ids,
+    );
+    crate::modules::method_catalogue::eligibility::recorded_feature_matches(feature, &names, &ids)
 }
 
 /// The vocabulary entry for a `(system, id)` pair — the catalogue engine's
@@ -611,25 +636,6 @@ fn vocab_marker<'l>(
     list.marker_vocabulary()
         .iter()
         .find(|v| v.system.as_str().eq_ignore_ascii_case(system) && v.id.eq_ignore_ascii_case(id))
-}
-
-/// The names a file marker answers to (its own + the resolved vocabulary
-/// marker's names/aliases — the definition the catalogue engine uses; the
-/// store binds it, never re-derives a marker list).
-fn names_of(list: &MethodList, mk: &InventoryMarker) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    names.insert(mk.key.trim().to_ascii_lowercase());
-    names.insert(mk.display_name.trim().to_ascii_lowercase());
-    for sid in &mk.standard_ids {
-        if let Some(v) = vocab_marker(list, &sid.system, &sid.id) {
-            names.insert(v.id.to_ascii_lowercase());
-            names.insert(v.display_name.trim().to_ascii_lowercase());
-            for a in &v.aliases {
-                names.insert(a.trim().to_ascii_lowercase());
-            }
-        }
-    }
-    names
 }
 
 /// The row's standard-id text for the provider's `parse_standard_ids` — each
@@ -833,6 +839,7 @@ fn verdict(reasons: &[ModelReason], eligible: u32, total: u32) -> EligibilitySta
                 | ModelReasonCode::TaskIncompatible
                 | ModelReasonCode::ResponseLabelMissing
                 | ModelReasonCode::SurvivalOutcomeMissing
+                | ModelReasonCode::ModelFeatureMissing
         )
     });
     if hard {
@@ -949,6 +956,7 @@ mod tests {
 
     fn inventory(markers: Vec<InventoryMarker>, patients: u32, decision_day: f64) -> InventoryEligibilityRequest {
         InventoryEligibilityRequest {
+        marker_plan: None,
             patients,
             decision_day,
             baseline_max_day: 0.0,
@@ -1001,13 +1009,14 @@ mod tests {
         assert_eq!(v.estimate_quality, estimate_quality_for(m));
     }
 
-    /// FOLLOW-UP 1: a saved one-marker model without a fixed list (kelim's
-    /// shape) on a file with three markers. Its recorded marker (M1) is
-    /// there, but the reuse run gives it all three main markers and the
-    /// engine refuses that number, so the verdict hides it; on a file with
-    /// just its marker it runs.
+    /// single-marker-choice round 1b (FOLLOW-UP 1's fix): a saved one-marker
+    /// model without a fixed list (kelim's shape) is evaluated on its
+    /// RECORDED marker, not the count rule — on a file with three markers it
+    /// runs (its marker is there); on a file WITHOUT its marker it is refused
+    /// with MODEL_FEATURE_MISSING; a model with no recorded features keeps
+    /// the count rule.
     #[test]
-    fn a_one_marker_model_without_a_list_cannot_run_on_three_markers() {
+    fn a_one_marker_model_without_a_list_uses_its_recorded_marker() {
         let row = base_row("cox-cutpoint-risk");
         let per = vec![("S0001", 1, 2), ("S0002", 1, 3)];
         let three = inventory(
@@ -1020,23 +1029,78 @@ mod tests {
             56.0,
         );
         let v = model_verdict(&row, &three).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "the recorded marker runs: {:?}", code_names(&v));
+        assert_eq!(v.coverage.eligible, 2);
+
+        // The file WITHOUT the recorded marker M1: the recorded-feature
+        // refusal, naming the marker.
+        let without = inventory(
+            vec![
+                marker("M2", "M2", UnitFamily::None, vec![], per.clone(), false),
+                marker("M3", "M3", UnitFamily::None, vec![], per.clone(), false),
+            ],
+            2,
+            56.0,
+        );
+        let v = model_verdict(&row, &without).expect("verdict");
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         let r = v
             .reasons
             .iter()
-            .find(|r| r.code == ModelReasonCode::MarkerCountUnmet)
-            .unwrap_or_else(|| panic!("no MARKER_COUNT_UNMET in {:?}", code_names(&v)));
-        assert_eq!(r.params["expected"], json!(1));
-        assert_eq!(r.params["found"], json!(3));
-        assert_eq!(r.params["markers"], json!(["M1", "M2", "M3"]));
+            .find(|r| r.code == ModelReasonCode::ModelFeatureMissing)
+            .unwrap_or_else(|| panic!("no MODEL_FEATURE_MISSING in {:?}", code_names(&v)));
+        assert_eq!(r.params["marker"], json!("M1"));
+        assert_eq!(v.missing_markers.len(), 1);
+        assert_eq!(v.missing_markers[0].id, "M1");
 
-        let one = inventory(
-            vec![marker("M1", "M1", UnitFamily::None, vec![], per, false)],
+        // A model saved BEFORE features were recorded keeps today's verdict:
+        // the requirement guard answers REQUIREMENTS_UNRECORDED (the run side
+        // keeps today's count rule).
+        let mut old_row = base_row("cox-cutpoint-risk");
+        old_row.features = json!([]);
+        let v = model_verdict(&old_row, &three).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(v
+            .reasons
+            .iter()
+            .any(|r| r.code == ModelReasonCode::ModelRequirementsUnrecorded));
+    }
+
+    /// The lost FOLLOW-UP-1 check restored (round 1d): origin/main's
+    /// `a_one_marker_model_without_a_list_cannot_run_on_three_markers`
+    /// asserted a one-marker (no fixed list) model on a THREE-marker file.
+    /// Round 1b changed that: a model WITH its recorded marker runs on it.
+    /// A model with NO recorded features still gets the guard's verdict, and
+    /// today's verdict/reason for it on the three-marker file is EXACTLY
+    /// `cannot_run` + `MODEL_REQUIREMENTS_UNRECORDED` with an empty eligible
+    /// set — asserted in full, never weakened to "has some reason".
+    #[test]
+    fn a_one_marker_model_without_recorded_features_cannot_run_on_three_markers() {
+        let mut row = base_row("cox-cutpoint-risk");
+        row.features = json!([]);
+        let per = vec![("S0001", 1, 2), ("S0002", 1, 3)];
+        let three = inventory(
+            vec![
+                marker("M2", "M2", UnitFamily::None, vec![], per.clone(), false),
+                marker("M1", "M1", UnitFamily::None, vec![], per.clone(), false),
+                marker("M3", "M3", UnitFamily::None, vec![], per.clone(), false),
+            ],
             2,
             56.0,
         );
-        let v = model_verdict(&row, &one).expect("verdict");
-        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", code_names(&v));
+        let v = model_verdict(&row, &three).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(v.reasons.len(), 1, "{:?}", code_names(&v));
+        assert_eq!(v.reasons[0].code, ModelReasonCode::ModelRequirementsUnrecorded);
+        assert_eq!(v.coverage.eligible, 0);
+        assert_eq!(v.coverage.total, 2);
+        assert_eq!(v.coverage.fraction, 0.0);
+        assert_eq!(v.min_draws.required, 0);
+        assert_eq!(
+            v.missing_markers.len(),
+            0,
+            "the guard carries the verdict; no MARKER_COUNT_UNMET marker list"
+        );
     }
 
     /// TEST-MS-11 — a model of a method the app no longer ships (absent from
@@ -1256,7 +1320,9 @@ mod tests {
             "both features resolved"
         );
 
-        // A missing feature → REQUIRED_MARKER_MISSING with the feature name.
+        // A missing feature → MODEL_FEATURE_MISSING with the feature name
+        // (round 1b: the model runs on its recorded markers, so a file
+        // without one is the "needs the marker X it was trained on" refusal).
         let mut grow = frow.clone();
         grow.features = json!(["M1", "LDH"]);
         let inv2 = inventory(
@@ -1268,10 +1334,47 @@ mod tests {
         assert!(v2
             .reasons
             .iter()
-            .any(|r| r.code == ModelReasonCode::RequiredMarkerMissing));
+            .any(|r| r.code == ModelReasonCode::ModelFeatureMissing));
         assert_eq!(v2.missing_markers[0].id, "LDH");
         assert_eq!(v2.missing_markers[0].id_system, "other");
         assert_eq!(v2.status, EligibilityStatus::CannotRun);
+    }
+
+    /// Round 1d — the eligibility side resolves a recorded DISPLAY name and a
+    /// recorded SECONDARY standard id (one the marker's primary id is not):
+    /// the marker's surface is [`marker_matching_surface`]'s — the SAME name/
+    /// id set the reuse executor's recorded-feature selection builds from the
+    /// canonical feature's facts, so "can run" and the run agree on both.
+    #[test]
+    fn recorded_display_name_and_secondary_id_resolve() {
+        let mut frow = base_row("landmark-cox-current");
+        frow.features = json!(["carcinoembryonic antigen (CEA, ng/mL)", "HGNC: CEA"]);
+        frow.marker_facts = json!({"kind": "multi", "count": 2, "min_draws": 1, "needs_baseline": false, "uses_history": "landmark", "needs_detection_call": false, "marker_groups_required": []});
+        let inv = inventory(
+            vec![marker(
+                "CEA_serum",
+                "carcinoembryonic antigen (CEA, ng/mL)",
+                UnitFamily::None,
+                vec!["LOINC:2039-6", "HGNC:CEA"],
+                vec![("S0001", 1, 2)],
+                false,
+            )],
+            1,
+            56.0,
+        );
+        let v = model_verdict(&frow, &inv).expect("verdict");
+        assert_eq!(
+            v.status,
+            EligibilityStatus::CanRun,
+            "the display name and the secondary standard id both resolve: {:?}",
+            code_names(&v)
+        );
+        assert!(
+            !v.reasons
+                .iter()
+                .any(|r| r.code == ModelReasonCode::ModelFeatureMissing),
+            "both recorded features resolved"
+        );
     }
 
     /// TEST-MS-12 (acceptance, INV-4) — the endpoint never returns a verdict

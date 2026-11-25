@@ -87,7 +87,7 @@ pub const DEFAULT_AT_A_TIME: u32 = 3;
 /// `Txr.setAtATime` is the mid-run lane-change route GROWN at reconcile
 /// (CONS-UI-RUN-11; ITEM-10's number 16 — the plan's ITEM-10 text names 15
 /// and the older 13/14 route counts are the pre-growth shapes).
-pub const ROUTE_DOC_IDS: [&str; 16] = [
+pub const ROUTE_DOC_IDS: [&str; 17] = [
     "Txr.createRun",
     "Txr.listRuns",
     "Txr.getRun",
@@ -104,6 +104,7 @@ pub const ROUTE_DOC_IDS: [&str; 16] = [
     "Txr.downloadPredictions",
     "Txr.getAnalysisConfig",
     "Txr.updateAnalysisConfig",
+    "Txr.markerRanking",
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,6 +441,71 @@ fn default_keep_copies() -> bool {
     true
 }
 
+/// `POST /api/txr/runs/marker-ranking` (single-marker-choice round 1b, the
+/// step-4 line's call): the SAME parsed tables a run create request carries
+/// (the validated `patients` + `measurements`, plus the joins/mapping that
+/// made them the file's markers) and the run's endpoint + decision day + the
+/// person's choice. The server canonicalises like run create (one code path)
+/// and ranks the file's markers on the run endpoint's outcome.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MarkerRankingRequest {
+    /// The run-create `input` shape, flattened (patients, measurements, joins,
+    /// mapping, keep_copies, predict_measurements).
+    #[serde(flatten)]
+    pub input: TxrRunInput,
+    /// The run endpoint the ranking is computed on (pfs →
+    /// pfs_time/pfs_event, os → os_time/os_event).
+    pub endpoint: TxrEndpoint,
+    /// The decision day L.
+    pub decision_day: f64,
+    /// The person's step-3 choice (absent = `ranked`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub single_marker: Option<super::marker_rank::SingleMarkerChoice>,
+}
+
+impl MarkerRankingRequest {
+    /// The marker-ranking request's validation (audit fix 6 — the SAME
+    /// `decision_day` rule run create applies, [`CreateRunRequest::validate`]:
+    /// the same error code for NaN / zero / negative).
+    pub fn validate(&self) -> Result<(), TxrRequestError> {
+        if !(self.decision_day > 0.0) {
+            return Err(TxrRequestError {
+                code: TxrRequestErrorCode::InvalidDecisionDay,
+                field: "decision_day".to_string(),
+                message: format!("decision_day must be > 0, got {}", self.decision_day),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// The ranking response: the full per-marker ranking (score desc / n desc /
+/// name asc, coverage fractions), the offered markers and the top 5, the
+/// ranking-patient count, the error (code + message) when there is no ranking
+/// result, and what each no-list kind would receive under the current choice
+/// (the step-3 select's facts). On an error the ranking facts are empty and
+/// `error` is the reason.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MarkerRankingResponse {
+    pub ranking: Vec<super::marker_rank::RankedMarker>,
+    pub offered: Vec<String>,
+    pub top: Vec<String>,
+    pub ranking_patients: usize,
+    pub error: Option<super::marker_rank::PlanError>,
+    pub markers_by_kind: MarkersByKind,
+}
+
+/// What each no-list method kind would receive under the current choice
+/// (single → 1, any → the top 5, multi k → the top k for every k the
+/// catalogue's no-list multi methods declare). The choice's `leave_out` /
+/// an error leave the lists empty.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MarkersByKind {
+    pub single: Vec<String>,
+    pub any: Vec<String>,
+    pub multi: std::collections::BTreeMap<u32, Vec<String>>,
+}
+
 /// One confirmed join of a measurements column to the patients table.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TxrJoin {
@@ -478,6 +544,12 @@ pub struct RunConfig {
     pub save_models: bool,
     #[serde(default)]
     pub label_day: Option<f64>,
+    /// How the methods that pick their markers from the file choose them
+    /// (single-marker-choice round 1a): absent = `ranked` (the benchmark's
+    /// rule). Additive wire field — an older client's request deserializes as
+    /// today.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub single_marker: Option<super::marker_rank::SingleMarkerChoice>,
 }
 
 fn default_decision_day() -> f64 {
@@ -503,6 +575,7 @@ impl Default for RunConfig {
             cpus: None,
             save_models: false,
             label_day: None,
+            single_marker: None,
         }
     }
 }
@@ -540,6 +613,13 @@ pub struct TxrModelAsset {
     /// Absent on an asset from an older client: no check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_day: Option<f64>,
+    /// The marker set the model was trained on (the recorded params
+    /// `features` — single-marker-choice round 1b): a reuse run uses THESE
+    /// markers, not the count rule; a predict file without one is refused
+    /// (`BUNDLE_TEST_MARKER_MISSING`). Absent/empty on a model saved before
+    /// they were kept: the count rule stays.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
 }
 
 /// The run-shaping facts of a catalogue row: the method.json contract the
@@ -770,6 +850,10 @@ pub struct TxrRunMethod {
     pub prob_source: Option<TxrProbSource>,
     pub coverage: Option<TxrCoverage>,
     pub env: Option<TxrMethodEnv>,
+    /// The markers the run's marker rule gave a no-list method of a learn run
+    /// (marker_choice round 1a; nullable JSON list — `None` for fixed-list
+    /// methods, reuse runs and older rows).
+    pub markers_used: Option<Vec<String>>,
 }
 
 /// One structured reason (code from the ONE vocabulary — the provider's
@@ -1287,6 +1371,7 @@ mod tests {
             conversions: Default::default(),
             method_facts: None,
             decision_day: None,
+            features: Vec::new(),
         }
     }
 
@@ -1420,11 +1505,12 @@ mod tests {
     /// (the 16-route surface — the generated client's identity).
     #[test]
     fn route_doc_ids_are_the_plan_set() {
-        assert_eq!(ROUTE_DOC_IDS.len(), 16);
+        assert_eq!(ROUTE_DOC_IDS.len(), 17);
         assert_eq!(ROUTE_DOC_IDS[0], "Txr.createRun");
         assert_eq!(ROUTE_DOC_IDS[3], "Txr.streamRun");
         assert_eq!(ROUTE_DOC_IDS[9], "Txr.setAtATime");
         assert_eq!(ROUTE_DOC_IDS[15], "Txr.updateAnalysisConfig");
+        assert_eq!(ROUTE_DOC_IDS[16], "Txr.markerRanking", "the step-4 ranking route");
     }
 
     /// TEST-EE-02: the wire defaults — a partial `RunConfig` and a partial
@@ -1440,6 +1526,9 @@ mod tests {
         assert_eq!(cfg.cpus, None);
         assert!(!cfg.save_models);
         assert_eq!(cfg.label_day, None);
+        // single-marker-choice round 1a: absent `single_marker` = ranked (the
+        // benchmark's rule) — an older client's run config is unchanged.
+        assert_eq!(cfg.single_marker, None);
 
         let input: TxrRunInput = serde_json::from_value(json!({
             "measurements": {
@@ -1453,6 +1542,126 @@ mod tests {
         assert!(input.keep_copies, "the K-board copy-kept default is true");
         assert!(input.joins.is_empty());
         assert!(input.predict_measurements.is_none());
+    }
+
+    /// single-marker-choice round 1a: the person's choice is an additive wire
+    /// field with a serde `mode` tag (snake_case) — `ranked` (default),
+    /// `chosen {marker}`, `leave_out` — and a run config that carries one
+    /// round-trips.
+    #[test]
+    fn single_marker_choice_wire_shape() {
+        use super::super::marker_rank::SingleMarkerChoice;
+
+        assert_eq!(
+            serde_json::to_value(SingleMarkerChoice::Ranked).unwrap(),
+            json!({"mode": "ranked"})
+        );
+        assert_eq!(
+            serde_json::to_value(SingleMarkerChoice::LeaveOut).unwrap(),
+            json!({"mode": "leave_out"})
+        );
+        let chosen = serde_json::to_value(SingleMarkerChoice::Chosen {
+            marker: "CEA".to_string(),
+        })
+        .unwrap();
+        assert_eq!(chosen, json!({"mode": "chosen", "marker": "CEA"}));
+
+        let cfg: RunConfig = serde_json::from_value(json!({
+            "single_marker": {"mode": "chosen", "marker": "LDH"}
+        }))
+        .unwrap();
+        assert_eq!(
+            cfg.single_marker,
+            Some(SingleMarkerChoice::Chosen {
+                marker: "LDH".to_string()
+            })
+        );
+        let back: RunConfig = serde_json::from_value(serde_json::to_value(&cfg).unwrap()).unwrap();
+        assert_eq!(back, cfg, "the stored config round-trips");
+    }
+
+    /// single-marker-choice round 1b: the ranking request's wire — the
+    /// run-create `input` shape flattened + endpoint/decision_day/single_marker
+    /// — and the response's shape.
+    #[test]
+    fn marker_ranking_request_and_response_wire_shapes() {
+        use super::super::marker_rank::{PlanError, RankedMarker};
+
+        let req: MarkerRankingRequest = serde_json::from_value(json!({
+            "patients": {
+                "source": {"name": "patients.csv", "format": "csv"},
+                "header_row": 1,
+                "columns": ["patient_id"],
+                "rows": []
+            },
+            "measurements": {
+                "source": {"name": "measurements.csv", "format": "csv"},
+                "header_row": 1,
+                "columns": ["patient_id"],
+                "rows": []
+            },
+            "endpoint": "pfs",
+            "decision_day": 56,
+            "single_marker": {"mode": "chosen", "marker": "LDH"}
+        }))
+        .unwrap();
+        assert_eq!(req.endpoint, TxrEndpoint::Pfs);
+        assert_eq!(req.decision_day, 56.0);
+        assert_eq!(
+            req.single_marker,
+            Some(super::super::marker_rank::SingleMarkerChoice::Chosen {
+                marker: "LDH".to_string()
+            })
+        );
+        assert_eq!(
+            req.input
+                .patients
+                .as_ref()
+                .map(|p| p.source.name.as_str()),
+            Some("patients.csv")
+        );
+
+        let resp = MarkerRankingResponse {
+            ranking: vec![RankedMarker {
+                marker: "LDH".to_string(),
+                score: 0.5,
+                n: 12,
+                coverage: 1.0,
+            }],
+            offered: vec!["LDH".to_string()],
+            top: vec!["LDH".to_string()],
+            ranking_patients: 12,
+            error: None,
+            markers_by_kind: MarkersByKind {
+                single: vec!["LDH".to_string()],
+                any: vec!["LDH".to_string()],
+                multi: std::collections::BTreeMap::from([(2u32, vec!["LDH".to_string()])]),
+            },
+        };
+        let v = serde_json::to_value(&resp).unwrap();
+        assert_eq!(v["ranking"][0]["marker"], "LDH");
+        assert_eq!(v["markers_by_kind"]["multi"]["2"], serde_json::json!(["LDH"]));
+        assert_eq!(v["error"], serde_json::Value::Null);
+
+        let err_resp = MarkerRankingResponse {
+            ranking: Vec::new(),
+            offered: Vec::new(),
+            top: Vec::new(),
+            ranking_patients: 0,
+            error: Some(PlanError {
+                code: "MARKER_RANKING_TOO_FEW".to_string(),
+                message: "Fewer than 10 patients ...".to_string(),
+            }),
+            markers_by_kind: MarkersByKind {
+                single: Vec::new(),
+                any: Vec::new(),
+                multi: std::collections::BTreeMap::new(),
+            },
+        };
+        let v = serde_json::to_value(&err_resp).unwrap();
+        assert_eq!(v["error"]["code"], "MARKER_RANKING_TOO_FEW");
+        let back: MarkerRankingResponse = serde_json::from_value(v).unwrap();
+        assert_eq!(back.error.unwrap().code, "MARKER_RANKING_TOO_FEW");
     }
 
     /// TEST-EE-02: a complete summary serializes to the plan's field names
