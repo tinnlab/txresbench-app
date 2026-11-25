@@ -684,6 +684,8 @@ pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
             baseline_max_day,
             look_ahead_day_max: crate::modules::execution_engine::types::TxrLimits::LOOK_AHEAD_DAY_MAX,
             min_training_patients: crate::modules::execution_engine::bundle::MIN_TRAINING_PATIENTS as u32,
+            crosscheck_min_patients: crate::modules::execution_engine::bundle::CROSSCHECK_MIN_PATIENTS as u32,
+            crosscheck_min_per_class: crate::modules::execution_engine::bundle::CROSSCHECK_MIN_PER_CLASS as u32,
         },
     }
 }
@@ -1406,6 +1408,14 @@ mod tests {
         assert_eq!(
             t.limits.min_training_patients as usize,
             crate::modules::execution_engine::bundle::MIN_TRAINING_PATIENTS
+        );
+        assert_eq!(
+            t.limits.crosscheck_min_patients as usize,
+            crate::modules::execution_engine::bundle::CROSSCHECK_MIN_PATIENTS
+        );
+        assert_eq!(
+            t.limits.crosscheck_min_per_class as usize,
+            crate::modules::execution_engine::bundle::CROSSCHECK_MIN_PER_CLASS
         );
         // No patient id travels in the block.
         let json = serde_json::to_string(&t).expect("serializes");

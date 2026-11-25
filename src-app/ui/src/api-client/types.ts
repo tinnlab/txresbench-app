@@ -3418,6 +3418,16 @@ export interface TextRectsResponse {
 export interface TimelineLimits {
   /** A draw on a later day is a draw during treatment. */
   baseline_max_day: number
+  /**
+   * The smallest whole training cohort on which the run's K=3 stratified
+   *  cross-fit can work (the engine's `CROSSCHECK_MIN_PATIENTS`).
+   */
+  crosscheck_min_patients: number
+  /**
+   * The smallest per-class count of that cohort (the engine's
+   *  `CROSSCHECK_MIN_PER_CLASS`).
+   */
+  crosscheck_min_per_class: number
   /** The latest look-ahead day a run accepts. */
   look_ahead_day_max: number
   /** The fewest patients an outcome is learned from. */

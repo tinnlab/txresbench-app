@@ -88,6 +88,7 @@ import { predictFilesPath, runningPath } from '../routes'
 import { previousLearnRoute } from '@/modules/txrshell/lib/flowSteps'
 import {
   checkLookAhead,
+  crosscheckSizeWarning,
   drawDayError,
   lookAheadSuggestions,
   plainLookAheadDefault,
@@ -747,6 +748,26 @@ export function ChooseMethodsPage() {
     ? null
     : checkLookAhead(dayFacts, settings.decision_day, settings.look_ahead_day, settings.endpoint, lookAheadMax)
         .error
+
+  // The ONE cross-check notice above the method list: the file is too small
+  // for the engine's K=3 stratified cross-check at the shown look-ahead day
+  // (the same known-label counts the day line shows, compared with the
+  // engine's own limits from the validate facts — no constant here). It is
+  // a notice only: it changes no tick and no eligibility verdict; the run
+  // still refuses per method with BUNDLE_CROSSCHECK_TOO_SMALL and its own
+  // per-method failure text.
+  const crosscheckNotice = useMemo(
+    () =>
+      dayFacts === null
+        ? null
+        : crosscheckSizeWarning(
+            dayFacts,
+            settings.decision_day,
+            settings.look_ahead_day,
+            settings.endpoint,
+          ),
+    [dayFacts, settings.decision_day, settings.look_ahead_day, settings.endpoint],
+  )
 
   // The load transition (the engine's sticky fields land after an edit): the
   // write-through body is once more the screen's truth. Keyed on the hook's

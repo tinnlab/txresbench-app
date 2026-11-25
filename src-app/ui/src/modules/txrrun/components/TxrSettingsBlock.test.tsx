@@ -74,7 +74,7 @@ const DAY_FACTS: FileTimeline = {
       os: { days: 500, event: 0 },
     })),
   ],
-  limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+  limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10, crosscheck_min_patients: 15, crosscheck_min_per_class: 3 },
 }
 
 /** 12 patients all followed to day 100 without the event (none known later). */

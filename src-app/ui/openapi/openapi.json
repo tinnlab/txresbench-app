@@ -15360,6 +15360,18 @@
             "type": "number",
             "format": "double"
           },
+          "crosscheck_min_patients": {
+            "description": "The smallest whole training cohort on which the run's K=3 stratified\n cross-fit can work (the engine's `CROSSCHECK_MIN_PATIENTS`).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "crosscheck_min_per_class": {
+            "description": "The smallest per-class count of that cohort (the engine's\n `CROSSCHECK_MIN_PER_CLASS`).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
           "look_ahead_day_max": {
             "description": "The latest look-ahead day a run accepts.",
             "type": "number",
@@ -15375,7 +15387,9 @@
         "required": [
           "baseline_max_day",
           "look_ahead_day_max",
-          "min_training_patients"
+          "min_training_patients",
+          "crosscheck_min_patients",
+          "crosscheck_min_per_class"
         ]
       },
       "TimelineOutcome": {
