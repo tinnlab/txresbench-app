@@ -49,9 +49,9 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
  * actions and the same `lib/flow` functions back the C and E screens.
  *
  * The card's green box on THIS screen keeps the board's own continuation —
- * "Found … rows: markers …; draws at day …. Next you choose the models that
- * can run on it." (predictMeasurementsStatus) — where the C screen ends the
- * same line with "Ready.".
+ * the same facts line and marker list as the C screen, without the C
+ * heading's "· Ready", ending with "Next you choose the models that can
+ * run on it." (predictMeasurementsStatus).
  *
  * Suggestion discipline (DEC-9) and the Continue gate (DEC-10) are the C
  * screen's: joins/vocabulary offers are confirmed, never auto-applied (the

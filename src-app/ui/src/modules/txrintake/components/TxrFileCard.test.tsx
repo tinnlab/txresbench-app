@@ -301,16 +301,15 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     seedValidation(patientsValidation())
     renderCard({ file })
     const status = screen.getByTestId('txr-intake-file-status-patients')
-    expect(within(status).getByText('✓ 151 patients read')).toBeTruthy()
+    expect(within(status).getByText('✓ 151 patients read · Ready')).toBeTruthy()
+    // The facts line replaces the old one-sentence detail.
     expect(
-      within(status).getByText(
-        'Found 151 rows, 62 progressions or deaths, median follow-up 231 days. Ready.',
-      ),
+      within(status).getByText('151 rows · 62 progressions or deaths · median follow-up 231 days'),
     ).toBeTruthy()
     expect(within(status).queryByText(/problem/)).toBeNull()
   })
 
-  it('the ready measurements box carries the board-N line with the C Ready terminator', () => {
+  it('the ready measurements box carries the board-N facts with the C Ready heading', () => {
     const measurements: LoadedFile = {
       ...loadedPatients(),
       source: { name: 'measurements.csv', format: 'csv' },
@@ -332,15 +331,17 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     )
     renderCard({ kind: 'measurements', mode: 'study', file: measurements })
     const status = screen.getByTestId('txr-intake-file-status-measurements')
-    expect(within(status).getByText('✓ 38 patients read')).toBeTruthy()
+    expect(within(status).getByText('✓ 38 patients read · Ready')).toBeTruthy()
     expect(
-      within(status).getByText(
-        'Found 1,102 rows: markers ctDNA, LDH and CEA; draws at day 0, 14, 28 and 56. Ready.',
-      ),
+      within(status).getByText('1,102 rows · draws at day 0, 14, 28 and 56'),
     ).toBeTruthy()
+    expect(within(status).getByText('Markers (3):')).toBeTruthy()
+    const markerItems = within(status).getByTestId('txr-intake-file-markers-measurements')
+    expect(markerItems.querySelectorAll(':scope > li')).toHaveLength(3)
+    expect(markerItems.textContent).toBe('ctDNALDHCEA')
   })
 
-  it('the predict box ends with the board continuation', () => {
+  it('the predict box keeps the continuation as its own line after the facts', () => {
     const measurements: LoadedFile = { ...loadedPatients() }
     measurements.inspection = inspectionFixture({ kind: 'measurements' })
     seedValidation(
@@ -352,11 +353,17 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     )
     renderCard({ kind: 'measurements', mode: 'predict', file: measurements })
     const status = screen.getByTestId('txr-intake-file-status-measurements')
+    // The predict heading keeps no "· Ready", the facts and marker
+    // list are the same, and the continuation is the LAST line.
+    expect(within(status).getByText('✓ 38 patients read')).toBeTruthy()
+    expect(within(status).getByText('1,102 rows · draws at day 0, 14, 28 and 56')).toBeTruthy()
+    expect(within(status).getByText('Markers (1):')).toBeTruthy()
     expect(
-      within(status).getByText(
-        'Found 1,102 rows: markers ctDNA; draws at day 0, 14, 28 and 56. Next you choose the models that can run on it.',
-      ),
+      within(status).getByText('Next you choose the models that can run on it.'),
     ).toBeTruthy()
+    expect(
+      within(status).getByTestId('txr-intake-file-markers-measurements').textContent,
+    ).toBe('ctDNA')
   })
 
   it('problems render the red box, one grouped line each (R2-5), codes in the details form (R2-3)', () => {
@@ -420,7 +427,7 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     seedValidation(patientsValidation())
     renderCard({ file })
     const status = screen.getByTestId('txr-intake-file-status-patients')
-    expect(within(status).getByText('✓ 151 patients read')).toBeTruthy()
+    expect(within(status).getByText('✓ 151 patients read · Ready')).toBeTruthy()
     // The green all-clear becomes the warning-toned "Ready, with notes"
     // state — the notes title names the state instead of hiding under a
     // green "Ready." card.
