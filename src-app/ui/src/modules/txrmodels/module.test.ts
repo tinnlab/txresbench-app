@@ -343,6 +343,10 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           // `scripts/collect-actions.mjs` writes it (the block's own
           // sanctioned change; the server code itself never moves).
           p !== 'src-app/server/src/modules/mcp/frontend-actions.json' &&
+          // predict-card-merge (its DRIFT-1): the committed-context pin's
+          // own test — `frontend_catalog.rs` (the manifest above supplies
+          // the merged list's two actions).
+          p !== 'src-app/server/src/modules/mcp/frontend_catalog.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
           // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
           // `Method`/`MethodSummary` wire additions' serialization pins

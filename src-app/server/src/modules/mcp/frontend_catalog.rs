@@ -383,6 +383,10 @@ mod tests {
         //   `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
         // - `models.run` on `txr.model-list` (the run button of the saved and
         //   ready-made model lists, `src-app/ui/src/modules/txrmodels/lib/modelRun.ts`),
+        // - `models.setListFilters` on `txr.model-list` (the merged list's
+        //   chip/search/sort writes, ChooseModelsPage.tsx),
+        // - `models.setSelection` on `txr.model-list` (the merged list's
+        //   checkbox/Select-all write, ChooseModelsPage.tsx),
         // - `flow.setLastDrawDay` on `txr.step` (the last-draw day of the
         //   questions step),
         // - `runSettings.setCovariates` on `txr.run-settings` (the
@@ -416,6 +420,8 @@ mod tests {
                 ("methods.applyPreset", "txr.method-picker"),
                 ("methods.setTicked", "txr.method-picker"),
                 ("models.run", "txr.model-list"),
+                ("models.setListFilters", "txr.model-list"),
+                ("models.setSelection", "txr.model-list"),
                 ("models.switchList", "txr.modelStep"),
                 ("runSettings.setCovariates", "txr.run-settings"),
                 ("runSettings.setDay", "txr.run-settings"),

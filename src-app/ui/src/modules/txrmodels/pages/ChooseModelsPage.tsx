@@ -595,8 +595,14 @@ export function ChooseModelsPage() {
   }, [factsByKey, outcome])
 
   /** The verdict-accounting facts of the whole list: with every verdict
-   *  ready, the fit/some/cannot totals; null while loading/failed. */
+   *  ready, the fit/some/cannot totals; null while loading/failed. The
+   *  ready flag takes the source's own load state: while the lab list or
+   *  the saved slice is still loading, no verdict is claimed for the other
+   *  half either (the old "names no number while the models load" rule —
+   *  a lab-only or saved-only count would answer a partial list). */
   const labVerdictsReady =
+    cardsLoaded &&
+    !cardsLoading &&
     labElig !== null &&
     !eligLoading &&
     eligError === null &&
@@ -605,6 +611,9 @@ export function ChooseModelsPage() {
   const savedVerdictsReady =
     inventory !== null &&
     inventory === validation?.inventory &&
+    saved.loaded &&
+    !saved.loading &&
+    saved.error === null &&
     eligibility.totals !== null &&
     !eligibility.loading &&
     eligibility.error === null &&
@@ -1033,7 +1042,12 @@ export function ChooseModelsPage() {
     step: 'choose-models',
     fallback: predictFilesPath(),
     blockedReason: run.starting ? STEP_BACK_STARTING_REASON : null,
-    dialogOpen: dialog.startsWith('card:') || dialog.startsWith('details:'),
+    // A dialog can block Back only where it can show: with no checked file
+    // (the not-ready state) a card/details id left in the shared store has
+    // nothing to display, so it must not block leaving (the old D31 rule —
+    // round 3b audit item 1).
+    dialogOpen:
+      validation !== null && (dialog.startsWith('card:') || dialog.startsWith('details:')),
   })
 
   // The source-failed state: what loaded stays visible plus the alert; both

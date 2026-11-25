@@ -13,11 +13,19 @@
  * block, the flat-list rule (no run sections, no set actions) and the
  * never-flash states.
  *
+ * Round 3b's audit additions (the `.dsh/round3-test-map.md` gap fixes):
+ * the dialog-open Back refusals on the merged page (and the stale-id with
+ * no checked file), the no-verdict-while-loading rule for each source, the
+ * no-model panel's click halves ("Use example" / "Learn from my data"), the
+ * completed-download gate, the selection survival across Back + Continue
+ * (5 s away + a new file clears it), the flat list's select-all and the
+ * null-facts same-outcome chip.
+ *
  * Every fixture value is synthetic (INV-4).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import '@/core/actions/builtin/stepActions'
 import '@/core/actions/builtin/appActions'
 import '@/core/actions/builtin/modelRunActions'
@@ -35,7 +43,13 @@ import type {
   TxrRunSummary,
   ValidationResponse,
 } from '@/api-client/types'
-import { STEP_BACK_STARTING_REASON, useStepTrailStore, useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  STEP_BACK_DIALOG_OPEN,
+  STEP_BACK_STARTING_REASON,
+  useStepBack,
+  useStepTrailStore,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import { DEMO_PRETRAINED_CHIP } from '@/modules/demo/copy'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { TXRMODELS_INVENTORY, txrmodelsModelDetail } from '../fixtures'
@@ -80,9 +94,14 @@ const api = vi.hoisted(() => ({
   getAnalysisConfig: vi.fn(),
   getUsage: vi.fn(),
   modelGetModel: vi.fn(),
+  fileExample: vi.fn(),
+  exampleSet: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
+    FileValidation: {
+      example: api.fileExample,
+    },
     Pretrained: {
       listModels: api.listCatalogue,
       checkEligibility: api.catalogueEligibility,
@@ -96,6 +115,7 @@ vi.mock('@/api-client', () => ({
       checkEligibility: api.savedEligibility,
       resolveModels: api.resolveModels,
       getModel: api.modelGetModel,
+      exampleSet: api.exampleSet,
     },
     ModelSets: {
       listSets: api.listSets,
@@ -324,6 +344,10 @@ beforeEach(() => {
   api.getAnalysisConfig.mockReset()
   api.getUsage.mockReset()
   api.modelGetModel.mockReset()
+  api.fileExample.mockReset()
+  api.exampleSet.mockReset()
+  api.fileExample.mockResolvedValue('patient_id,ldh\nP0001,42\n' as never)
+  api.exampleSet.mockResolvedValue({ state: 'ready', methods: [], set_id: 'set-a' } as never)
   api.listCatalogue.mockResolvedValue({
     origin: 'embedded',
     generated_at: '2026-11-29T09:00:00Z',
@@ -962,6 +986,394 @@ describe('ChooseModelsPage — the moved screen-D/I checks', () => {
     await settle(0)
     expect(screen.getByTestId('txr-list-row-ps:ps-1')).toBeTruthy()
     expect(screen.queryByTestId('txr-models-none')).toBeNull()
+  })
+
+  // ── The round-3b audit gaps (see .dsh/round3-test-map.md) ────────────────
+
+  it('while the Model card dialog is open flow.back refuses; a stale card id with no checked file does not block Back', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files', '/choose-models'] })
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-row-ps:ps-1-action'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-models-card-ps-1')).toBeTruthy()
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('flow.back', {}).catch((error: unknown) => error)
+    })
+    expect(refused).toBeInstanceOf(Error)
+    expect((refused as Error).message).toBe(STEP_BACK_DIALOG_OPEN)
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-models')
+    // The no-file twin (the old D31): no checked file, so no card can show;
+    // a card id another state left in the shared store must not block Back.
+    cleanup()
+    useTxrModelsStore.getState().reset()
+    useTxrIntakeStore.setState({ validation: null })
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    await act(async () => {
+      useTxrModelsStore.getState().openDialog('card:ps-1')
+    })
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-step-back'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
+  })
+
+  it('while the Details dialog is open flow.back refuses', async () => {
+    api.listSaved.mockResolvedValue({ models: [model(1)], total: 1 } as ModelListResponse)
+    api.savedEligibility.mockResolvedValue(savedEligibilityFor([model(1)]))
+    api.modelGetModel.mockResolvedValue(txrmodelsModelDetail(model(1)))
+    useStepTrailStore.setState({ trail: ['/', '/predict-files', '/choose-models'] })
+    useTxrModelsStore.getState().reset()
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-row-sm-1-action'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-models-details-sm-1')).toBeTruthy()
+    let refused: unknown
+    await act(async () => {
+      refused = await runAction('flow.back', {}).catch((error: unknown) => error)
+    })
+    expect((refused as Error).message).toBe(STEP_BACK_DIALOG_OPEN)
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-models')
+  })
+
+  it('while the saved models load the page shows no verdict totals and no none-can-run line', async () => {
+    // The lab catalogue: three rows, NONE can run. If the verdicts were
+    // counted before the saved slice loaded, both the totals and the
+    // none-can-run line would claim the whole list (the old no-number
+    // "saved models loading…" rule, `lib/emptyState.test.ts`).
+    api.catalogueEligibility.mockResolvedValue({
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: 3,
+      models: catalogueEligibility().models.map(entry => ({
+        ...entry,
+        status: 'cannot_run' as const,
+        coverage: { eligible: 0, total: 42, fraction: 0 },
+        estimated_seconds: undefined,
+        reasons: [{ code: 'ASSET_NOT_AVAILABLE' as const }],
+      })),
+    } as PretrainedEligibilityResponse)
+    let releaseSaved: (value: ModelListResponse) => void = () => {}
+    api.listSaved.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          releaseSaved = resolve
+        }),
+    )
+    useTxrModelsStore.getState().reset()
+    renderPage()
+    await settle(0)
+    expect(screen.queryByTestId('txr-models-choose-totals')).toBeNull()
+    expect(screen.queryByTestId('txr-models-choose-none-can-run')).toBeNull()
+    // The saved slice lands: the verdicts cover both sources now, so the
+    // honest lines appear — exactly at this boundary.
+    await act(async () => {
+      releaseSaved({ models: [], total: 0 } as ModelListResponse)
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-models-choose-totals').textContent).toBe(
+      '3 models · 0 can run, 3 cannot',
+    )
+    expect(screen.getByTestId('txr-models-choose-none-can-run').textContent).toContain(
+      'None of the 3 models can run on this file.',
+    )
+  })
+
+  it('while the lab models load the page shows no verdict totals and no none-can-run line', async () => {
+    // The saved slice: one row that cannot run. Before the catalogue
+    // lands, the old page's "ready-made models loading…" rule says no
+    // number and no none-can-run line (the verdicts are not complete yet).
+    api.listSaved.mockResolvedValue({ models: [model(1)], total: 1 } as ModelListResponse)
+    api.savedEligibility.mockResolvedValue({
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: 1,
+      models: [
+        {
+          ...savedEligibilityFor([model(1)]).models[0],
+          status: 'cannot_run' as const,
+          coverage: { eligible: 0, total: 42, fraction: 0 },
+          estimated_seconds: undefined,
+          reasons: [{ code: 'MODEL_REQUIREMENTS_UNRECORDED' as const }],
+        },
+      ],
+    } as ModelEligibilityResponse)
+    let releaseCatalogue: (value: PretrainedListResponse) => void = () => {}
+    api.listCatalogue.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          releaseCatalogue = resolve
+        }),
+    )
+    useTxrModelsStore.getState().reset()
+    renderPage()
+    await settle(0)
+    expect(screen.queryByTestId('txr-models-choose-totals')).toBeNull()
+    expect(screen.queryByTestId('txr-models-choose-none-can-run')).toBeNull()
+    // The catalogue lands with three rows that all cannot run: the verdicts
+    // are complete, the lines appear.
+    api.catalogueEligibility.mockResolvedValue({
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: 3,
+      models: catalogueEligibility().models.map(entry => ({
+        ...entry,
+        status: 'cannot_run' as const,
+        coverage: { eligible: 0, total: 42, fraction: 0 },
+        estimated_seconds: undefined,
+        reasons: [{ code: 'ASSET_NOT_AVAILABLE' as const }],
+      })),
+    } as PretrainedEligibilityResponse)
+    await act(async () => {
+      releaseCatalogue({
+        origin: 'embedded',
+        generated_at: '2026-11-29T09:00:00Z',
+        total: catalogue().length,
+        models: catalogue(),
+      } as PretrainedListResponse)
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-models-choose-totals').textContent).toBe(
+      '4 models · 0 can run, 4 cannot',
+    )
+  })
+
+  it('the no-model panel: "Use example" runs the predict example flow, "Learn from my data" starts the learn path', async () => {
+    api.listCatalogue.mockResolvedValue(catalogueResponseEmpty())
+    api.catalogueEligibility.mockResolvedValue({
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: 0,
+      models: [],
+    } as PretrainedEligibilityResponse)
+    api.listSaved.mockResolvedValue({ models: [], total: 0 } as ModelListResponse)
+    api.savedEligibility.mockResolvedValue(emptySavedEligibility())
+    useTxrModelsStore.getState().reset()
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-none')).toBeTruthy()
+    // "Use example" runs the registered `flow.useExample` predict path: the
+    // example patients table is adopted and the flow opens the predict
+    // files step (the example set id is parked for the model list).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-none-example'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    await settle(0)
+    expect(api.fileExample).toHaveBeenCalledWith({ kind: 'predict-measurements' })
+    expect(api.exampleSet).toHaveBeenCalled()
+    expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
+    expect(useTxrIntakeStore.getState().intent).toBe('predict')
+    expect(useTxrIntakeStore.getState().predictSource).toBe('saved')
+    expect(useTxrIntakeStore.getState().predictMeasurements?.source.name).toBe(
+      'predict-measurements_example.csv',
+    )
+    // "Learn from my data" starts the learn path (the old I38 click pin):
+    // its own intent and route.
+    cleanup()
+    useTxrIntakeStore.getState().reset()
+    seedIntake()
+    useTxrModelsStore.getState().reset()
+    api.listCatalogue.mockResolvedValue(catalogueResponseEmpty())
+    api.listSaved.mockResolvedValue({ models: [], total: 0 } as ModelListResponse)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-none')).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-none-train'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('route-location').textContent).toBe('/files')
+    expect(useTxrIntakeStore.getState().intent).toBe('train')
+  })
+
+  it('a completed download makes the card runnable: Run installs and creates against the verified asset', async () => {
+    api.listCatalogue.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 1,
+      models: [card(3, { state: 'not_downloaded', installed_model_id: undefined })],
+    } as PretrainedListResponse)
+    api.catalogueEligibility.mockResolvedValue({
+      total_fit: 1,
+      total_some: 0,
+      total_cannot: 0,
+      models: [
+        {
+          ...catalogueEligibility().models[0],
+          id: 'ps-3',
+        },
+      ],
+    } as PretrainedEligibilityResponse)
+    useTxrModelsStore.getState().reset()
+    renderPage()
+    await settle(0)
+    await selectRow('ps:ps-3')
+    expect(api.downloadModel).toHaveBeenCalledWith({ id: 'ps-3' })
+    // The provider poll commits the completed download (verified present):
+    // the gate opens — Run now installs the asset and creates against its
+    // resolved model record (the old D test "a completed download makes the
+    // card runnable…", which the bundled-install test's second half missed).
+    api.listDownloads.mockResolvedValue({
+      downloads: [
+        {
+          id: 'ps-3',
+          version: '1.0.0',
+          state: 'ready',
+          bytes_downloaded: 4_600_000,
+          bytes_total: 4_600_000,
+          digest: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+          cached: true,
+          bundled: false,
+        },
+      ],
+    })
+    await settle(2100)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.installModel).toHaveBeenCalledWith({ id: 'ps-3' })
+    expect(api.resolveModels).toHaveBeenCalledWith({
+      model_ids: ['c0000000-0000-4000-8000-000000000003'],
+    })
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('the selection survives Back + Continue after more than 5 s away, and a new file clears it', async () => {
+    /** N in the flow: records its step, and its Continue lands on the merged list again. */
+    function PredictStandIn() {
+      useStepBack({ step: 'predict-files', fallback: '/' })
+      const navigate = useNavigate()
+      return (
+        <button data-testid="stand-in-continue" onClick={() => navigate('/choose-models')}>
+          Continue
+        </button>
+      )
+    }
+    useStepTrailStore.setState({ trail: ['/', '/predict-files', '/choose-models'] })
+    render(
+      <MemoryRouter initialEntries={['/choose-models']}>
+        <RouterBridge />
+        <Routes>
+          <Route path="/choose-models" element={<ChooseModelsPage />} />
+          <Route path="/predict-files" element={<PredictStandIn />} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    await settle(0)
+    await selectRow('ps:ps-1')
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 model selected')
+    // Back to the file step, stay away past the store-kit's lazy teardown
+    // delay (5 s after the last reader), then Continue: the selection
+    // survives (the old D/I "keeps the selection after Back to N and
+    // Continue" pin — the moved test left it at the route half).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-step-back'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
+    await settle(6000)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('stand-in-continue'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-models')
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 model selected')
+    // A new file clears it: Back, the file step re-checks (a changed
+    // inventory), Continue — the mounted list resets the file-scoped state.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-step-back'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    await act(async () => {
+      useTxrIntakeStore.setState({
+        validation: { ...validation(), inventory: { ...TXRMODELS_INVENTORY, patients: 43 } },
+      })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('stand-in-continue'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-models')
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('0 models selected')
+  })
+
+  it('the select-all checks exactly the rows that can run; the cannot row never moves', async () => {
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-select-all-can-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('2 models selected')
+    expect(useTxrModelsStore.getState().selection.has('ps:ps-1')).toBe(true)
+    expect(useTxrModelsStore.getState().selection.has('ps:ps-2')).toBe(true)
+    expect(useTxrModelsStore.getState().selection.has('ps:ps-3')).toBe(false)
+    // Same with "Can run" on: the bulk select checks exactly the view's
+    // eligible rows and the cannot row is out of the view untouched.
+    cleanup()
+    useTxrModelsStore.getState().reset()
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-filter-can-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.queryByTestId('txr-list-row-ps:ps-3')).toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-select-all-can-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('2 models selected')
+    expect(useTxrModelsStore.getState().selection.has('ps:ps-1')).toBe(true)
+    expect(useTxrModelsStore.getState().selection.has('ps:ps-2')).toBe(true)
+    expect(useTxrModelsStore.getState().selection.has('ps:ps-3')).toBe(false)
+  })
+
+  it('the same-outcome chip with no engine outcome matches no row: the honest zero', async () => {
+    api.getAnalysisConfig.mockResolvedValue({} as never)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-list-filter-same-outcome').textContent).toBe(
+      'Same outcome as my file 0',
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-filter-same-outcome'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.queryByTestId('txr-list-row-ps:ps-1')).toBeNull()
+    expect(screen.getByTestId('txr-list-empty').textContent).toBe(
+      'No models match the search or the filters.',
+    )
   })
 })
 

@@ -329,6 +329,11 @@ describe('txrhistory module (TEST-HIST-1)', () => {
       touched.filter(
         p =>
           p.startsWith('src-app/server/') &&
+          // predict-card-merge (its DRIFT-1): the merged model list's two
+          // action pins — `frontend_catalog.rs` (the committed-context pin,
+          // its own test) + the regenerated `frontend-actions.json`.
+          p !== 'src-app/server/src/modules/mcp/frontend_catalog.rs' &&
+          p !== 'src-app/server/src/modules/mcp/frontend-actions.json' &&
           p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
@@ -497,7 +502,12 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           !p.startsWith('src-app/ui/src/modules/txrintake/') &&
           // demo-mode ITEM-5 (its DRIFT-1): the new `demo` module dir —
           // additions, not global edits (the sibling-dir convention).
-          !p.startsWith('src-app/ui/src/modules/demo/'),
+          !p.startsWith('src-app/ui/src/modules/demo/') &&
+          // predict-card-merge (its DRIFT-1): the predict path's ONE shared
+          // step vocabulary — `txrshell/lib/flowSteps.ts` (+ its test) gains
+          // the `choose-models` step of the merged model list.
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.test.ts',
       ),
     ).toEqual([])
   })
