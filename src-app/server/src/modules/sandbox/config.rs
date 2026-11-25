@@ -34,8 +34,8 @@ pub enum SandboxAvailability {
 impl SandboxAvailability {
     /// Why methods cannot run, in words for the person using the app: what
     /// the Windows notice says when the start-up check gave no sentence of its
-    /// own (`wsl_run::runner_unavailable`).
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    /// own (`wsl_run::runner_unavailable`), and the fallback of
+    /// [`methods_cannot_run_for`] when the probe recorded no sentence.
     pub(crate) fn in_words(self) -> &'static str {
         match self {
             SandboxAvailability::Ready => "methods can run",
@@ -166,6 +166,43 @@ pub fn runner_reason(status: SandboxAvailability, probe_failure: Option<&str>) -
     }
 }
 
+/// Whether NO method can run at all, in the one sentence the method
+/// list / study preview / picker rows show when it cannot (the eligibility
+/// stage's `RUNNER_UNAVAILABLE`). `None` while the sandbox is `Ready` or has
+/// NOT booted yet ([`NotInitialized`]: unit tests, pre-boot — nothing is
+/// known; a run that cannot start still fails with its own typed code).
+/// Unlike [`SandboxAvailability::in_words`] this is not a label for *this*
+/// process's status alone: `why` is the runner's own boot-probe sentence
+/// (e.g. Windows: `wsl_run::runner_unavailable`), and when it has none the
+/// status's own words are the fallback.
+pub fn methods_cannot_run_for(
+    status: SandboxAvailability,
+    why: Option<String>,
+) -> Option<String> {
+    match status {
+        SandboxAvailability::Ready | SandboxAvailability::NotInitialized => None,
+        _ => Some(why.unwrap_or_else(|| status.in_words().to_string())),
+    }
+}
+
+/// [`methods_cannot_run_for`] for THIS process: the cheap boot-flag read the
+/// eligibility/estimate stages use per request (the `OnceLock`s are set once
+/// at boot — never a `wsl_run::probe()`/`installer_status()` call, which
+/// spawn `wsl.exe`). On Windows the WSL runner's own sentence (which is
+/// `Some` before boot too — the [`NotInitialized`] guard lives in
+/// [`methods_cannot_run_for`]); on every other OS `None` — Linux/macOS keep
+/// today's behaviour, their `runner_unavailable` could feed this later.
+pub fn methods_cannot_run_here() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        methods_cannot_run_for(init_status(), super::wsl_run::runner_unavailable())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Set the global state (called once at `init()`). First write wins.
 pub fn init_state(state: SandboxState) -> Arc<SandboxState> {
     let arc = Arc::new(state);
@@ -253,6 +290,40 @@ mod tests {
                 assert!(!text.contains(jargon), "{jargon:?} in {text}");
             }
         }
+    }
+
+    #[test]
+    fn methods_cannot_run_for_ignores_ready_and_not_initialized() {
+        use SandboxAvailability::*;
+        assert_eq!(methods_cannot_run_for(Ready, Some("x".to_string())), None);
+        assert_eq!(methods_cannot_run_for(NotInitialized, None), None);
+        // Windows' `wsl_run::runner_unavailable` answers Some even before the
+        // boot probe ran; the stage must NOT mark methods cannot-run on that
+        // answer (nothing is known, the run keeps its typed refusal).
+        assert_eq!(
+            methods_cannot_run_for(NotInitialized, Some("WSL 2 is not installed".to_string())),
+            None
+        );
+    }
+
+    #[test]
+    fn methods_cannot_run_for_surfaces_the_given_sentence_or_the_status_words() {
+        use SandboxAvailability::*;
+        assert_eq!(
+            methods_cannot_run_for(HostUnsupported, Some("WSL 2 is not installed".to_string()))
+                .as_deref(),
+            Some("WSL 2 is not installed")
+        );
+        // No sentence recorded: the status's own words (never the variant's
+        // code name) are the fallback.
+        assert_eq!(
+            methods_cannot_run_for(WorkspaceInitFailed, None).as_deref(),
+            Some(WorkspaceInitFailed.in_words())
+        );
+        assert_eq!(
+            methods_cannot_run_for(HostUnsupported, None).as_deref(),
+            Some(HostUnsupported.in_words())
+        );
     }
 
     #[test]

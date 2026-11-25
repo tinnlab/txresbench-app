@@ -3906,6 +3906,19 @@ fn reason_line(reason: &crate::modules::method_catalogue::types::Reason) -> Stri
     }
 }
 
+/// The run-row detail for `RUNNER_UNAVAILABLE`: the same one sentence the
+/// screens show ("Use example" says `runner_unavailable`), so the run row
+/// never shows a bare code when no method can run. `why` is the probe's
+/// sentence (`methods_cannot_run_here` in `sandbox::config`, read ONCE per
+/// [`classify`] and passed to [`classify_with`]); the fallback stands in
+/// when it is somehow absent.
+fn runner_unavailable_detail(why: Option<&str>) -> String {
+    format!(
+        "Methods cannot run yet: {}",
+        why.unwrap_or("the method runner is not available")
+    )
+}
+
 /// Classify every selected method (train: the provider's eligibility verdict
 /// + the env entry; reuse: asset verification + the env entry) into the plan
 /// list — DEC-15's replay of the screens' one judgement; a runnable method
@@ -3928,15 +3941,48 @@ fn classify(
     list: &MethodList,
     host: Option<envmanifest::EnvArch>,
 ) -> Result<Vec<MethodPlan>, AppError> {
+    // The runner-unavailable sentence, read ONCE per classify (the boot
+    // flags' OnceLocks; never a per-method `wsl.exe` spawn), then passed to
+    // BOTH the eligibility stage and the row detail — the same words, so
+    // the screens' verdict and the run row can never disagree. On
+    // Linux/macOS this is `None`, so the eligibility stage never emits the
+    // code.
+    classify_with(
+        mode,
+        method_ids,
+        assets,
+        inventory,
+        config,
+        list,
+        host,
+        crate::modules::sandbox::config::methods_cannot_run_here().as_deref(),
+    )
+}
+
+/// [`classify`] with the runner sentence INJECTED — the testable variant
+/// (classify reads the boot probe's sentence ONCE and passes it here; tests
+/// drive `Some`/`None` without setting the process-wide flags).
+#[allow(clippy::too_many_arguments)]
+fn classify_with(
+    mode: super::types::TxrRunMode,
+    method_ids: &[String],
+    assets: &[super::types::TxrModelAsset],
+    inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
+    config: &RunConfig,
+    list: &MethodList,
+    host: Option<envmanifest::EnvArch>,
+    runner_unavailable_why: Option<&str>,
+) -> Result<Vec<MethodPlan>, AppError> {
     let _ = config;
     let mut plans = Vec::new();
     match mode {
         super::types::TxrRunMode::Train => {
-            let verdicts = eligibility::eligibility(
+            let verdicts = eligibility::eligibility_with_runner(
                 list,
                 &EligibilityRequest::Inventory {
                     inventory: inventory.clone(),
                 },
+                runner_unavailable_why,
             );
             let by_id: std::collections::HashMap<
                 &str,
@@ -3974,7 +4020,9 @@ fn classify(
                         // first for a method with no published environment —
                         // the SAME fact this branch used to discover itself
                         // and report as ENV_UNKNOWN; one vocabulary now, the
-                        // screens' verdict and the run row agree, CONS-EE-10).
+                        // screens' verdict and the run row agree, CONS-EE-10 —
+                        // and RUNNER_UNAVAILABLE first when no method can
+                        // run at all, with its own detail).
                         let reason = verdict
                             .reasons
                             .first()
@@ -3985,6 +4033,13 @@ fn classify(
                                     TxrRunReason::from_catalogue(
                                         r.code,
                                         format!("no published environment for method {id:?}"),
+                                    )
+                                } else if r.code
+                                    == crate::modules::method_catalogue::types::ReasonCode::RunnerUnavailable
+                                {
+                                    TxrRunReason::from_catalogue(
+                                        r.code,
+                                        runner_unavailable_detail(runner_unavailable_why),
                                     )
                                 } else {
                                     TxrRunReason::from_catalogue(r.code, reason_line(r))
@@ -5125,6 +5180,68 @@ mod tests {
     use crate::modules::sandbox::method_env::{EnvKind, MethodEnvState};
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
+
+    /// The run-row detail for `RUNNER_UNAVAILABLE` (the first reason the
+    /// eligibility stage pushes when no method can run): the probe's
+    /// sentence, read once per classify — same words the screens and "Use
+    /// example" show, so the row never carries a bare code.
+    #[test]
+    fn runner_unavailable_detail_carries_the_probe_sentence() {
+        assert_eq!(
+            runner_unavailable_detail(Some("WSL 2 is not installed")),
+            "Methods cannot run yet: WSL 2 is not installed"
+        );
+        // Defensive: when the sentence is somehow absent the detail still
+        // reads as a sentence.
+        assert_eq!(
+            runner_unavailable_detail(None),
+            "Methods cannot run yet: the method runner is not available"
+        );
+    }
+
+    /// [`classify_with`]'s runner sentence: with `Some`, EVERY train plan is
+    /// `cannot_run` with `RUNNER_UNAVAILABLE` and the SAME sentence as its
+    /// detail — including a published-env method that would otherwise queue
+    /// (`landmark-cox-current`) and one that is env-missing (`jm-mem-lq`:
+    /// the runner fact is the first reason, so the plan's one detail line is
+    /// the runner sentence, never the env one). The real fixtures (the
+    /// cohort file + the real provider engines) and an INJECTED `Some` —
+    /// the process-wide boot flags are never touched.
+    #[test]
+    fn classify_with_an_injected_runner_sentence_marks_every_plan_cannot_run() {
+        let req = cohort_run_request(&["landmark-cox-current", "jm-mem-lq"], 2, false);
+        let list = &crate::modules::method_list::builtin();
+        let canonical = canonicalize_run(list, &req.input, &req.config, TxrRunMode::Train)
+            .expect("the cohort fixture file validates");
+        let plans = classify_with(
+            TxrRunMode::Train,
+            &req.method_ids,
+            &req.model_ids,
+            &canonical.validated.inventory,
+            &req.config,
+            list,
+            envmanifest::EnvArch::host(),
+            Some("the method runner did not start"),
+        )
+        .expect("classify");
+        assert_eq!(plans.len(), 2, "both selected methods get a plan");
+        let by_id: std::collections::HashMap<_, _> = plans
+            .iter()
+            .map(|p| (p.method_id.as_str(), p))
+            .collect();
+        for id in ["landmark-cox-current", "jm-mem-lq"] {
+            let plan = by_id[id];
+            assert!(plan.cannot_run, "{id}");
+            let reason = plan.reason.as_ref().expect("a reason");
+            assert_eq!(reason.code, "RUNNER_UNAVAILABLE", "{id}");
+            assert_eq!(
+                reason.detail,
+                "Methods cannot run yet: the method runner did not start",
+                "{id}: the row's detail is the injected sentence"
+            );
+            assert!(plan.env.is_none(), "{id}: no env entry on a cannot-run plan");
+        }
+    }
 
     // ── fixture tables (the board shape: four outcome columns, one marker
     //    with a baseline + two on-treatment draws per patient) ──────────────

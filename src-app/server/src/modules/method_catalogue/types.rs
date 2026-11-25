@@ -804,7 +804,7 @@ pub enum EligibilityStatus {
     CannotRun,
 }
 
-/// The eligibility reason-code vocabulary — the FIXED, structured set of 17
+/// The eligibility reason-code vocabulary — the FIXED, structured set of 18
 /// codes a method verdict can carry. Display text is the consumer's; a renderer
 /// switches on the code, so the set is closed and documented here (PROV-MC-5's
 /// acceptance: every emitted code is one of these — consumers can never meet an
@@ -845,6 +845,14 @@ pub enum ReasonCode {
     /// method — the environment is the missing half).
     #[serde(rename = "ENV_IMAGE_MISSING")]
     EnvImageMissing,
+    /// No method can run: the method runner is not available (Windows: WSL
+    /// 2 is missing, too old, turned off by policy, or the app's WSL runtime
+    /// is missing) — the run would fail at start with
+    /// `SANDBOX_WSL_UNAVAILABLE`, so every method is marked in
+    /// advance and the run row carries the SAME code (the run-start stage,
+    /// like [`EnvImageMissing`]).
+    #[serde(rename = "RUNNER_UNAVAILABLE")]
+    RunnerUnavailable,
     /// The method's task needs an outcome column the file lacks.
     #[serde(rename = "TASK_INCOMPATIBLE")]
     TaskIncompatible,
@@ -883,7 +891,7 @@ pub enum ReasonCode {
 impl ReasonCode {
     /// The closed code vocabulary, in documentation order — the compile-time
     /// constant the vocabulary test pins (TEST-MC-27).
-    pub const ALL: [ReasonCode; 17] = [
+    pub const ALL: [ReasonCode; 18] = [
         ReasonCode::RequiredMarkerMissing,
         ReasonCode::MarkerGroupMissing,
         ReasonCode::DetectionCallMissing,
@@ -894,6 +902,7 @@ impl ReasonCode {
         ReasonCode::DecisionDayUnmet,
         ReasonCode::NotRunnable,
         ReasonCode::EnvImageMissing,
+        ReasonCode::RunnerUnavailable,
         ReasonCode::TaskIncompatible,
         ReasonCode::ResponseLabelMissing,
         ReasonCode::SurvivalOutcomeMissing,
@@ -916,6 +925,7 @@ impl ReasonCode {
             ReasonCode::DecisionDayUnmet => "DECISION_DAY_UNMET",
             ReasonCode::NotRunnable => "NOT_RUNNABLE",
             ReasonCode::EnvImageMissing => "ENV_IMAGE_MISSING",
+            ReasonCode::RunnerUnavailable => "RUNNER_UNAVAILABLE",
             ReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             ReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
@@ -998,10 +1008,11 @@ pub struct EligibilityResponse {
     pub total_some: u32,
     pub total_cannot: u32,
     /// The `cannot_run` methods whose reason is
-    /// [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the
-    /// app cannot actually start (no published environment available), so the
-    /// list header can say how many exist while still
-    /// listing them.
+    /// [`ReasonCode::EnvImageMissing`] or [`ReasonCode::RunnerUnavailable`] —
+    /// the count of catalogue methods that cannot start (no published
+    /// environment available, or no method runner: Windows, WSL 2), each
+    /// method counted once, so the list header can say how many exist while
+    /// still listing them.
     pub total_no_env: u32,
     /// The sequence of the method list the verdicts come from (the HTTP surface
     /// fills it; the pure engine leaves it out). A screen sends it back when it
@@ -1084,16 +1095,16 @@ mod tests {
     }
 
     /// TEST-MC-27 (unit half): the reason-code vocabulary is a CLOSED compile-
-    /// time set — exactly the 17 documented codes, each with a distinct wire
+    /// time set — exactly the 18 documented codes, each with a distinct wire
     /// string, so a consumer's per-code renderer can never meet an
     /// undocumented code and the serde side can never emit duplicates.
     #[test]
     fn reason_code_vocabulary_is_closed_and_distinct() {
-        assert_eq!(ReasonCode::ALL.len(), 17, "the 17 documented codes");
+        assert_eq!(ReasonCode::ALL.len(), 18, "the 18 documented codes");
         let mut wires: Vec<&str> = ReasonCode::ALL.iter().map(|c| c.as_str()).collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 17, "wire strings are distinct");
+        assert_eq!(wires.len(), 18, "wire strings are distinct");
         for code in ReasonCode::ALL {
             // The round-trip: serialize → deserialize must yield the same code
             // (the serde renames are the wire strings the engine emits).

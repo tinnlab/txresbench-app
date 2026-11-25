@@ -41,6 +41,7 @@ import type {
   Timing,
 } from '@/api-client/types'
 import { buildMethodCards } from './methodRows'
+import { RUNNER_UNAVAILABLE_FIX } from '../lib/format'
 
 const TIMING: Timing = { base_seconds_per_fold: 60, benchmarked_units: 2, quality: 'measured' }
 
@@ -204,6 +205,28 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
       'needs LDH, not in your file',
       'needs 3 or more draws; 20 of 151 have them',
     ])
+  })
+
+  it('a cannot card whose first reason is RUNNER_UNAVAILABLE reads the notice line and the notice fix (w10a2)', () => {
+    // The eligibility stage pushes RUNNER_UNAVAILABLE FIRST when no method can
+    // run at all (on Windows: WSL 2 missing, too old or turned off, the
+    // app's WSL runtime missing, or the app's run folder not creatable): the
+    // row's ONE line names the deployment fact and points at the notice at
+    // the top of the app, never the study or the answers.
+    const m = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('alpha', {
+          status: 'cannot_run',
+          reasons: [{ code: 'RUNNER_UNAVAILABLE' }],
+          coverage: { eligible: 0, total: 151, fraction: 0 },
+        }),
+      ]),
+    )
+    expect(cards[0].run.reasonCode).toBe('RUNNER_UNAVAILABLE')
+    expect(cards[0].run.reasonLine).toBe('methods cannot run yet: see the notice at the top of the app')
+    expect(cards[0].run.reasonFix).toBe(RUNNER_UNAVAILABLE_FIX)
   })
 
   it('a marker without a display name falls back to a constant fix (never blank)', () => {

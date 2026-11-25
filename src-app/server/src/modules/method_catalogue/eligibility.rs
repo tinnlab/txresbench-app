@@ -26,12 +26,20 @@
 //! Pure functions over [`Catalogue`] + request; no I/O (the module is
 //! stateless, DEC-9, and the engine is replayed in-process by the execution
 //! engine — one code path with the HTTP surface, ITEM-5) plus ONE runtime
-//! stage: [`with_runtime_env`] rejoins the pure verdicts with the app's
-//! published environment set ([`runtime_env_available`] — the images list's
-//! host-arch entry, from the same method list as the catalogue), because a method with no published environment can never
-//! start (CM-1) and the screens must not offer it. The production entry
-//! points ([`eligibility`], [`eligibility_for_runtime`]) apply the stage; the
-//! pure engines are the test seam and the provider bedrock.
+//! stage ([`runtime_stages`], the two halves in one place so the HTTP seat
+//! and the run-start seam cannot drift): [`with_runtime_env`] rejoins the
+//! pure verdicts with the app's published environment set
+//! ([`runtime_env_available`] — the images list's host-arch entry, from the
+//! same method list as the catalogue), because a method with no published
+//! environment can never start (CM-1) and the screens must not offer it;
+//! [`with_runner`] then marks every verdict `cannot_run` +
+//! [`ReasonCode::RunnerUnavailable`] when no method can run at all (Windows:
+//! WSL 2 missing, too old or turned off, or the app's WSL runtime missing or
+//! its run folder not creatable — `methods_cannot_run_here` in
+//! `sandbox::config`, the OnceLock boot flags, never a per-request
+//! `wsl.exe` spawn). The production entry points ([`eligibility`],
+//! [`eligibility_for_runtime`]) apply the stage; the pure engines are the
+//! test seam and the provider bedrock.
 //!
 //! Status lattice per method:
 //! - A retired method (`runnable: false`) is left out of every answer: it has
@@ -76,7 +84,7 @@
 //!   file posting an empty covariate block IS the required-covariate absence
 //!   case ([`ReasonCode::CovariateRequiredUnmet`]); the code stays in the
 //!   closed PROV-MC-5 vocabulary and its trigger lands with a covariate-name
-//!   fact. (The reason-code contract is fixed at 17; a consumer renderer can
+//!   fact. (The reason-code contract is fixed at 18; a consumer renderer can
 //!   still switch over all of them exhaustively.)
 //!
 //! ## The method filters (disease, treatment, what to predict)
@@ -669,8 +677,8 @@ pub fn runtime_env_available(images: &EnvManifest, method_id: &str) -> bool {
 
 /// Run eligibility over one method list (PROV-MC-7's in-process seam; the
 /// run's classification passes the run's own snapshot): the pure verdicts +
-/// the runtime-env stage ([`with_runtime_env`]), naming the list it answered
-/// from (`method_list_sequence`) exactly as the HTTP surface does.
+/// the runtime stages ([`runtime_stages`]), naming the list it answered from
+/// (`method_list_sequence`) exactly as the HTTP surface does.
 ///
 /// The seam is TOTAL and never applies method filters: its production caller
 /// ([`execution_engine::orchestrator`]'s run-start classification) posts the
@@ -683,9 +691,31 @@ pub fn runtime_env_available(images: &EnvManifest, method_id: &str) -> bool {
 /// ([`eligibility_calibrated`]) is the variant that returns
 /// [`MethodFilterError`] for the 422.
 pub fn eligibility(list: &MethodList, req: &EligibilityRequest) -> EligibilityResponse {
-    let mut response = with_runtime_env(
+    eligibility_with_runner(
+        list,
+        req,
+        crate::modules::sandbox::config::methods_cannot_run_here().as_deref(),
+    )
+}
+
+/// [`eligibility`] with the runner sentence INJECTED — the testable variant
+/// the engine's run-start classification uses (its `classify` reads
+/// `crate::modules::sandbox::config::methods_cannot_run_here` ONCE and
+/// passes the SAME sentence to the eligibility stage and the run-row detail,
+/// so the screens, the row and the plan can never disagree). `why` is the
+/// probe's sentence or `None` (sandbox ready, or not booted yet): `None` is
+/// byte-identical to the real value on Linux/macOS and pre-boot windows, so
+/// unit tests can drive both shapes without ever setting the process-wide
+/// boot flags.
+pub fn eligibility_with_runner(
+    list: &MethodList,
+    req: &EligibilityRequest,
+    why: Option<&str>,
+) -> EligibilityResponse {
+    let mut response = runtime_stages_with(
         &list.images,
         eligibility_ignoring_filters(&list.catalogue, req),
+        why,
     );
     response.method_list_sequence = Some(list.sequence);
     response
@@ -803,7 +833,7 @@ fn clear_method_filters(req: &EligibilityRequest) -> EligibilityRequest {
     }
 }
 
-/// The pure verdicts plus the runtime-env stage — the HTTP surface's seat
+/// The pure verdicts plus the runtime stages — the HTTP surface's seat
 /// (the engine's in-process seam is [`eligibility`], the same two steps).
 pub fn eligibility_for_runtime(
     cat: &Catalogue,
@@ -813,7 +843,7 @@ pub fn eligibility_for_runtime(
     eligibility_for_runtime_calibrated(cat, images, req, &calibration::TimingCalibration::empty())
 }
 
-/// The runtime stage with the calibration applied (the eligibility route's
+/// The runtime stages with the calibration applied (the eligibility route's
 /// seat: the handler loads the calibration snapshot and passes it in — the
 /// engine itself stays DB-free).
 pub fn eligibility_for_runtime_calibrated(
@@ -822,10 +852,34 @@ pub fn eligibility_for_runtime_calibrated(
     req: &EligibilityRequest,
     calibration: &calibration::TimingCalibration,
 ) -> Result<EligibilityResponse, MethodFilterError> {
-    Ok(with_runtime_env(
+    Ok(runtime_stages(
         images,
         eligibility_for_calibrated(cat, req, calibration)?,
     ))
+}
+
+/// The RUNTIME stages over the pure verdicts, in the ONE place both
+/// production entry points use (so the HTTP seat and the in-process run-start
+/// seam cannot drift — TEST-MC-31 compares them field by field):
+/// [`with_runtime_env`] first, then [`with_runner`].
+fn runtime_stages(images: &EnvManifest, resp: EligibilityResponse) -> EligibilityResponse {
+    runtime_stages_with(
+        images,
+        resp,
+        crate::modules::sandbox::config::methods_cannot_run_here().as_deref(),
+    )
+}
+
+/// [`runtime_stages`] with the runner sentence INJECTED — the testable seam
+/// (its `Some`/`None` never touch the process-wide boot flags): the env stage
+/// first, the runner stage second, exactly the production order.
+fn runtime_stages_with(
+    images: &EnvManifest,
+    resp: EligibilityResponse,
+    why: Option<&str>,
+) -> EligibilityResponse {
+    let resp = with_runtime_env(images, resp);
+    with_runner(resp, why)
 }
 
 /// The RUNTIME-ENV stage (CM-1's fix): a catalogue method with no published
@@ -869,6 +923,66 @@ fn with_runtime_env(images: &EnvManifest, mut resp: EligibilityResponse) -> Elig
         .methods
         .iter()
         .filter(|m| m.reasons.iter().any(|r| r.code == ReasonCode::EnvImageMissing))
+        .count() as u32;
+    EligibilityResponse {
+        methods: resp.methods,
+        total_fit,
+        total_some,
+        total_cannot,
+        total_no_env,
+        method_list_sequence: resp.method_list_sequence,
+    }
+}
+
+/// The RUNNER stage: when no method can run at all — on Windows: WSL 2
+/// missing, too old or turned off, the app's WSL runtime missing
+/// (`RootfsUnavailable`), or the app's run folder not creatable
+/// (`WorkspaceInitFailed`); `why` is the boot-probe sentence. No method can
+/// be offered: every verdict is reclassified to `cannot_run` with
+/// [`ReasonCode::RunnerUnavailable`] pushed FIRST (a method
+/// with no published environment keeps [`ReasonCode::EnvImageMissing`] BEHIND
+/// it — the runner fact is the one that matters now), the totals are
+/// recomputed, and `total_no_env` counts the methods with either code, each
+/// method once. `None` (sandbox ready, or not booted yet) returns the
+/// response UNCHANGED.
+fn with_runner(mut resp: EligibilityResponse, why: Option<&str>) -> EligibilityResponse {
+    if why.is_none() {
+        return resp;
+    }
+    for m in &mut resp.methods {
+        m.status = EligibilityStatus::CannotRun;
+        m.reasons.insert(
+            0,
+            Reason {
+                code: ReasonCode::RunnerUnavailable,
+                params: BTreeMap::new(),
+                group_id: None,
+            },
+        );
+    }
+    let total_fit = resp
+        .methods
+        .iter()
+        .filter(|m| m.status == EligibilityStatus::CanRun)
+        .count() as u32;
+    let total_some = resp
+        .methods
+        .iter()
+        .filter(|m| m.status == EligibilityStatus::CanRunSome)
+        .count() as u32;
+    let total_cannot = resp
+        .methods
+        .iter()
+        .filter(|m| m.status == EligibilityStatus::CannotRun)
+        .count() as u32;
+    let total_no_env = resp
+        .methods
+        .iter()
+        .filter(|m| {
+            m.reasons.iter().any(|r| {
+                r.code == ReasonCode::EnvImageMissing || r.code == ReasonCode::RunnerUnavailable
+            })
+        })
         .count() as u32;
     EligibilityResponse {
         methods: resp.methods,
@@ -2623,7 +2737,7 @@ mod tests {
     // ---- TEST-MC-27: the reason-code vocabulary + the outcome codes --------
 
     #[test]
-    fn reason_code_vocabulary_is_the_closed_seventeen() {
+    fn reason_code_vocabulary_is_the_closed_eighteen() {
         assert_eq!(
             ReasonCode::ALL.map(|c| c.as_str()).to_vec(),
             vec![
@@ -2637,6 +2751,7 @@ mod tests {
                 "DECISION_DAY_UNMET",
                 "NOT_RUNNABLE",
                 "ENV_IMAGE_MISSING",
+                "RUNNER_UNAVAILABLE",
                 "TASK_INCOMPATIBLE",
                 "RESPONSE_LABEL_MISSING",
                 "SURVIVAL_OUTCOME_MISSING",
@@ -2962,6 +3077,242 @@ mod tests {
             Some(ReasonCode::EnvImageMissing),
             "the env fact is the FIRST reason (the row's one detail line)"
         );
+    }
+
+    /// The runner stage: `None` (sandbox ready / not booted) returns the
+    /// response UNCHANGED — byte-identical JSON, so Linux/macOS and any
+    /// pre-boot Windows request keep today's exact answer.
+    #[test]
+    fn with_runner_none_passes_the_response_through_byte_identically() {
+        let methods = serde_json::json!([
+            method_json("asm-best-change-rule", &[]),
+            method_json("bjm", &[]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+        let entries = vec![pat("p0", 1, 1)];
+        let markers = vec![
+            inv_marker("M1", "percent", vec![sid("HGNC", "M1")], Some(entries.clone())),
+            inv_marker("M2", "percent", vec![sid("HGNC", "M2")], Some(entries)),
+        ];
+        let req = inventory_req(1, markers, vec![]);
+        let req = EligibilityRequest::Inventory { inventory: req };
+        let staged = eligibility_for_runtime(&cat, &crate::modules::method_list::builtin().images, &req)
+            .expect("no method filters in the fixture");
+        let unchanged = with_runner(staged.clone(), None);
+        assert_eq!(
+            serde_json::to_value(&unchanged).expect("serialize"),
+            serde_json::to_value(&staged).expect("serialize"),
+            "None leaves the response byte-identical"
+        );
+        // The runner stage is the last stage: a preview answer keeps its
+        // totals too.
+        let preview = EligibilityRequest::Preview {
+            preview: PreviewEligibilityRequest {
+                marker_groups: BTreeMap::new(),
+                before_treatment: None,
+                draws_during_treatment: None,
+                last_draw_day: None,
+                filters: MethodFilters::default(),
+            },
+        };
+        let pure = eligibility_for(&cat, &preview).expect("no method filters in the fixture");
+        let unchanged = with_runner(pure.clone(), None);
+        assert_eq!(
+            serde_json::to_value(&unchanged).expect("serialize"),
+            serde_json::to_value(&pure).expect("serialize"),
+            "None leaves a preview answer byte-identical"
+        );
+    }
+
+    /// The runner stage: with a sentence (Windows without a usable WSL 2)
+    /// EVERY fitting method is `cannot_run` with `RUNNER_UNAVAILABLE` FIRST —
+    /// before `ENV_IMAGE_MISSING` when the method has both facts (the env
+    /// stage ran first, the runner fact is the one that matters now); the
+    /// totals are recomputed and `total_no_env` counts each method once.
+    #[test]
+    fn with_runner_marks_every_method_cannot_run_with_the_runner_reason_first() {
+        let methods = serde_json::json!([
+            method_json("asm-best-change-rule", &[]),
+            method_json("bjm", &[]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+        let entries = vec![pat("p0", 1, 1)];
+        let markers = vec![
+            inv_marker("M1", "percent", vec![sid("HGNC", "M1")], Some(entries.clone())),
+            inv_marker("M2", "percent", vec![sid("HGNC", "M2")], Some(entries)),
+        ];
+        let req = inventory_req(1, markers, vec![]);
+        let req = EligibilityRequest::Inventory { inventory: req };
+
+        let staged = eligibility_for_runtime(&cat, &crate::modules::method_list::builtin().images, &req)
+            .expect("no method filters in the fixture");
+        let resp = with_runner(staged, Some("WSL 2 is not installed"));
+
+        assert_eq!(resp.total_fit, 0, "nothing can run: no fits");
+        assert_eq!(resp.total_some, 0);
+        assert_eq!(resp.total_cannot, 2, "every method is cannot_run");
+
+        let by_id = |id: &str| resp.methods.iter().find(|m| m.id == id).unwrap();
+        for m in &resp.methods {
+            assert_eq!(m.status, EligibilityStatus::CannotRun, "{}", m.id);
+            assert_eq!(
+                m.reasons.first().map(|r| r.code),
+                Some(ReasonCode::RunnerUnavailable),
+                "{}'s first reason is the runner fact",
+                m.id
+            );
+            assert_eq!(
+                m.reasons.first().map(|r| &r.params),
+                Some(&BTreeMap::new()),
+                "{}'s runner reason carries no params",
+                m.id
+            );
+        }
+
+        // The method that ALSO lacks a published environment keeps the env
+        // fact, AFTER the runner fact (the runner stage ran after the env
+        // stage — RUNNER_UNAVAILABLE before ENV_IMAGE_MISSING).
+        let both = by_id("bjm");
+        let codes: Vec<ReasonCode> = both.reasons.iter().map(|r| r.code).collect();
+        assert_eq!(
+            codes,
+            vec![ReasonCode::RunnerUnavailable, ReasonCode::EnvImageMissing],
+            "the runner fact first, the env fact second"
+        );
+        let runner_only = by_id("asm-best-change-rule");
+        assert!(
+            !runner_only
+                .reasons
+                .iter()
+                .any(|r| r.code == ReasonCode::EnvImageMissing),
+            "a published-env method only has the runner reason"
+        );
+        assert_eq!(runner_only.reasons.len(), 1);
+
+        // `total_no_env` counts the methods the app cannot actually start:
+        // each method ONCE — both carry the runner fact, one also the env
+        // fact, and the count is 2, not 3.
+        assert_eq!(resp.total_no_env, 2, "each method counted once");
+    }
+
+    /// The TWO-stage composition is in [`runtime_stages_with`] itself (the
+    /// function both production entry points call), pinned here: the env
+    /// stage FIRST, the runner stage SECOND, so a method with no published
+    /// env carries `RUNNER_UNAVAILABLE` BEFORE `ENV_IMAGE_MISSING`. Removing
+    /// `with_runner` from the function — or swapping the two stages — makes
+    /// this test fail (the runner fact is then not first, or not present).
+    #[test]
+    fn runtime_stages_with_pushes_runner_first_then_env() {
+        let methods = serde_json::json!([
+            method_json("asm-best-change-rule", &[]),
+            method_json("bjm", &[]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+        let entries = vec![pat("p0", 1, 1)];
+        let markers = vec![
+            inv_marker("M1", "percent", vec![sid("HGNC", "M1")], Some(entries.clone())),
+            inv_marker("M2", "percent", vec![sid("HGNC", "M2")], Some(entries)),
+        ];
+        let req = inventory_req(1, markers, vec![]);
+        let req = EligibilityRequest::Inventory { inventory: req };
+
+        let pure = eligibility_for(&cat, &req).expect("no method filters in the fixture");
+        let staged = runtime_stages_with(
+            &crate::modules::method_list::builtin().images,
+            pure,
+            Some("the method runner did not start"),
+        );
+        assert_eq!(staged.total_cannot, 2, "every method is cannot_run now");
+        // The published-env method has ONLY the runner fact (the env stage
+        // left it alone); the no-env method has BOTH, runner first.
+        let noenv = staged.methods.iter().find(|m| m.id == "bjm").unwrap();
+        let codes: Vec<ReasonCode> = noenv.reasons.iter().map(|r| r.code).collect();
+        assert_eq!(
+            codes,
+            vec![ReasonCode::RunnerUnavailable, ReasonCode::EnvImageMissing],
+            "the runner fact first, the env fact second — the env stage ran first"
+        );
+        let pub_env = staged.methods.iter().find(|m| m.id == "asm-best-change-rule").unwrap();
+        assert_eq!(pub_env.reasons.len(), 1, "only the runner fact");
+        assert_eq!(
+            pub_env.reasons.first().map(|r| r.code),
+            Some(ReasonCode::RunnerUnavailable)
+        );
+    }
+
+    /// [`eligibility_with_runner`] (the injectable variant the engine's
+    /// classify uses): `Some` marks EVERY verdict `cannot_run` with
+    /// `RUNNER_UNAVAILABLE` FIRST and the totals are consistent
+    /// (`fit + some + cannot == methods.len()`, `total_no_env` counts each
+    /// method once); `None` equals [`eligibility`] field by field (the same
+    /// list, the same request) — and on Linux/macOS the real value IS `None`,
+    /// so the production path is exactly the `None` shape.
+    #[test]
+    fn eligibility_with_runner_injects_some_and_none_matches_eligibility() {
+        let methods = serde_json::json!([
+            method_json("asm-best-change-rule", &[]),
+            method_json("bjm", &[]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+        let entries = vec![pat("p0", 1, 1)];
+        let markers = vec![
+            inv_marker("M1", "percent", vec![sid("HGNC", "M1")], Some(entries.clone())),
+            inv_marker("M2", "percent", vec![sid("HGNC", "M2")], Some(entries)),
+        ];
+        let req = EligibilityRequest::Inventory { inventory: inventory_req(1, markers, vec![]) };
+        let list = MethodList {
+            format_version: crate::modules::method_list::format::FORMAT_VERSION,
+            sequence: 7,
+            assembled_at: String::new(),
+            catalogue: cat,
+            images: crate::modules::method_list::builtin().images.clone(),
+            signer: None,
+            sha256: String::new(),
+        };
+
+        let staged = eligibility_with_runner(&list, &req, Some("the method runner did not start"));
+        assert_eq!(staged.total_fit, 0, "nothing can run: no fits");
+        assert_eq!(staged.total_some, 0);
+        assert_eq!(staged.total_cannot, staged.methods.len() as u32, "every verdict cannot_run");
+        assert_eq!(
+            staged.methods.len() as u32,
+            staged.total_fit + staged.total_some + staged.total_cannot,
+            "the totals are consistent"
+        );
+        for m in &staged.methods {
+            assert_eq!(m.status, EligibilityStatus::CannotRun, "{}", m.id);
+            assert_eq!(
+                m.reasons.first().map(|r| r.code),
+                Some(ReasonCode::RunnerUnavailable),
+                "{}'s first reason is the runner fact",
+                m.id
+            );
+        }
+        assert_eq!(staged.total_no_env, 2, "each method counted once");
+        assert_eq!(staged.method_list_sequence, Some(7), "the named list is answered from");
+
+        // None: byte-identical to the in-process seam's real value (which is
+        // None on Linux/macOS and before boot), field by field.
+        let none = eligibility_with_runner(&list, &req, None);
+        let real = eligibility(&list, &req);
+        assert_eq!(
+            serde_json::to_value(&none).expect("serialize"),
+            serde_json::to_value(&real).expect("serialize"),
+            "None equals eligibility()"
+        );
+        assert_eq!(none.total_fit, real.total_fit);
+        assert_eq!(none.total_some, real.total_some);
+        assert_eq!(none.total_cannot, real.total_cannot);
+        assert_eq!(none.total_no_env, real.total_no_env);
+        assert_eq!(none.method_list_sequence, real.method_list_sequence);
+        assert_eq!(none.methods.len(), real.methods.len());
+        for (a, b) in none.methods.iter().zip(real.methods.iter()) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.status, b.status);
+            let codes_a: Vec<ReasonCode> = a.reasons.iter().map(|r| r.code).collect();
+            let codes_b: Vec<ReasonCode> = b.reasons.iter().map(|r| r.code).collect();
+            assert_eq!(codes_a, codes_b, "{}'s reasons", a.id);
+        }
     }
 
     /// The in-process seam names the list it answered from, exactly as the HTTP surface

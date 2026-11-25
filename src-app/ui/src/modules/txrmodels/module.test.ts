@@ -349,6 +349,9 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          // fix/wsl-methods-cannot-run (its DRIFT-1): sandbox/config.rs gains
+          // `methods_cannot_run_here`, the runner check the method list uses.
+          p !== 'src-app/server/src/modules/sandbox/config.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
           // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
           // integration fixtures carry the three new required fields.

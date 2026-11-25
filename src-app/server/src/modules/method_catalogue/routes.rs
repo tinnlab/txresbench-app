@@ -291,8 +291,10 @@ fn get_marker_vocabulary_docs(op: TransformOperation) -> TransformOperation {
 /// `POST /api/methods/eligibility` — the per-method verdicts against a file
 /// inventory (screens C/N/E) or an early schedule preview (screen B), plus
 /// the runtime-env stage: a catalogue method with no published environment is
-/// `cannot_run` + `ENV_IMAGE_MISSING` (the count of them is
-/// `total_no_env` — the catalogue still lists them).
+/// `cannot_run` + `ENV_IMAGE_MISSING`, and when no method can run at all
+/// (Windows without a usable WSL 2) every verdict is `cannot_run` +
+/// `RUNNER_UNAVAILABLE` (the count of them all is `total_no_env` — the
+/// catalogue still lists them).
 async fn post_eligibility(
     _auth: RequirePermissions<(ProjectsUse,)>,
     Extension(pool): Extension<SqlitePool>,
@@ -329,7 +331,7 @@ fn method_filter_error(e: super::eligibility::MethodFilterError) -> AppError {
 
 fn post_eligibility_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule + method filters) or `inventory` (the file validator's inventory, with the optional `filters` block). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).")
+        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING, and when no method can run at all (Windows without a usable WSL 2) every verdict is cannot_run + RUNNER_UNAVAILABLE (total_no_env counts them, each method once). The body is a tagged union: `preview` (screen-B schedule + method filters) or `inventory` (the file validator's inventory, with the optional `filters` block). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).")
         .id("MethodCatalogue.eligibility")
         .tag("method-catalogue")
         .response::<200, Json<EligibilityResponse>>()

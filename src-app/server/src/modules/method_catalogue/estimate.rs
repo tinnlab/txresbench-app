@@ -272,11 +272,37 @@ pub fn estimate_for_runtime_calibrated(
     req: &EstimateRequest,
     calibration: &TimingCalibration,
 ) -> Result<EstimateResponse, EstimateError> {
+    estimate_for_runtime_calibrated_with(
+        cat,
+        images,
+        req,
+        calibration,
+        crate::modules::sandbox::config::methods_cannot_run_here().is_some(),
+    )
+}
+
+/// [`estimate_for_runtime_calibrated`] with the runner-unavailable fact
+/// INJECTED — the testable variant (unit tests drive both shapes without
+/// setting the process-wide boot flags). `runner_unavailable` is what
+/// `methods_cannot_run_here()` answers on this host: `true` when no method
+/// can run at all, and then every known id is refused even when it has a
+/// published environment.
+fn estimate_for_runtime_calibrated_with(
+    cat: &Catalogue,
+    images: &EnvManifest,
+    req: &EstimateRequest,
+    calibration: &TimingCalibration,
+    runner_unavailable: bool,
+) -> Result<EstimateResponse, EstimateError> {
     // Structural validation first (see the shared validator), then name the
     // REAL method problem, in request order (the pure core's own
     // first-failure-wins convention): an id the catalogue does not know is
     // UNKNOWN_METHOD even when it also has no published environment; a known
-    // id with no env is METHOD_NOT_RUNNABLE.
+    // id with no env is METHOD_NOT_RUNNABLE — as is a known id when the host
+    // cannot run methods at all (Windows: WSL 2 missing, too old or turned
+    // off, or the app's WSL runtime missing or its run folder not creatable;
+    // the boot flags' OnceLock, read once per request, never a `wsl.exe`
+    // spawn).
     validate_estimate_request(req)?;
     for id in &req.method_ids {
         if cat.method(id).is_none() {
@@ -284,7 +310,9 @@ pub fn estimate_for_runtime_calibrated(
                 method_id: id.clone(),
             });
         }
-        if !crate::modules::method_catalogue::eligibility::runtime_env_available(images, id) {
+        if runner_unavailable
+            || !crate::modules::method_catalogue::eligibility::runtime_env_available(images, id)
+        {
             return Err(EstimateError::MethodNotRunnable {
                 method_id: id.clone(),
             });
@@ -634,5 +662,60 @@ mod tests {
         let cat_h = catalogue_with(serde_json::json!([method_json("fx-noenv", 60.0, "measured", 1)]));
         assert!(estimate_for(&cat_h, &req(&["fx-noenv"], 150, Some(4), 3)).is_ok());
         assert!(estimate_for_runtime(&cat_h, images, &req(&["fx-noenv"], 150, Some(4), 3)).is_err());
+    }
+
+    /// The injected runner fact ([`estimate_for_runtime_calibrated_with`]):
+    /// when NO method can run at all, a KNOWN id with a published
+    /// environment is METHOD_NOT_RUNNABLE (the honest answer to "how long
+    /// will it take" — it will not start); an UNKNOWN id keeps
+    /// UNKNOWN_METHOD precedence (first failure wins, request order); with
+    /// the fact absent the same known id estimates. The boot flags are never
+    /// touched — the fact is a parameter.
+    #[test]
+    fn runner_unavailable_refuses_known_ids_and_unknown_keeps_precedence() {
+        let cat = &crate::modules::method_list::builtin().catalogue;
+        let images = &crate::modules::method_list::builtin().images;
+        let empty = &TimingCalibration::empty();
+        // A known id WITH a published env (`asm-best-change-rule` is in the
+        // shipped manifest) cannot be estimated while the runner is down.
+        let err = estimate_for_runtime_calibrated_with(
+            cat,
+            images,
+            &req(&["asm-best-change-rule"], 150, Some(4), 3),
+            empty,
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            EstimateError::MethodNotRunnable { method_id: "asm-best-change-rule".into() }
+        );
+        assert_eq!(err.code(), "METHOD_NOT_RUNNABLE");
+        // UNKNOWN_METHOD keeps precedence: the unknown id is named, even
+        // though the runner fact would refuse it as well.
+        let err = estimate_for_runtime_calibrated_with(
+            cat,
+            images,
+            &req(&["fx-noenv"], 150, Some(4), 3),
+            empty,
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            EstimateError::UnknownMethod { method_id: "fx-noenv".into() }
+        );
+        assert_eq!(err.code(), "UNKNOWN_METHOD");
+        // Without the fact the same known id estimates (the manifest entry
+        // is published) — and the injected `false` is what the non-Windows
+        // hosts read.
+        assert!(estimate_for_runtime_calibrated_with(
+            cat,
+            images,
+            &req(&["asm-best-change-rule"], 150, Some(4), 3),
+            empty,
+            false,
+        )
+        .is_ok());
     }
 }

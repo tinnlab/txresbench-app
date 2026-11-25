@@ -596,10 +596,11 @@ export interface EligibilityResponse {
   total_fit: number
   /**
    * The `cannot_run` methods whose reason is
-   *  [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the
-   *  app cannot actually start (no published environment available), so the
-   *  list header can say how many exist while still
-   *  listing them.
+   *  [`ReasonCode::EnvImageMissing`] or [`ReasonCode::RunnerUnavailable`] —
+   *  the count of catalogue methods that cannot start (no published
+   *  environment available, or no method runner: Windows, WSL 2), each
+   *  method counted once, so the list header can say how many exist while
+   *  still listing them.
    */
   total_no_env: number
   total_some: number
@@ -647,7 +648,8 @@ export interface EnvRef {
    *  another), so the reference no longer names the env; the caller does,
    *  and the download manager keys its ledger by it. A tag, when present,
    *  must start with `<env_id>-` (the published tag shapes
-   *  `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).
+   *  `<env_id>-<version>-<arch>-<sha12>` and
+   *  `<base_id>-<contract>-<arch>-<sha12>`).
    */
   env_id: string
   /**
@@ -1975,7 +1977,7 @@ export interface ModelReason {
  *  is exhaustive: a new provider code fails to compile here instead of
  *  silently passing through.
  */
-export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'MODEL_REQUIREMENTS_UNRECORDED' | 'DISEASE_NOT_MATCHED'
+export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'MODEL_REQUIREMENTS_UNRECORDED' | 'RUNNER_UNAVAILABLE' | 'DISEASE_NOT_MATCHED'
 
 /**
  * The save response (201): the set (created or grown), the saved rows and the
@@ -2572,7 +2574,7 @@ export interface PretrainedReason {
  *  verdict). The `from_catalogue` mapper is exhaustive: a new provider code
  *  fails to compile here instead of silently passing through.
  */
-export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'ASSET_NOT_AVAILABLE' | 'DISEASE_NOT_MATCHED'
+export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED' | 'ASSET_NOT_AVAILABLE' | 'RUNNER_UNAVAILABLE' | 'DISEASE_NOT_MATCHED'
 
 /**
  * The refresh response: the origin actually in use + the catalogue facts of
@@ -2750,13 +2752,13 @@ export interface Reason {
 }
 
 /**
- * The eligibility reason-code vocabulary — the FIXED, structured set of 17
+ * The eligibility reason-code vocabulary — the FIXED, structured set of 18
  *  codes a method verdict can carry. Display text is the consumer's; a renderer
  *  switches on the code, so the set is closed and documented here (PROV-MC-5's
  *  acceptance: every emitted code is one of these — consumers can never meet an
  *  undocumented code).
  */
-export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'DISEASE_NOT_MATCHED' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED'
+export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'RUNNER_UNAVAILABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MARKER_COUNT_UNMET' | 'DISEASE_NOT_MATCHED' | 'TREATMENT_NOT_MATCHED' | 'OUTCOME_NOT_MATCHED'
 
 export interface RefreshTokenRequest {
   /**

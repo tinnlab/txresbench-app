@@ -225,9 +225,24 @@ describe('reasonGroups (the per-reason partition of the cannot cards)', () => {
     expect(groups[0].cards[0].id).toBe('z')
   })
 
-  it('the reason-group vocabulary is the plan\'s five named reasons, the marker-count rule and one catch-all', () => {
+  it('a method no deployment runner can run gets its own runner section, not the environment one (w10a2)', () => {
+    // RUNNER_UNAVAILABLE is a fact about the deployment (no method can run
+    // at all — on Windows: WSL 2 missing, too old or turned off, the app's
+    // WSL runtime missing, or the app's run folder not creatable), not
+    // about a published environment — a card in the "No published
+    // environment" group would mislabel it.
+    const runner = card({ id: 'r1', run: { status: 'cannot', coverageLine: '', reasonCode: 'RUNNER_UNAVAILABLE', reasonLine: 'methods cannot run yet: see the notice at the top of the app', reasonLines: ['methods cannot run yet: see the notice at the top of the app'], reasonFix: '', disabled: true } })
+    const groups = reasonGroups([...RUNNABLE, runner])
+    expect(groups.map(g => g.key)).toEqual(['runner'])
+    expect(groups[0].label).toBe('Methods cannot run yet')
+    expect(groups[0].fix).toBe('Do what the notice at the top of the app says, then open TxResBench again.')
+    expect(groups[0].cards[0].id).toBe('r1')
+  })
+
+  it('the reason-group vocabulary is the plan\'s five named reasons, the marker-count rule, the runner section and one catch-all', () => {
     expect(TXRMETHOD_REASON_GROUPS.map(g => g.key)).toEqual([
       'environment',
+      'runner',
       'marker',
       'marker-count',
       'outcome',

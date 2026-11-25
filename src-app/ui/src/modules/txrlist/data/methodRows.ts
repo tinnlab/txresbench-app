@@ -40,6 +40,7 @@
 import type { EligibilityResponse, EligibilityStatus, MethodSummary } from '@/api-client/types'
 import type { TxrMethodCard, TxrMethodNeeds } from '../types'
 import {
+  RUNNER_UNAVAILABLE_FIX,
   formatCoverage,
   formatMethodCoverage,
   formatReasonLines,
@@ -135,6 +136,16 @@ function reasonFixOf(code: string | null, missingMarkers: ReadonlyArray<{ displa
     case 'ENV_IMAGE_MISSING':
     case 'NOT_RUNNABLE':
       return 'This method is not available yet.'
+    case 'RUNNER_UNAVAILABLE':
+      // A fact about the deployment, never the study: the fix points to the
+      // shell's notice (its slot is under the header on every screen — the
+      // "Methods cannot run yet…" alert), which says the cause and what to
+      // do: on Windows, WSL 2 missing, too old or turned off, the app's WSL
+      // runtime missing, or the app's run folder not creatable — with "Set
+      // up WSL" / "Update WSL" when a setup exists. The app must be opened
+      // again after the setup, because it reads the runner's state when it
+      // starts (Windows may also need a restart; the notice says so).
+      return RUNNER_UNAVAILABLE_FIX
     default:
       return 'Check what the method needs.'
   }

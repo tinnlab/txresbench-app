@@ -40,7 +40,7 @@ import type { TxrMethodNeeds, TxrMethodRank, TxrRunStatus } from '../types'
 /**
  * The reason-code vocabulary the formatter renders.
  *
- * The provider's own 17 codes (PROV-MC-5, `ReasonCode` from the generated
+ * The provider's own 18 codes (PROV-MC-5, `ReasonCode` from the generated
  * api-client — the closed set `method-catalogue` may emit) plus the two
  * model-list codes the grown branches render (PROV-MS-9
  * `MODEL_REQUIREMENTS_UNRECORDED`, PROV-PC-8 `ASSET_NOT_AVAILABLE` — the
@@ -189,6 +189,17 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - `NOT_RUNNABLE` → "not available with this build";
  * - `ENV_IMAGE_MISSING` → "no published environment available"
  *   (CM-1's plain reason — the method cannot start without one);
+ * - `RUNNER_UNAVAILABLE` → "methods cannot run yet: see the notice at the
+ *   top of the app" — a fact about the deployment (the app's start-up check
+ *   found no usable method runner: on Windows, WSL 2 missing, too old or
+ *   turned off, the app's WSL runtime missing, or the app's run folder not
+ *   creatable), never a problem with the user's study or answers. Like
+ *   ENV_IMAGE_MISSING, it is the first reason of every method's verdict, so
+ *   the row's one line names the deployment fact and the fix points to the
+ *   shell's notice (see `methodRows.ts`). The shell's notice (under the
+ *   header on every screen) is where the reason and the fix live — it says
+ *   the specific cause and offers "Set up WSL" when a setup exists; the row
+ *   stays short;
  * - `TASK_INCOMPATIBLE` → "needs an outcome column your file lacks";
  * - `RESPONSE_LABEL_MISSING` → "needs a response label in your file";
  * - `SURVIVAL_OUTCOME_MISSING` → "needs survival times in your file";
@@ -211,6 +222,19 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * wordings; the shared code is the key, the shared sentence is this one.
  */
 export const NO_PUBLISHED_ENVIRONMENT_REASON = 'no published environment available'
+
+/**
+ * The one-line fix for `RUNNER_UNAVAILABLE` (the list's cannot-row fix and
+ * the picker's runner reason-group fix say the SAME words — one fact, one
+ * fix): the notice at the top of the app says the cause and what to do —
+ * WSL 2 missing, too old or turned off, the app's WSL runtime missing, or
+ * the app's run folder not creatable — and offers "Set up WSL"/"Update WSL"
+ * when a setup exists (after one, Windows may need a restart before the app
+ * is opened again). The app reads the runner's state when it starts, so it
+ * must be opened again.
+ */
+export const RUNNER_UNAVAILABLE_FIX =
+  'Do what the notice at the top of the app says, then open TxResBench again.'
 
 /**
  * The row's one reason line (the FIRST reason only, fine-print plain).
@@ -253,6 +277,8 @@ export function formatReasonLine(
       return 'not available with this build'
     case 'ENV_IMAGE_MISSING':
       return NO_PUBLISHED_ENVIRONMENT_REASON
+    case 'RUNNER_UNAVAILABLE':
+      return 'methods cannot run yet: see the notice at the top of the app'
     case 'TASK_INCOMPATIBLE':
       return 'needs an outcome column your file lacks'
     case 'RESPONSE_LABEL_MISSING':

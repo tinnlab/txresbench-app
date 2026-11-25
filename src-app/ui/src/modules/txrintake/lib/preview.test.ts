@@ -529,6 +529,44 @@ describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
     expect(excludedReasonLine(envOnly, FORMATTERS)).toBe('no published environment available')
   })
 
+  it('RUNNER_UNAVAILABLE is a MACHINE reason, like ENV_IMAGE_MISSING: never an answer cause, same fit/noEnvFit rule (w10a2)', () => {
+    // When no method can run at all (on Windows: WSL 2 missing, too old or
+    // turned off, the app's WSL runtime missing, or the app's run folder not
+    // creatable), EVERY method's verdict starts with RUNNER_UNAVAILABLE
+    // (first) and some also carry ENV_IMAGE_MISSING — the same machine
+    // reasons the panel's "N of them cannot run yet" line owns.
+    const r = response([
+      method('runner-only', 'cannot_run', [{ code: 'RUNNER_UNAVAILABLE' }]),
+      method('runner-env', 'cannot_run', [
+        { code: 'RUNNER_UNAVAILABLE' },
+        { code: 'ENV_IMAGE_MISSING' },
+      ]),
+      method('runner-ans', 'cannot_run', [
+        { code: 'RUNNER_UNAVAILABLE' },
+        { code: 'MARKER_GROUP_MISSING' },
+      ]),
+      method('runner-env-ans', 'cannot_run', [
+        { code: 'RUNNER_UNAVAILABLE' },
+        { code: 'ENV_IMAGE_MISSING' },
+        { code: 'MARKER_GROUP_MISSING' },
+      ]),
+    ])
+    // The machine-set methods with no answer cause fit (the machine line is
+    // their fact); the two with an answer cause are left out by the ANSWERS.
+    const counts = fitCounts(r)
+    expect(counts).toEqual({ total: 4, fit: 2, some: 0, leftOut: 2, noEnvFit: 2 })
+    expect(counts.fit + counts.leftOut).toBe(counts.total)
+    // The left-out list carries the answer-caused ones only, bucketed under
+    // their ANSWER code — never RUNNER_UNAVAILABLE (or ENV_IMAGE_MISSING).
+    const excluded = excludedMethods(r, FORMATTERS)
+    expect(excluded.map(m => m.id)).toEqual(['runner-ans', 'runner-env-ans'])
+    expect(excluded.map(m => m.reasonCode)).toEqual(['MARKER_GROUP_MISSING', 'MARKER_GROUP_MISSING'])
+    // The direct line of a runner-only method is the machine sentence (the
+    // env-only safety net's sibling).
+    const runnerOnly = method('runner-only', 'cannot_run', [{ code: 'RUNNER_UNAVAILABLE' }])
+    expect(excludedReasonLine(runnerOnly, FORMATTERS)).toBe('methods cannot run yet: see the notice at the top of the app')
+  })
+
   it('renders the shared formatter line for a required marker (board bytes)', () => {
     const r = response([
       method('ki67-two-week-four-group', 'cannot_run', [{ code: 'REQUIRED_MARKER_MISSING' }], {

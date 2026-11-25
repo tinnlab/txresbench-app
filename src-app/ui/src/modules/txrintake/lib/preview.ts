@@ -17,14 +17,15 @@
  *   The E run / validation defaults are the store's own parameters, not
  *   this body (DEC-5's "one value, three uses" is the store's decision day).
  * - `fitCounts` — `{total, fit, some, leftOut, noEnvFit}` from the response:
- *   the board's fit / left-out split with the environment fact STRIPPED
- *   (R2-1: a method without a published environment is a deployment fact,
- *   not a study answer). `fit` counts the methods with NO answer cause
- *   (env-absent ones included), `leftOut` counts the methods the ANSWERS
- *   exclude — `fit + leftOut === total`, the one closed arithmetic the
+ *   the board's fit / left-out split with the MACHINE facts stripped
+ *   (R2-1: a method a deployment fact keeps from starting — no published
+ *   environment, or the method runner unavailable — is not a study
+ *   answer). `fit` counts the methods with NO answer cause (machine-set
+ *   ones included), `leftOut` counts the methods the ANSWERS exclude —
+ *   `fit + leftOut === total`, the one closed arithmetic the
  *   review demanded (the old split left 182 methods unaccounted for: the
  *   heading said "1 methods are left out" beside "176 of 359 fit"), and
- *   `noEnvFit` is the env-absent subset of `fit` ("N of them cannot run
+ *   `noEnvFit` is the machine-set subset of `fit` ("N of them cannot run
  *   yet" — the deployment fact about the SAME methods, never a second
  *   count over the whole catalogue).
  * - `hasStudyAnswers` — the B panel's gate (R2-1): with nothing answered
@@ -38,11 +39,11 @@
  *   4 or more draws during treatment and the last draw on day 56").
  *   Answers-not-given render no clause; nothing here ever renders a count.
  * - `excludedMethods` — the "N methods are left out" list: every method
- *   with an ANSWER cause (a non-environment reason — R3-intake-1: the old
- *   list dropped the env-absent methods whose second reason was the
+ *   with an ANSWER cause (a non-machine reason — R3-intake-1: the old
+ *   list dropped the machine-set methods whose second reason was the
  *   answer's, leaving the heading to disagree with the count), in response
- *   order, ONE reason line per method: the first NON-ENVIRONMENT reason
- *   (the environment fact has its own line), through the
+ *   order, ONE reason line per method: the first NON-MACHINE reason
+ *   (the machine fact has its own line), through the
  *   CONS-UI-INTAKE-9 formatters (the injected txrlist surface), with the
  *   module's own lines for the cases the shared E-vocabulary cannot render
  *   on B (see `excludedReasonLine`).
@@ -121,8 +122,9 @@ export interface FitCounts {
   total: number
   /**
    * The board's fit count — methods with NO answer cause (R2-1 + R3-intake-1):
-   * the runnable ones plus the env-absent methods whose ONLY reason is the
-   * environment (their study verdict is nothing but "can't start yet"; the
+   * the runnable ones plus the machine-set methods whose ONLY reason is a
+   * machine reason (no published environment, or the method runner
+   * unavailable — their study verdict is nothing but "can't start yet"; the
    * `noEnvFit` line right below states that fact). The board's own
    * arithmetic is inclusive here (some-fit methods are inside the headline
    * count and `some` is the subset note beneath it).
@@ -132,15 +134,15 @@ export interface FitCounts {
   some: number
   /**
    * The answer-caused left-out count: the methods whose ANSWERS exclude
-   * them (a non-environment reason), env-absent ones with an answer cause
-   * INCLUDED — their non-environment reason is the answer's, and the list
+   * them (a non-machine reason), machine-set ones with an answer cause
+   * INCLUDED — their non-machine reason is the answer's, and the list
    * below shows it (R3-intake-1: the old split left it unaccounted, and
-   * `fit + leftOut` was not `total`). The environment fact alone is never
-   * a left-out cause (R2-1 — the env line is its own fact).
+   * `fit + leftOut` was not `total`). A machine reason alone is never
+   * a left-out cause (R2-1 — the machine line is its own fact).
    */
   leftOut: number
   /**
-   * The env-absent subset of `fit` — the "N of them cannot run yet" line
+   * The machine-set subset of `fit` — the "N of them cannot run yet" line
    * (R3-intake-1: the old env line counted "N of M" over the whole
    * catalogue and contradicted the headline; this is the deployment fact
    * about the SAME methods that fit, stated only when relevant).
@@ -150,19 +152,20 @@ export interface FitCounts {
 
 /**
  * Derive the panel's count split from the provider's response. The
- * per-method classification is exact: an answer cause is ANY non-environment
- * reason (the runtime stage pushes `ENV_IMAGE_MISSING` FIRST, so a method
+ * per-method classification is exact: an answer cause is ANY non-machine
+ * reason (the eligibility stage pushes the machine reason — RUNNER_UNAVAILABLE,
+ * or the runtime stage's `ENV_IMAGE_MISSING` — FIRST, so a method
  * whose answers also exclude it carries both and counts as left-out — the
  * answer's reason is the one the list shows); among the rest, everything
- * fits (env-absent ones are the `noEnvFit` subset — the env line's fact).
+ * fits (machine-set ones are the `noEnvFit` subset — the machine line's fact).
  * The closed arithmetic `fit + leftOut === total` is the panel's one story
  * (R3-intake-1: the old split's `total_cannot − total_no_env` left the
- * env+answer methods in neither count, so the heading and the count
+ * machine+answer methods in neither count, so the heading and the count
  * disagreed).
  */
 export function fitCounts(response: EligibilityResponse): FitCounts {
   const answerCaused = response.methods.filter(m => m.status === 'cannot_run' && hasAnswerCause(m)).length
-  const noEnvFit = response.methods.filter(m => hasEnvReason(m) && !hasAnswerCause(m)).length
+  const noEnvFit = response.methods.filter(m => hasMachineReason(m) && !hasAnswerCause(m)).length
   return {
     total: response.methods.length,
     fit: response.methods.length - answerCaused,
@@ -172,30 +175,45 @@ export function fitCounts(response: EligibilityResponse): FitCounts {
   }
 }
 
-/** Whether a method's causes include the environment (the runtime stage's
- *  `cantRun` reclassification — the reason is pushed FIRST by
- *  `with_runtime_env`, so a mixed method reads as "no published
- *  environment", the fact that keeps it from starting). */
-function hasEnvReason(method: MethodEligibility): boolean {
-  return method.reasons.some(reason => reason.code === 'ENV_IMAGE_MISSING')
+/** The MACHINE reasons — facts about the deployment, never the answers:
+ *  `ENV_IMAGE_MISSING` (a method with no published environment image in
+ *  the app's manifest) and `RUNNER_UNAVAILABLE` (no method can run at all:
+ *  on Windows, WSL 2 missing, too old or turned off, the app's WSL runtime
+ *  missing, or the app's run folder not creatable — the start-up check's
+ *  verdict). Both are pushed FIRST by the eligibility pipeline — the runner
+ *  code ahead of the environment one — so a mixed method's first reason is
+ *  always a machine reason, whichever machine fact it carries, and the
+ *  panel's machine line ("N of them cannot run yet") owns it. */
+function isMachineReason(code: string): boolean {
+  return code === 'ENV_IMAGE_MISSING' || code === 'RUNNER_UNAVAILABLE'
 }
 
-/** Whether a method's causes include an answer fact (any non-environment
+/** Whether a method's causes include a machine reason (the runtime stage's
+ *  `cantRun` reclassification — the reason is pushed FIRST by
+ *  `with_runtime_env`, so a mixed method reads as "no published
+ *  environment", the fact that keeps it from starting; the runner code is
+ *  pushed even earlier by the eligibility stage). */
+function hasMachineReason(method: MethodEligibility): boolean {
+  return method.reasons.some(reason => isMachineReason(reason.code))
+}
+
+/** Whether a method's causes include an answer fact (any non-machine
  *  reason — a missing marker group, too few draws, a task mismatch …). */
 function hasAnswerCause(method: MethodEligibility): boolean {
-  return method.reasons.some(reason => reason.code !== 'ENV_IMAGE_MISSING')
+  return method.reasons.some(reason => !isMachineReason(reason.code))
 }
 
 /**
  * The code one excluded row is grouped by (step2-filters, brief 5b): the
- * row's FIRST non-environment reason — the same code the row's reason line
- * renders (the environment fact has its own line, R3-intake-1; the runtime
- * stage pushes it FIRST, so a mixed method's grouping reads its answer
- * cause, never the env fact). `null` only for a method whose EVERY reason
- * is the environment — that method is never listed in the first place.
+ * row's FIRST non-machine reason — the same code the row's reason line
+ * renders (the machine fact has its own line, R3-intake-1; the runtime
+ * stage pushes it FIRST — the runner code ahead of the environment one —
+ * so a mixed method's grouping reads its answer cause, never the machine
+ * fact). `null` only for a method whose EVERY reason is a machine reason —
+ * that method is never listed in the first place.
  */
 export function excludedReasonCode(method: MethodEligibility): ReasonCode | null {
-  return method.reasons.find(reason => reason.code !== 'ENV_IMAGE_MISSING')?.code ?? null
+  return method.reasons.find(reason => !isMachineReason(reason.code))?.code ?? null
 }
 
 /** One excluded-method row (the id + the one reason line the list shows). */
@@ -404,6 +422,7 @@ const PREVIEW_SHARED_CODES: ReadonlySet<string> = new Set([
   'UNIT_MISMATCH',
   'NOT_RUNNABLE',
   'ENV_IMAGE_MISSING',
+  'RUNNER_UNAVAILABLE',
   'TASK_INCOMPATIBLE',
   'RESPONSE_LABEL_MISSING',
   'SURVIVAL_OUTCOME_MISSING',
@@ -420,13 +439,14 @@ const PREVIEW_SHARED_CODES: ReadonlySet<string> = new Set([
  * the shared templates that read coverage counts would render the preview's
  * 1-patient stand-in facts ("0 of 1 have them") — a lie the board never
  * shows ("needs 3 or more draws"). The rendered cause is the first
- * NON-ENVIRONMENT reason (R3-intake-1: the runtime stage pushes the
- * environment fact first, and a mixed method's answer cause is what the
- * list is about — the env fact has its own line, "N of them cannot run
- * yet"). The schedule rule therefore renders the board's B line from
- * `min_draws.required`; an inventory-only code (`DECISION_DAY_UNMET`,
- * impossible from a preview but possible in a fixture) and anything outside
- * the shared set fall to the module's constant line.
+ * NON-MACHINE reason (R3-intake-1: the runtime stage pushes the machine
+ * fact first — the runner code ahead of the environment one — and a mixed
+ * method's answer cause is what the list is about; the machine fact has its
+ * own line, "N of them cannot run yet"). The schedule rule therefore
+ * renders the board's B line from `min_draws.required`; an inventory-only
+ * code (`DECISION_DAY_UNMET`, impossible from a preview but possible in a
+ * fixture) and anything outside the shared set fall to the module's
+ * constant line.
  */
 export function excludedReasonLine(
   method: MethodEligibility,
@@ -434,9 +454,9 @@ export function excludedReasonLine(
 ): string {
   const code = excludedReasonCode(method)
   if (code === null) {
-    // A method whose ONLY cause is the environment never reaches the list
-    // (the env line is its fact); the direct line still tells its truth —
-    // the shared E-vocabulary sentence, never a blank.
+    // A method whose ONLY cause is a machine reason never reaches the list
+    // (its line is the machine line/fact); the direct line still tells its
+    // truth — the shared E-vocabulary sentence, never a blank.
     return formatters.formatReasonLine(
       toRunStatus(method.status),
       method.reasons,
@@ -451,7 +471,7 @@ export function excludedReasonLine(
   if (!PREVIEW_SHARED_CODES.has(code)) return PREVIEW_REASON_FALLBACK
   return formatters.formatReasonLine(
     toRunStatus(method.status),
-    method.reasons.filter(reason => reason.code !== 'ENV_IMAGE_MISSING'),
+    method.reasons.filter(reason => !isMachineReason(reason.code)),
     method.coverage,
     method.min_draws,
     method.missing_markers,
@@ -463,17 +483,17 @@ export function excludedReasonLine(
 /**
  * The "N methods are left out" list: every `cannot_run` verdict with an
  * ANSWER cause in the response's order (the provider emits deterministic
- * order), one reason line per method. The ENV_ONLY verdicts are NOT in it —
- * R2-1 separates the environment fact: those methods fit the answers and
+ * order), one reason line per method. The MACHINE-ONLY verdicts are NOT in
+ * it — R2-1 separates the machine facts: those methods fit the answers and
  * read the panel's "N of them cannot run yet" line (their row reason would
  * be the one sentence repeated hundreds of times, the wall the R2-5 fix
  * removes from the file cards) and the choose-methods screen lists them one
- * by one. A method with BOTH causes (env + answer) IS in it — its answer
- * reason is what the heading counts (R3-intake-1), and its env fact is the
- * separate line. `can_run_some` methods are NOT in it either — B labels the
- * heads "N of M fit" and "N are left out", and a method that can run for
- * some patients is neither. The board's visible clip + the truthful "Show
- * all N" affordance live in the page (`EXCLUDED_LIST_LIMIT`).
+ * by one. A method with BOTH causes (machine + answer) IS in it — its
+ * answer reason is what the heading counts (R3-intake-1), and its machine
+ * fact is the separate line. `can_run_some` methods are NOT in it either —
+ * B labels the heads "N of M fit" and "N are left out", and a method that
+ * can run for some patients is neither. The board's visible clip + the
+ * truthful "Show all N" affordance live in the page (`EXCLUDED_LIST_LIMIT`).
  */
 export function excludedMethods(
   response: EligibilityResponse,
@@ -483,12 +503,12 @@ export function excludedMethods(
     .filter(method => method.status === 'cannot_run' && hasAnswerCause(method))
     .map(method => {
       // The grouping code is the FIRST reason the row's line shows — the first
-      // non-environment reason (a mixed env+answer method reads its answer
-      // cause; the env fact has its own line, R3-intake-1). The `hasAnswerCause`
-      // filter above guarantees such a reason exists, so the old
-      // `?? 'ENV_IMAGE_MISSING'` fallback was unreachable — and worse, naming
-      // the env fact as the grouping code would make the section heading
-      // contradict the row it holds (brief 5b2 ITEM-2/5).
+      // non-machine reason (a mixed machine+answer method reads its answer
+      // cause; the machine fact has its own line, R3-intake-1). The
+      // `hasAnswerCause` filter above guarantees such a reason exists, so the
+      // old `?? 'ENV_IMAGE_MISSING'` fallback was unreachable — and worse,
+      // naming a machine fact as the grouping code would make the section
+      // heading contradict the row it holds (brief 5b2 ITEM-2/5).
       const reasonCode = excludedReasonCode(method)!
       return {
         id: method.id,
