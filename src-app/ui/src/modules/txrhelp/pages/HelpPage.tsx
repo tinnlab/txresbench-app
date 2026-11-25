@@ -19,7 +19,7 @@
  *
  * Top of page: title, one-line purpose, the search box (filters sections
  * and troubleshooting entries, highlights matches, a "no results" state)
- * and the Quick start row of three cards mirroring the Start screen.
+ * and the Quick start row of two cards mirroring the Start screen.
  *
  * The content is data (`content.ts` + the committed validator catalogue);
  * this file has no prose of its own and no facts about codes. The status
@@ -101,25 +101,23 @@ import type { FileCardContent, HelpBlock, HelpProblemEntry, HelpSection, Problem
  *  tables; the destination literals mirror the Start screen's own). */
 
 /**
- * The quick-start card's intent (qa-fixes4 ITEM-5, R3-help-6): the card
- * ids ARE the three ways in (pretrained/learn/saved — the Start screen's
- * own vocabulary), and the intent is the flow's mode. The two predict
- * cards share one destination; the intent is what makes the destination
- * tell the pretrained path from the saved-model path. The union is a
- * LOCAL three-literal copy (the types.ts byte, and the same reason: the
- * module never imports the intake module's types — a reverse import
- * would be the manifest cycle; structural typing makes it assignable).
+ * The quick-start card's intent (qa-fixes4 ITEM-5, R3-help-6; predict-card
+ * merge round 1): the card ids ARE the ways in (pretrained/learn/saved —
+ * the Start screen's card ids), and the intent is the flow's mode (the ONE
+ * predict intent now — the merged model step has no two paths left, so
+ * both predict cards start the same way). The union is a LOCAL copy (the
+ * types.ts byte, and the same reason: the module never imports the intake
+ * module's types — a reverse import would be the manifest cycle;
+ * structural typing makes it assignable).
  */
-type QuickStartIntent = 'pretrained' | 'train' | 'reuse'
+type QuickStartIntent = 'predict' | 'train'
 
 function intentOf(id: QuickStartCard['id']): QuickStartIntent {
   switch (id) {
-    case 'saved':
-      return 'reuse'
+    case 'predict':
+      return 'predict'
     case 'learn':
       return 'train'
-    case 'pretrained':
-      return 'pretrained'
   }
 }
 
@@ -1420,7 +1418,10 @@ export function HelpPage() {
                     data-testid="txr-help-quickstart"
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                      // predict-card merge round 2: TWO cards (the two Start
+                      // ways — the old third card's predict example is the
+                      // same path).
+                      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                       gap: 12,
                       // qa-fixes3 ITEM-6 (e): the row's width is the GRID's
                       // width, not the page's — the quick-start cards used to
@@ -1481,20 +1482,19 @@ export function HelpPage() {
                           >
                             {card.cta} →
                           </Link>
-                          {/* qa-fixes3 ITEM-5: the card's one-line example action —
-                              the same one-click "Use example" flow the Start screen's
-                              card runs, landing on the path's file step. */}
+                          {/* qa-fixes3 ITEM-5 (predict-card merge r1): the
+                              card's one-line example action — the registered
+                              `flow.useExample` the Start screen's card runs;
+                              it lands on the path's file step and the trail
+                              goes back to Help. */}
                           <TxrUseExampleButton
                             path={card.tryExample.path}
                             label={card.tryExample.label}
-                            onDone={() => {
-                              // The example files are in: the path opens on
-                              // its file step, and goes back to Help.
-                              void runAction('flow.startPath', {
-                                intent: card.tryExample.path,
-                                startAtFiles: true,
-                              })
-                            }}
+                            // Round-1 audit item 1: the two help cards used
+                            // to share the `txr-use-example-predict` id (the
+                            // old two predict cards both landed on the same
+                            // path) — each host names its button.
+                            testId={`txr-help-use-example-${card.id}`}
                           />
                         </div>
                       </section>

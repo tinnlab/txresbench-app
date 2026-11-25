@@ -19,6 +19,8 @@ import './wslSetupActions'
 import './dayActions'
 import './intakeActions'
 import './modelSetActions'
+import './modelFileActions'
+import './modelRunActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -31,6 +33,8 @@ const NEW_IDS = [
   'flow.back',
   'help.backToStep',
   'models.switchList',
+  'models.setListFilters',
+  'models.setSelection',
   'flow.startPath',
   'models.useModel',
   'history.useSettingsAgain',
@@ -42,6 +46,8 @@ const NEW_IDS = [
   'models.renameSet',
   'models.exportSet',
   'models.deleteSet',
+  'models.openModelFile',
+  'flow.useExample',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
@@ -55,7 +61,11 @@ const MODULE_IMPORTS: Record<string, string[]> = {
     '@/core/actions/builtin/intakeActions',
   ],
   'src/modules/txrshell/module.tsx': ['@/core/actions/builtin/wslSetupActions'],
-  'src/modules/txrmodels/module.tsx': ['@/core/actions/builtin/modelSetActions'],
+  'src/modules/txrmodels/module.tsx': [
+    '@/core/actions/builtin/modelSetActions',
+    '@/core/actions/builtin/modelFileActions',
+    '@/core/actions/builtin/modelRunActions',
+  ],
 }
 
 const SRC_ROOT = resolve(__dirname, '../../../..')

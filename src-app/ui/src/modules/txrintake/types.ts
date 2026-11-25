@@ -50,16 +50,30 @@ import type {
 } from '@/api-client/types'
 
 /**
- * The A-card intent (screen A, the three path cards of FLOW.md):
+ * The A-card intent (screen A, the two path cards of the predict-card merge):
  *
- * - `'pretrained'` — Path 1: pretrained models on the patient's file;
- * - `'train'`      — Path 2: learn from my data (study + files + methods);
- * - `'reuse'`      — Path 3: saved models on a new file.
+ * - `'predict'` — the ONE predict path (ready-made models, saved models and
+ *   opened model files are all picked on the model step; round 1 still
+ *   continues to today's two model screens by `predictSource` — round 2
+ *   replaces the bridge with `/choose-models`);
+ * - `'train'`   — learn from my data (study + files + methods).
  *
- * The intent sets the snapshot's `mode`: pretrained/reuse =
- * `'predict'` (screen N feeds it), train = `'study'` (screen B + C feed it).
+ * The intent sets the snapshot's `mode`: predict = `'predict'` (screen N
+ * feeds it), train = `'study'` (screen B + C feed it). A pressed `'predict'`
+ * path's source is a separate fact (`PredictModelSource`), because the
+ * store keeps ONE predict intent.
  */
-export type IntakeIntent = 'pretrained' | 'train' | 'reuse'
+export type IntakeIntent = 'predict' | 'train'
+
+/**
+ * The source preset of the predict path (round 1): which model list the
+ * predict path's model step shows. `'lab'` = ready-made models from the lab,
+ * `'saved'` = the user's saved models (trained runs AND opened `.txr` files).
+ * Stored for round 2/3's merged `/choose-models` list; `PredictFilesPage`
+ * continues to `/choose-models` and the list reads the preset as its focus
+ * on mount (the old D/I addresses redirect with the same preset pinned).
+ */
+export type PredictModelSource = 'lab' | 'saved'
 
 /**
  * Screen B, "which disease" — ONE NODE ID of the method catalogue's

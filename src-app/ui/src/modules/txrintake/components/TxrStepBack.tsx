@@ -1,6 +1,6 @@
 /**
- * The Back button of the step views (B, C, N, E, D, I) and the hook each
- * step page calls to join the step trail (`lib/stepTrail.ts`).
+ * The Back button of the step views (B, C, N, E and the model step) and the
+ * hook each step page calls to join the step trail (`lib/stepTrail.ts`).
  *
  * - `useStepBack(...)` records the step in the trail on mount (and on a
  *   search change), declares the `txr.step` context (so the palette and the
@@ -65,10 +65,12 @@ export function useStepBack({
   const url = `${location.pathname}${location.search}`
   useActiveContext(TXR_STEP_CONTEXT, { entityId: step })
 
-  // The model steps (D, I) also declare the model-step context: the list
-  // switch is offered there only.
+  // The model step (the merged list) also declares the model-step context:
+  // the list switch is offered there only.
   useEffect(() => {
-    if (step !== 'pretrained-models' && step !== 'saved-models') return
+    if (step !== 'choose-models') {
+      return
+    }
     registerActiveContext(TXR_MODEL_STEP_CONTEXT, { entityId: step })
     return () => unregisterActiveContext(TXR_MODEL_STEP_CONTEXT)
   }, [step])

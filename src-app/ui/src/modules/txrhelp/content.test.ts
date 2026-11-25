@@ -169,33 +169,35 @@ describe('help content — sections (TEST-HELP-1)', () => {
     }
   })
 
-  it('the quick-start row mirrors the Start screen: three cards, their screens and buttons', () => {
+  it('the quick-start row mirrors the Start screen: two cards, their screens and buttons', () => {
     // The Start page's order (the user, 2026-11-19): learn first.
-    expect(QUICK_START.map(card => card.id)).toEqual(['learn', 'pretrained', 'saved'])
+    expect(QUICK_START.map(card => card.id)).toEqual(['learn', 'predict'])
     expect(QUICK_START.map(card => card.eyebrow)).toEqual([
       'Most flexible',
-      'No training needed',
-      'Repeat a past analysis',
+      'Uses a trained model',
+    ])
+    // The card titles are the Start page's own.
+    expect(QUICK_START.map(card => card.title)).toEqual([
+      'Learn from my data',
+      'Predict new patients',
     ])
     expect(QUICK_START[0].cta).toBe('Add my data')
     expect(QUICK_START[1].cta).toBe('Add the patients to predict')
-    expect(QUICK_START[2].cta).toBe('Predict with a model I saved')
     // The learn path starts with the files (then the study questions).
     expect(QUICK_START[0].route).toBe('/files')
     expect(QUICK_START[1].route).toBe('/predict-files')
-    expect(QUICK_START[2].route).toBe('/predict-files')
     // qa-fixes3 ITEM-5: each card carries the one-line example action, and
-    // the path it starts is the card's own way in (the Start screen's
-    // intent spelling, never a different path's example).
+    // the path it starts is the card's own way in (predict-card merge r1/r2:
+    // the THREE Start ways are TWO cards — the old ready-made and saved
+    // cards are one "Predict new patients" card now — so the merged model
+    // step has one predict path).
     expect(QUICK_START.map(card => card.tryExample.label)).toEqual([
-      'Try it with example data',
       'Try it with example data',
       'Try it with example data',
     ])
     expect(QUICK_START.map(card => card.tryExample.path)).toEqual([
       'train',
-      'pretrained',
-      'reuse',
+      'predict',
     ])
   })
 
@@ -207,7 +209,6 @@ describe('help content — sections (TEST-HELP-1)', () => {
     // never prints one.
     expect(QUICK_START.map(card => card.screen)).toEqual([
       'Your files',
-      'Predict files',
       'Predict files',
     ])
     const stepScreens = HELP_SECTIONS.flatMap(section =>

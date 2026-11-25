@@ -67,6 +67,14 @@ export type TxrListChipTone = 'neutral' | 'accent'
  */
 export interface TxrListRow {
   key: string
+  /**
+   * The merged model list's source label ("From the lab" / "Saved" /
+   * "Imported" — the predict-card merge, round 2), rendered FIRST in small
+   * caps (`font-variant: all-small-caps` keeps the DOM text readable for
+   * screen readers and search) above the row's name. Absent on the
+   * method rows and on the old single-source model lists.
+   */
+  source?: { label: string } | null
   name: string
   tag: string
   chip: { label: string; tone: TxrListChipTone } | null
@@ -111,6 +119,9 @@ export interface TxrFilterChip {
   label: string
   count: number
   active: boolean
+  /** A chip with count 0 stays visible but cannot be toggled (the merged
+   *  list's source chips — a source with no rows is shown, disabled). */
+  disabled?: boolean
   onToggle(): void
 }
 

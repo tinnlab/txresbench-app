@@ -727,7 +727,7 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     fireEvent.click(screen.getByTestId('txr-intake-study-continue'))
     expect(routeAt()).toBe('/files')
     // The predict side trip goes back to its file step.
-    act(() => store().setIntent('pretrained'))
+    act(() => store().setIntent('predict'))
     expect(screen.getByTestId('txr-intake-study-continue').textContent).toBe(
       'Continue to the patients to predict',
     )

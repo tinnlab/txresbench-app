@@ -45,7 +45,7 @@
  */
 import type { ModelSummary, PretrainedSummary, TxrEndpoint } from '@/api-client/types'
 import type { TxrListRow } from '@/modules/txrlist'
-import type { TxrModelFilterId, TxrModelSortId } from '../types'
+import type { TxrModelFilterId, TxrModelSortId, TxrModelSourceId } from '../types'
 
 /** The analysis outcome facts the I "Same outcome as my file" chip reads
  *  (the inventory carries no endpoint/horizon — the host resolves them
@@ -138,6 +138,63 @@ function compareNumber(a: number | null, b: number | null, direction: 1 | -1): n
   if (a === null) return 1
   if (b === null) return -1
   return (a - b) * direction
+}
+
+/** The merged list's row facts the chip predicate reads (one per row key). */
+export interface TxrChooseFacts {
+  /** The row's source: the lab catalogue, a trained run, or an import. */
+  source: TxrModelSourceId
+  /** The lab catalogue card of a `ps:` row (null for a store row). */
+  card: PretrainedSummary | null
+  /** The store summary of a saved/imported row (null for a lab row). */
+  model: ModelSummary | null
+}
+
+/**
+ * The merged list's chip predicate (predict-card merge round 2) — one AND
+ * over the active host chips, by the row's source facts:
+ *
+ * - the source chips are multi-active with an "any of them" rule (several
+ *   on = any source matches);
+ * - the lab chips (`published` / `learned` / `checked-2-plus`) answer lab
+ *   rows only — a store row never matches a lab-only chip;
+ * - `same-outcome` matches BOTH halves of the endpoint/horizon rule over
+ *   every row (lab rows carry endpoint and horizon too), null analysis
+ *   facts match nothing.
+ */
+export function chooseChipPredicate(
+  active: ReadonlyArray<TxrModelFilterId>,
+  outcome: TxrOutcomeMatch,
+): (facts: TxrChooseFacts) => boolean {
+  const wants = active.filter(id => HOST_FILTER_IDS.includes(id) || id.startsWith('source-'))
+  if (wants.length === 0) return () => true
+  const sourceWants = wants.filter(id => id.startsWith('source-'))
+  return facts => {
+    if (
+      sourceWants.length > 0 &&
+      !sourceWants.includes(`source-${facts.source}` as TxrModelFilterId)
+    ) {
+      return false
+    }
+    if (wants.includes('published') && facts.card?.kind !== 'published-rule') return false
+    if (wants.includes('learned') && facts.card?.kind !== 'benchmark-trained') return false
+    if (
+      wants.includes('checked-2-plus') &&
+      (facts.card?.transfer === null ||
+        facts.card?.transfer === undefined ||
+        facts.card.transfer.n_cohorts < 2)
+    ) {
+      return false
+    }
+    if (wants.includes('same-outcome')) {
+      if (outcome.endpoint === null || outcome.lookAheadDay === null) return false
+      const endpoint = facts.card?.endpoint ?? facts.model?.endpoint ?? null
+      const horizon = facts.card?.horizon ?? facts.model?.horizon ?? null
+      if (endpoint !== outcome.endpoint) return false
+      if (horizon !== outcome.lookAheadDay) return false
+    }
+    return true
+  }
 }
 
 /**

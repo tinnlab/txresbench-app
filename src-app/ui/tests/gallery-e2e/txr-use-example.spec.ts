@@ -15,11 +15,11 @@ import { expect, test, type Page } from '@playwright/test'
  * round settles (the mock validator's error-free state — the family's
  * normal per-marker A04 unit notes are warnings, never a block) → clicking
  * Continue reaches the next step
- * (`/choose-methods` for train, `/pretrained-models` for pretrained,
- * `/saved-models` for reuse — recorded in the story's navigation seam).
+ * (`/choose-methods` for train, `/choose-models` for both predict paths —
+ * recorded in the story's navigation seam).
  *
  * The ITEM-4 amendment pins the landing step reading: the file step IS the
- * step with the Continue affordance (the D/I screens have none — their one
+ * step with the Continue affordance (the model step has none — its one
  * action is the list's run bar that path 1 does not preselect).
  *
  * Run (own port on a shared box — the config derives one per worktree):
@@ -66,31 +66,33 @@ test.describe('txr-use-example — one click per path (test QF3-3)', () => {
     await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /choose-methods')
   })
 
-  test('predict with a pretrained model: one click fills /predict-files, Continue enabled → /pretrained-models', async ({ page }) => {
+  test('predict with the example: one click fills /predict-files, Continue enabled → /choose-models', async ({ page }) => {
     await openStart(page)
-    await page.getByTestId('txr-use-example-pretrained').click()
+    await page.getByTestId('txr-use-example-predict').click()
 
     await expect(page.getByTestId('txr-intake-predict-files')).toBeVisible()
     await expect(page.getByTestId(EXAMPLES_BADGE)).toBeVisible()
     await expect(page.getByTestId('txr-intake-example-loaded')).toBeVisible()
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
+    // The example path pins its source preset — Continue now lands on the
+    // ONE merged model list (/choose-models) either way.
     await page.getByTestId('txr-intake-continue').click()
-    await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /pretrained-models')
+    await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /choose-models')
   })
 
-  test('use a model I saved: one click fills /predict-files (the example set answers ready), Continue enabled → /saved-models', async ({ page }) => {
+  test('the example set answers ready: no training-progress line once the flow landed, Continue → /choose-models', async ({ page }) => {
     await openStart(page)
-    await page.getByTestId('txr-use-example-reuse').click()
+    await page.getByTestId('txr-use-example-predict').click()
 
     await expect(page.getByTestId('txr-intake-predict-files')).toBeVisible()
     await expect(page.getByTestId(EXAMPLES_BADGE)).toBeVisible()
     await expect(page.getByTestId('txr-intake-example-loaded')).toBeVisible()
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
-    // The one-click promise of the reuse path: the example set (ITEM-3) was
+    // The one-click promise of the predict path: the example set (ITEM-3) was
     // ensured during the click — the progress line must NOT be visible once
     // the flow landed (the ready answer settles in one round).
-    await expect(page.getByTestId('txr-use-example-progress-reuse')).not.toBeVisible()
+    await expect(page.getByTestId('txr-use-example-progress-predict')).not.toBeVisible()
     await page.getByTestId('txr-intake-continue').click()
-    await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /saved-models')
+    await expect(page.getByTestId(STEP_SEAM)).toHaveText('next step: /choose-models')
   })
 })

@@ -13,8 +13,9 @@
  * The three actions (the board's words):
  *
  * - "Predict new patients with them" — the DEC-10 handoff's intent
- *   (`setIntent('reuse')`) + the N screen (`predictFilesPath()` — the
- *   same route the J "Use" handoff uses);
+ *   (the ONE predict intent — round 1 replaced the old `'reuse'`) + the N
+ *   screen (`predictFilesPath()` — the same route the J "Use" handoff
+ *   uses, which continues to the merged model step);
  * - "See my models" — `modelsPath()` (screen J, this module's own);
  * - "Done" — close.
  *
@@ -112,11 +113,11 @@ const FILE_LINE: CSSProperties = { margin: '6px 0 0', fontSize: 13, color: 'var(
 export function TxrSavedDialog({ response, file = { status: 'none' }, onClose }: TxrSavedDialogProps) {
   const navigate = useNavigate()
 
-  // The registered `flow.startPath` (reuse): its first step goes back to the
-  // page this dialog opened on.
+  // The registered `flow.startPath` (the ONE predict intent): its first
+  // step goes back to the page this dialog opened on.
   const predictWithThem = (): void => {
     if (response === null) return
-    void runAction('flow.startPath', { intent: 'reuse' }).catch(() => undefined)
+    void runAction('flow.startPath', { intent: 'predict' }).catch(() => undefined)
     onClose()
   }
 

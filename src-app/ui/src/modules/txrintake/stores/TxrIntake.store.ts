@@ -46,6 +46,7 @@ import type {
   IntakeSnapshot,
   JoinOffer,
   LoadedFile,
+  PredictModelSource,
   StudyAnswers,
   VocabOffer,
 } from '../types'
@@ -105,6 +106,16 @@ export interface MethodPicks {
 
 /** The store's data fields (the `IntakeSnapshot` + the recall map). */
 export interface TxrIntakeState extends IntakeSnapshot {
+  /**
+   * The ONE predict intent's source preset (predict-card merge round 1):
+   * which model list the predict path's model step shows (`'lab'` /
+   * `'saved'`), or null when no source is pinned (the round-1 bridge's
+   * no-source default; the ONE `/choose-models` list reads the preset as
+   * its focus when it is pinned). Never part of `IntakeSnapshot` (the state
+   * contract stays the flow's) but persisted: a reload between the path
+   * choice and the model step keeps the list the path promised.
+   */
+  predictSource: PredictModelSource | null
   fileRecalls: FileRecalls
   /**
    * The A-screen "Try the example data" was the source of the files now in
@@ -125,11 +136,11 @@ export interface TxrIntakeState extends IntakeSnapshot {
   exampleSlots: Record<FileSlot, boolean>
   /**
    * The ITEM-3 set handoff (qa-fixes3 ITEM-4): the id of the "Example
-   * models" set the reuse-path example flow ensured — the saved-models
-   * screen ticks that set's rows once its saved list holds them, then
-   * clears the fact. Same class as `exampleLoaded`: a handoff fact, never
-   * part of `IntakeSnapshot`, never persisted (a reload forgets it — the
-   * user can call "Use example" again).
+   * models" set the reuse-path example flow ensured — the merged
+   * `/choose-models` list ticks that set's rows once its saved list holds
+   * them, then clears the fact. Same class as `exampleLoaded`: a handoff
+   * fact, never part of `IntakeSnapshot`, never persisted (a reload
+   * forgets it — the user can call "Use example" again).
    */
   pendingExampleSetId: string | null
   /** Screen E's method ticks (see `MethodPicks`). Memory only, never persisted. */
@@ -174,6 +185,12 @@ export interface PersistedIntake {
   joins: JoinOffer[]
   mapping: MarkerMapping[]
   parameters: IntakeSnapshot['parameters']
+  /**
+   * The ONE predict intent's source preset (see `TxrIntakeState`). A
+   * persisted `null` is the "no source pinned" spelling; the ONE
+   * `/choose-models` list then opens with no source focus.
+   */
+  predictSource: PredictModelSource | null
 }
 
 /**
@@ -194,6 +211,31 @@ const EMPTY_STUDY: StudyAnswers = {
   beforeTreatment: null,
   drawsDuringTreatment: null,
   lastDrawDay: null,
+}
+
+// ── the persisted intent's one-time old-id map (predict-card merge r1) ──────
+// The store used to keep THREE path intents (`'pretrained' | 'train' |
+// 'reuse'`); it now keeps ONE predict intent (`'predict'`). A persisted
+// `'pretrained'` / `'reuse'` rehydrates as `'predict'` — never as a value
+// the union no longer knows (a type-level lie at runtime), and never
+// dropped (a reload mid-flow keeps the user's path).
+
+/** Old intent → the current spelling (`undefined` = not an old id). */
+const OLD_INTENT_TO_NEW: Readonly<Record<string, IntakeIntent | undefined>> = {
+  pretrained: 'predict',
+  reuse: 'predict',
+}
+
+/** Normalise a persisted `intent` value into the current `IntakeIntent`. */
+export function normalizePersistedIntent(persisted: unknown): IntakeIntent | undefined {
+  if (persisted === 'predict' || persisted === 'train') return persisted
+  if (typeof persisted === 'string') return OLD_INTENT_TO_NEW[persisted]
+  return undefined
+}
+
+/** Normalise a persisted `predictSource` value (shape-guarded — never an invented preset). */
+export function normalizePersistedPredictSource(persisted: unknown): PredictModelSource | null {
+  return persisted === 'lab' || persisted === 'saved' ? persisted : null
 }
 
 // ── the persisted study answers' one-time old-id map (step2-filters) ────────
@@ -417,12 +459,14 @@ const TxrIntakeDef = defineStore('TxrIntake', {
       joins: s.joins,
       mapping: s.mapping,
       parameters: s.parameters,
+      predictSource: s.predictSource,
     }),
     merge: (persisted, current) => {
       const p = (persisted ?? {}) as Partial<PersistedIntake>
+      const intent = p.intent !== undefined ? normalizePersistedIntent(p.intent) : undefined
       return {
         ...current,
-        ...(p.intent !== undefined ? { intent: p.intent } : {}),
+        ...(intent !== undefined ? { intent } : {}),
         ...(p.mode !== undefined ? { mode: p.mode } : {}),
         ...(p.study !== undefined ? { study: normalizePersistedStudy(p.study) } : {}),
         ...(p.singleMarkerChoice !== undefined
@@ -432,6 +476,9 @@ const TxrIntakeDef = defineStore('TxrIntake', {
         ...(p.joins !== undefined ? { joins: p.joins } : {}),
         ...(p.mapping !== undefined ? { mapping: p.mapping } : {}),
         ...(p.parameters !== undefined ? { parameters: p.parameters } : {}),
+        ...(p.predictSource !== undefined
+          ? { predictSource: normalizePersistedPredictSource(p.predictSource) }
+          : {}),
       }
     },
   },
@@ -454,6 +501,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     methodPicks: null as MethodPicks | null,
     dayFacts: null as FileTimeline | null,
     lookAheadDay: null as number | null,
+    predictSource: null as PredictModelSource | null,
   },
   actions: (set, get) => {
     /** The state snapshot the current validation is STILL valid against. */
@@ -465,18 +513,24 @@ const TxrIntakeDef = defineStore('TxrIntake', {
 
     return {
       /**
-       * The A-card path choice; the mode follows (train → study, the rest →
+       * The A-card path choice; the mode follows (train → study, predict →
        * predict). A mode change forgets the validation: it checked the other
        * mode's files (the predict file, or the learn pair), so the new mode's
        * file step checks its own files again instead of continuing on it.
        * A new path also forgets the last analysis' look-ahead day.
+       *
+       * `source` pins the ONE predict intent's source preset (`lab` /
+       * `saved`); the learn path never carries one (null). An OLD two-list
+       * caller passes the old intent (~'pretrained' / 'reuse') through
+       * `flow.startPath`'s alias arm — the action converts it here.
        */
-      setIntent: (intent: IntakeIntent) => {
+      setIntent: (intent: IntakeIntent, source: PredictModelSource | null = null) => {
         const mode: IntakeSnapshot['mode'] = intent === 'train' ? 'study' : 'predict'
+        const predictSource = intent === 'train' ? null : source
         set(s =>
           s.mode === mode
-            ? { intent, mode, lookAheadDay: null }
-            : { intent, mode, validation: null, dayFacts: null, lookAheadDay: null },
+            ? { intent, mode, predictSource, lookAheadDay: null }
+            : { intent, mode, predictSource, validation: null, dayFacts: null, lookAheadDay: null },
         )
       },
 
@@ -855,6 +909,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           methodPicks: null,
           dayFacts: null,
           lookAheadDay: null,
+          predictSource: null,
         })
       },
 

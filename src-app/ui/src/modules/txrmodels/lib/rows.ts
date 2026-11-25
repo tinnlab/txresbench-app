@@ -1,8 +1,9 @@
 /**
  * txrmodels row builders — PROV-UI-MODELS-4 (ITEM-4).
  *
- * `buildPretrainedRows` (screen D) and `buildSavedRows` / `buildSavedSections`
- * (screen I) are the pure joins the two choice screens are fed from: the
+ * `buildPretrainedRows` (the lab catalogue join) and `buildSavedRows` (the
+ * saved-model join) are the pure joins the ONE merged choice screen is fed
+ * from via `buildChooseRows` (round 2 — the D/I lists merged): the
  * provider list payloads (the pretrained catalogue cards,
  * `PretrainedSummary[]`; the saved-model summaries, `ModelSummary[]`, plus
  * the set rows, `SetSummary[]`) × the eligibility verdicts (`PROV-PC-8` /
@@ -44,6 +45,7 @@ import type {
   Coverage,
   EligibilityStatus,
   MinDraws,
+  ModelEligibility,
   ModelEligibilityResponse,
   ModelSummary,
   PretrainedEligibilityResponse,
@@ -57,11 +59,9 @@ import {
   formatReasonLine,
   formatRunHeadline,
   type TxrListRow,
-  type TxrListSection,
   type TxrReasonCode,
   type TxrRunStatus,
 } from '@/modules/txrlist'
-import { formatPredicts, formatTrainedDateShort, UNRECORDED } from './format'
 import { DEMO_PRETRAINED_CHIP } from '@/modules/demo/copy'
 
 /** The provider's three verdict codes → the three board status codes. */
@@ -138,6 +138,19 @@ function savedSubtitle(model: ModelSummary): string {
 }
 
 /**
+ * The merged list's saved/imported subtitle (predict-card merge round 2):
+ * the run name first ("`<run name>` · decision day N" — the run name is the
+ * set name, so the flat list still shows which run a model came from), or
+ * the DEC-13 day part alone for an imported model with no set. "before
+ * treatment only" stays the day part's baseline spelling.
+ */
+export function chooseSavedSubtitle(model: ModelSummary): string {
+  const day = savedSubtitle(model)
+  const run = model.set_name?.trim() ?? ''
+  return run.length > 0 ? `${run} \u00b7 ${day}` : day
+}
+
+/**
  * The screen-D join: catalogue cards × pretrained eligibility verdicts →
  * `TxrListRow[]`, one row per card in catalogue order (the list order is
  * the catalogue's). In demo mode (`demo: true` — the audit's ITEM-7 row)
@@ -200,14 +213,11 @@ export function buildPretrainedRows(
 }
 
 /**
- * The screen-I row join: one set's saved-model summaries × their eligibility
- * verdicts → `TxrListRow[]`, in the list's order.
- *
- * The section-level facts (the run-facts subtitle, the section actions)
- * are `buildSavedSections`'s; a row reads only its own model's facts —
- * the `SetSummary` is a header concern and is deliberately not threaded
- * into the row signature (the plan's early draft named a `set` argument;
- * the sections function owns it: PROV-UI-MODELS-4's `buildSavedSections`).
+ * The saved/imported row join: the store's summaries × their eligibility
+ * verdicts → `TxrListRow[]`, in the list's order. A row reads only its own
+ * model's facts; the merged list threads its own subtitle through
+ * `chooseSavedSubtitle` (the screen-I set grouping left with the old page —
+ * round 3: the merged list is flat).
  */
 export function buildSavedRows(
   summaries: ModelSummary[],
@@ -216,91 +226,121 @@ export function buildSavedRows(
   const verdictById = new Map(
     (eligibility?.models ?? []).map(verdict => [verdict.id, verdict]),
   )
-  return summaries.map(model => {
-    const verdict = verdictById.get(model.id)
-    const chip =
-      model.provenance === 'run'
-        ? { label: 'Trained by you', tone: 'accent' as const }
-        : model.provenance === 'imported'
-          ? { label: 'Imported', tone: 'neutral' as const }
-          : { label: 'Ready-made', tone: 'accent' as const }
-    if (verdict === undefined) {
-      return {
-        key: model.id,
-        name: model.name,
-        tag: savedSubtitle(model),
-        chip,
-        performanceText: ownAucText(model.own_auc),
-        run: {
-          status: 'cannot' as TxrRunStatus,
-          headline: formatRunHeadline('cannot'),
-          detail: formatReasonLine('cannot', [{ code: 'NOT_RUNNABLE' }], { eligible: 0, total: 0 }, { required: 0, met: 0, unmet_patients: 0 }, [], []),
-          disabled: true,
-        },
-        timeText: null,
-        action: { label: 'Details' },
-      }
-    }
-    const status = toRunStatus(verdict.status)
+  return summaries.map(model =>
+    buildSavedRow(model, verdictById.get(model.id), savedSubtitle(model)),
+  )
+}
+
+/** ONE saved/imported row (the shared arm of the I join and the merged
+ *  list's join — the merged list threads its own subtitle through). */
+function buildSavedRow(
+  model: ModelSummary,
+  verdict: ModelEligibility | undefined,
+  subtitle: string,
+): TxrListRow {
+  const chip =
+    model.provenance === 'run'
+      ? { label: 'Trained by you', tone: 'accent' as const }
+      : model.provenance === 'imported'
+        ? { label: 'Imported', tone: 'neutral' as const }
+        : { label: 'Ready-made', tone: 'accent' as const }
+  if (verdict === undefined) {
     return {
       key: model.id,
       name: model.name,
-      tag: savedSubtitle(model),
+      tag: subtitle,
       chip,
       performanceText: ownAucText(model.own_auc),
-      run: runFacts(status, verdict.reasons, verdict.coverage, verdict.min_draws, verdict.missing_markers),
-      timeText:
-        verdict.estimated_seconds === null ||
-        verdict.estimated_seconds === undefined ||
-        !Number.isFinite(verdict.estimated_seconds)
-          ? null
-          : formatDurationShort(verdict.estimated_seconds),
+      run: {
+        status: 'cannot' as TxrRunStatus,
+        headline: formatRunHeadline('cannot'),
+        detail: formatReasonLine('cannot', [{ code: 'NOT_RUNNABLE' }], { eligible: 0, total: 0 }, { required: 0, met: 0, unmet_patients: 0 }, [], []),
+        disabled: true,
+      },
+      timeText: null,
       action: { label: 'Details' },
     }
-  })
+  }
+  const status = toRunStatus(verdict.status)
+  return {
+    key: model.id,
+    name: model.name,
+    tag: subtitle,
+    chip,
+    performanceText: ownAucText(model.own_auc),
+    run: runFacts(status, verdict.reasons, verdict.coverage, verdict.min_draws, verdict.missing_markers),
+    timeText:
+      verdict.estimated_seconds === null ||
+      verdict.estimated_seconds === undefined ||
+      !Number.isFinite(verdict.estimated_seconds)
+        ? null
+        : formatDurationShort(verdict.estimated_seconds),
+    action: { label: 'Details' },
+  }
 }
 
+/** The merged list row source labels (the small-caps DOM text, verbatim). */
+export const CHOOSE_SOURCE_LABELS = {
+  lab: 'From the lab',
+  saved: 'Saved',
+  imported: 'Imported',
+} as const
+
 /**
- * An I section's run-facts line (Saved.dc.html's "trained 19 Oct on
- * patients.csv · <N> patients · <M> models · progression or death by day
- * 238" SKELETON — the letters are the board's, the counts design
- * examples) from the set's record + its models' run facts — every fact is
- * a provider field, never a design example:
- *
- * - `trained <date> on <source_label>` — the first model's `trained_at`
- *   (the run's `finished_at`; the set's own record carries no timestamp)
- *   + the set's `source_label` (engine truth — the file name the save
- *   dialog showed); the segment is omitted when neither fact is present;
- * - `<N> patients` — the first model's `trained_on_patients` (singular at
- *   one), omitted when unrecorded;
- * - `<M> models` — the set's `model_count`;
- * - the predicts line — the first model's task/endpoint/horizon through
- *   `formatPredicts`, omitted when unrecorded.
- *
- * A set whose models are still loading renders from the set's own facts
- * only (the first three segments' companions can be absent — the compose
- * never spells a blank, UNRECORDED or otherwise: the header is one line
- * and a "not recorded" segment in the middle would read wrong; the rows
- * below carry the unrecorded verdicts individually).
+ * The merged model step's row join (predict-card merge round 2): the lab
+ * catalogue rows (the D pages' rows, plus the source label) and the store's
+ * `run` / `imported` rows (the I pages' row arm, plus the source label and
+ * the run-name subtitle) in ONE flat list — every model that exists.
+ * A store row with provenance `pretrained` is NOT listed: it is the lab
+ * row's downloaded state (fixes today's double listing). When the lab
+ * CATALOGUE fails to load (`pretrainedFailed`), that row would vanish — so
+ * it is listed as a lab row from the store's own facts instead (the audit's
+ * item 8: the downloaded lab models stay visible; a `ps:<catalogue_id>` key
+ * keeps the same identity the loaded catalogue would use). The list order is
+ * the lab catalogue order, then the store's own order.
  */
-function sectionSubtitle(set: SetSummary, models: ModelSummary[]): string {
-  const first = models[0]
-  const parts: string[] = []
-  const trained = formatTrainedDateShort(first?.trained_at ?? null)
-  const label = set.source_label?.trim() ?? ''
-  if (trained !== null && label.length > 0) parts.push(`trained ${trained} on ${label}`)
-  else if (trained !== null) parts.push(`trained ${trained}`)
-  else if (label.length > 0) parts.push(`on ${label}`)
-  const trainedOn = first?.trained_on_patients
-  if (trainedOn !== null && trainedOn !== undefined && Number.isFinite(trainedOn)) {
-    parts.push(`${trainedOn} ${trainedOn === 1 ? 'patient' : 'patients'}`)
-  }
-  parts.push(`${set.model_count} ${set.model_count === 1 ? 'model' : 'models'}`)
-  if (first !== undefined) {
-    const predicts = formatPredicts(first.task, first.endpoint, first.horizon)
-    if (predicts !== UNRECORDED) parts.push(predicts)
-  }
-  return parts.join(' \u00b7 ')
+export function buildChooseRows(
+  cards: PretrainedSummary[],
+  summaries: ModelSummary[],
+  pretrainedElig: PretrainedEligibilityResponse | null,
+  savedElig: ModelEligibilityResponse | null,
+  demo = false,
+  pretrainedFailed = false,
+): TxrListRow[] {
+  const lab = buildPretrainedRows(cards, pretrainedElig, demo).map(row => ({
+    ...row,
+    source: { label: CHOOSE_SOURCE_LABELS.lab as string },
+  }))
+  const verdictById = new Map(
+    (savedElig?.models ?? []).map(verdict => [verdict.id, verdict]),
+  )
+  const owned = summaries
+    .filter(model => model.provenance !== 'pretrained' || pretrainedFailed)
+    .map(model => {
+      if (model.provenance === 'pretrained') {
+        // The catalogue is down: the downloaded lab model stays listed as
+        // a lab row, built from the store's own facts (the store row IS the
+        // model — the catalogue list is only the not-downloaded view).
+        const row = buildSavedRow(model, verdictById.get(model.id), chooseSavedSubtitle(model))
+        return {
+          ...row,
+          key: `ps:${model.pretrained_catalogue_id ?? model.id}`,
+          source: { label: CHOOSE_SOURCE_LABELS.lab as string },
+        }
+      }
+      const row = buildSavedRow(model, verdictById.get(model.id), chooseSavedSubtitle(model))
+      return {
+        ...row,
+        source: {
+          label: (
+            model.provenance === 'run'
+              ? CHOOSE_SOURCE_LABELS.saved
+              : CHOOSE_SOURCE_LABELS.imported
+          ) as string,
+        },
+      }
+    })
+  return [...lab, ...owned]
 }
 
 /**
@@ -702,35 +742,4 @@ function newestInstant(models: ModelSummary[]): number {
     if (t > newest) newest = t
   }
   return newest
-}
-
-/**
- * The screen-I section join (INV-2: models from one training run are
- * grouped): one `TxrListSection` per saved set, in the sets list's order,
- * with the set's row keys (the set's models in the summaries list order)
- * and the board's two section actions — Rename (default tone) and "Delete
- * the run's models" (danger). The section's models are grouped by
- * `set_id`; a summary row with no set (the J inventory owns it) is not a
- * saved-model section member. The action ids are the host's
- * `onSectionAction` vocabulary: `'rename'` / `'delete'`.
- */
-export function buildSavedSections(
-  sets: SetSummary[],
-  summaries: ModelSummary[],
-  eligibility: ModelEligibilityResponse | null,
-): TxrListSection[] {
-  return sets.map(set => {
-    const models = summaries.filter(model => model.set_id === set.id)
-    const rows = buildSavedRows(models, eligibility)
-    return {
-      key: set.id,
-      title: set.name,
-      subtitle: sectionSubtitle(set, models),
-      rowKeys: rows.map(row => row.key),
-      actions: [
-        { id: 'rename', label: 'Rename', tone: 'default' },
-        { id: 'delete', label: "Delete the run's models", tone: 'danger' },
-      ],
-    }
-  })
 }

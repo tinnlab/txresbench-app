@@ -24,8 +24,8 @@
  *   problem measurements (row 14 `week 4`, P0187 rows 88..91, ldh/LDH
  *   spellings) + its fixed twin, and the patients file.
  * - `txr-intake-n`: screen N (PredictFiles.dc.html) — the REAL
- *   PredictFilesPage in predict mode (intent `pretrained`), the one
- *   measurements card, the aside, and the Continue → `/pretrained-models`
+ *   PredictFilesPage in predict mode (source `lab`), the one
+ *   measurements card, the aside, and the Continue → `/choose-models`
  *   walk (the story's navigation-result seam records the route the page's
  *   Continue reached — the component is never probed, the
  *   `txr-list-run-result` precedent).
@@ -197,7 +197,7 @@ function seedValidatedFiles(fresh = true): void {
 /** Seed the store's N screen (predict intent, the clean predict file). */
 function seedPredictFile(fresh = true): void {
   if (fresh) TxrIntake.reset()
-  TxrIntake.setIntent('pretrained')
+  TxrIntake.setIntent('predict', 'lab')
   const predictTable = parseCsvText(
     TXR_INTAKE_FIXTURE_BUNDLE.predict,
     { kind: 'measurements' },
@@ -235,11 +235,11 @@ function CStoryView() {
   )
 }
 
-/** Screen N — predict mode, Continue into /pretrained-models. */
+/** Screen N — predict mode, Continue into /choose-models. */
 function NStoryView() {
   useEffect(() => {
     TxrIntake.reset()
-    TxrIntake.setIntent('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
   }, [])
   return (
     <div>
@@ -336,8 +336,7 @@ function UseExampleStoryView() {
         <Route path="/files" element={<FilesPage />} />
         <Route path="/predict-files" element={<PredictFilesPage />} />
         <Route path="/choose-methods" element={<ExampleStepSeam path="/choose-methods" />} />
-        <Route path="/pretrained-models" element={<ExampleStepSeam path="/pretrained-models" />} />
-        <Route path="/saved-models" element={<ExampleStepSeam path="/saved-models" />} />
+        <Route path="/choose-models" element={<ExampleStepSeam path="/choose-models" />} />
       </Routes>
       <NavigationResultLine />
     </section>
@@ -428,7 +427,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-intake-n',
       title: 'Add the patients to predict (screen N)',
-      note: 'The ONE measurements card (no patients file, no outcomes), the "What the models look for" aside, and Continue: choose models — in predict mode for intent pretrained the button reads /pretrained-models (recorded in the seam below; the frame mounts under a catch-all route so the navigation is observable).',
+      note: 'The ONE measurements card (no patients file, no outcomes), the "What the models look for" aside, and Continue: choose models — the button reads /choose-models (recorded in the seam below; the frame mounts under a catch-all route so the navigation is observable).',
       path: '*',
       initialPath: '/predict-files',
       component: lazy(() => Promise.resolve({ default: NStoryView })),

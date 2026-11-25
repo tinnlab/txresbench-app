@@ -10,21 +10,20 @@ import {
 } from '@/modules/txrmodels/lib/setActions'
 import { downloadSetExport, SET_EXPORT_FAILED_LINE } from '@/modules/txrmodels/lib/export'
 
-// The model-set actions of the "Your models" page (screen J) AND the
-// saved-models page's set actions (Card 3) — the registered, permissioned
-// wrappers the command palette and the AI agent drive, so a human affordance
-// and the AI share ONE path:
+// The model-set actions of the "Your models" page (screen J) — the
+// registered, permissioned wrappers the command palette and the AI agent
+// drive, so a human affordance and the AI share ONE path:
 //
 // - `models.renameSet` — renames through the SAME `renameSetById` the
 //   `TxrRenameSetDialog` confirm calls, then publishes the refresh bus
-//   (`notifyModelSetsChanged`) so the Models page's inventory/sets hooks and
-//   the saved-models store re-read (the AI path has no dialog `onSaved`).
+//   (`notifyModelSetsChanged`) so the Models page's inventory/sets hooks
+//   re-read (the AI path has no dialog `onSaved`).
 // - `models.exportSet` — runs the SAME `downloadSetExport` the Export set
 //   button uses (the button itself invokes this action; the human and the
 //   AI take the same download path).
 // - `models.deleteSet` — does NOT delete. It only OPENS the delete confirm
 //   dialog for that set through the pending-request channel
-//   (`requestDeleteSet` — the module-level listener both hosts subscribe
+//   (`requestDeleteSet` — the module-level listener the host subscribes
 //   to); the person confirms in `TxrDeleteSetDialog`, whose confirm is the
 //   one caller of `deleteSetById` (`keep_files: false`, DEC-14 — the same
 //   on the wire for every caller). An AI can never delete a set without a
@@ -57,7 +56,7 @@ defineAction({
   run: async ({ setId, name }) => {
     await renameSetById(setId, name)
     // The AI path has no dialog onSaved: the refresh bus re-reads the
-    // mounted hosts (the Models page hooks + the saved-models store).
+    // mounted host (the Models page's inventory/sets hooks).
     notifyModelSetsChanged()
     return { setId, name }
   },

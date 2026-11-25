@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
 /**
- * TEST-QF3-2 [covers qa-fixes3 ITEM-4] — the `TxrUseExampleButton`:
- * the three states (accessible name, loading, error + retry), the inline
- * confirm before overwriting a user's file, and the ITEM-3 set progress
- * line on the reuse path.
+ * TEST-QF3-2 [covers qa-fixes3 ITEM-4; predict-card merge round 1] — the
+ * `TxrUseExampleButton`: the three states (accessible name, loading, error +
+ * retry), the inline confirm before overwriting a user's file, and the
+ * ITEM-3 set progress line on the predict path. The button now drives the
+ * registered `flow.useExample` action (the example adoption + set-ensure
+ * live behind the action, never a second implementation in the button).
  *
  * The ApiClient is mocked; the store is the real TxrIntake store.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import '@/core/actions/builtin/stepActions'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import type { IntakeIntent, LoadedFile } from '../types'
 import { TxrUseExampleButton } from './TxrUseExampleButton'
@@ -54,6 +57,16 @@ beforeEach(() => {
   api.example.mockImplementation(({ kind }: { kind: string }) =>
     Promise.resolve(kind === 'patients' ? PATIENTS_CSV : kind === 'measurements' ? MEASUREMENTS_CSV : PREDICT_CSV),
   )
+  // The predict path ALWAYS ensures the example set (round 1: the ONE
+  // predict path is the old card-3 path); the default answer is ready.
+  api.exampleSet.mockResolvedValue({
+    state: 'ready',
+    set_id: 'set-1',
+    methods: ['kelim'],
+    run_id: undefined,
+    run_status: undefined,
+    error: undefined,
+  })
   window.localStorage.clear()
   state().reset()
 })
@@ -83,9 +96,9 @@ describe('TxrUseExampleButton (TEST-QF3-2)', () => {
   it('a user file in the path slot asks first; Keep my files cancels, the confirm replaces', async () => {
     state().adoptFile('predictMeasurements', ownFile())
     const onDone = vi.fn()
-    render(<TxrUseExampleButton path="pretrained" onDone={onDone} />)
+    render(<TxrUseExampleButton path="predict" onDone={onDone} />)
 
-    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
     expect(screen.getByTestId('txr-use-example-confirm')).toBeTruthy()
     expect(api.example).not.toHaveBeenCalled()
 
@@ -93,7 +106,7 @@ describe('TxrUseExampleButton (TEST-QF3-2)', () => {
     expect(screen.queryByTestId('txr-use-example-confirm')).toBeNull()
     expect(state().predictMeasurements?.source.name).toBe('mine.csv')
 
-    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
     fireEvent.click(screen.getByTestId('txr-use-example-confirm-yes'))
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
     expect(state().exampleSlots.predictMeasurements).toBe(true)
@@ -102,21 +115,21 @@ describe('TxrUseExampleButton (TEST-QF3-2)', () => {
 
   it('moves focus to the announced question, and back to the button on Keep my files', () => {
     state().adoptFile('predictMeasurements', ownFile())
-    render(<TxrUseExampleButton path="pretrained" />)
-    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    render(<TxrUseExampleButton path="predict" />)
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
     const question = screen.getByTestId('txr-use-example-confirm')
     expect(question.getAttribute('role')).toBe('alert')
     expect(document.activeElement).toBe(question)
     fireEvent.click(screen.getByTestId('txr-use-example-confirm-no'))
-    expect(document.activeElement).toBe(screen.getByTestId('txr-use-example-pretrained'))
+    expect(document.activeElement).toBe(screen.getByTestId('txr-use-example-predict'))
   })
 
   it('an example-loaded slot needs no confirm (re-click reloads the example)', async () => {
     state().adoptExampleFile('predictMeasurements', ownFile('predict-measurements_example.csv'))
     const onDone = vi.fn()
-    render(<TxrUseExampleButton path="reuse" onDone={onDone} />)
+    render(<TxrUseExampleButton path="predict" onDone={onDone} />)
     api.exampleSet.mockResolvedValueOnce({ state: 'ready', set_id: 'set-1', methods: ['kelim'], run_id: undefined, run_status: undefined, error: undefined })
-    fireEvent.click(screen.getByTestId('txr-use-example-reuse'))
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
     expect(screen.queryByTestId('txr-use-example-confirm')).toBeNull()
     expect(state().pendingExampleSetId).toBe('set-1')
@@ -127,8 +140,8 @@ describe('TxrUseExampleButton (TEST-QF3-2)', () => {
       .mockResolvedValueOnce({ state: 'creating', run_id: 'r1', run_status: 'running', methods: ['kelim'], set_id: undefined, error: undefined })
       .mockResolvedValueOnce({ state: 'ready', set_id: 'set-2', methods: ['kelim'], run_id: undefined, run_status: undefined, error: undefined })
     const onDone = vi.fn()
-    render(<TxrUseExampleButton path="reuse" onDone={onDone} />)
-    fireEvent.click(screen.getByTestId('txr-use-example-reuse'))
+    render(<TxrUseExampleButton path="predict" onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
     await waitFor(() =>
       expect(screen.getByText(/Preparing the example models/)).toBeTruthy(),
     )
@@ -210,13 +223,13 @@ describe('TxrUseExampleButton — the layout split (the Start cards)', () => {
       .mockResolvedValueOnce({ state: 'creating', run_id: 'r1', run_status: 'running', methods: ['kelim'], set_id: undefined, error: undefined })
       .mockResolvedValueOnce({ state: 'ready', set_id: 'set-3', methods: ['kelim'], run_id: undefined, run_status: undefined, error: undefined })
     const onDone = vi.fn()
-    render(<SplitHost path="reuse" onDone={onDone} />)
-    fireEvent.click(screen.getByTestId('txr-use-example-reuse'))
-    await waitFor(() => expect(screen.getByTestId('txr-use-example-progress-reuse')).toBeTruthy())
+    render(<SplitHost path="predict" onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
+    await waitFor(() => expect(screen.getByTestId('txr-use-example-progress-predict')).toBeTruthy())
 
-    const progress = screen.getByTestId('txr-use-example-progress-reuse')
+    const progress = screen.getByTestId('txr-use-example-progress-predict')
     expect(screen.getByTestId('host-below').contains(progress)).toBe(true)
-    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-reuse'])
+    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-predict'])
     // The poll's real cadence is 1500 ms (see the progress case above).
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1), { timeout: 5000 })
   })
@@ -224,8 +237,8 @@ describe('TxrUseExampleButton — the layout split (the Start cards)', () => {
   it('the confirm question replaces the button and sits in the message with both answers', async () => {
     state().adoptFile('predictMeasurements', ownFile())
     const onDone = vi.fn()
-    render(<SplitHost path="pretrained" onDone={onDone} />)
-    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    render(<SplitHost path="predict" onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('txr-use-example-predict'))
 
     // The action is null while the question is open: the row is empty.
     expect(rowChildren()).toHaveLength(0)
@@ -237,7 +250,7 @@ describe('TxrUseExampleButton — the layout split (the Start cards)', () => {
     fireEvent.click(screen.getByTestId('txr-use-example-confirm-yes'))
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
     expect(screen.queryByTestId('txr-use-example-confirm')).toBeNull()
-    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-pretrained'])
+    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-predict'])
     expect(screen.getByTestId('host-no-message')).toBeTruthy()
   })
 })
@@ -282,8 +295,8 @@ describe('TxrUseExampleButton — loading keeps the button width', () => {
   it('a retry keeps "Try again" while it loads, and the label returns to "Use example" after a success', async () => {
     api.example.mockRejectedValueOnce(new Error('net down'))
     const onDone = vi.fn()
-    render(<TxrUseExampleButton path="pretrained" onDone={onDone} />)
-    const button = screen.getByTestId('txr-use-example-pretrained')
+    render(<TxrUseExampleButton path="predict" onDone={onDone} />)
+    const button = screen.getByTestId('txr-use-example-predict')
     fireEvent.click(button)
     await waitFor(() => expect(labelOf(button)?.textContent).toBe('Try again'))
 
@@ -304,8 +317,8 @@ describe('TxrUseExampleButton — loading keeps the button width', () => {
   it('a retry that fails again ends on "Try again" with the error line', async () => {
     // The pretrained path fetches ONE file per attempt (train fetches two).
     api.example.mockRejectedValueOnce(new Error('net down')).mockRejectedValueOnce(new Error('still down'))
-    render(<TxrUseExampleButton path="pretrained" />)
-    const button = screen.getByTestId('txr-use-example-pretrained')
+    render(<TxrUseExampleButton path="predict" />)
+    const button = screen.getByTestId('txr-use-example-predict')
     fireEvent.click(button)
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('net down'))
     fireEvent.click(button)

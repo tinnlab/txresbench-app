@@ -119,31 +119,37 @@ beforeEach(() => {
 
 describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
   it('setIntent sets the intention and the mode it implies', () => {
-    TxrIntake.setIntent('pretrained')
-    expect(state().intent).toBe('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
+    expect(state().intent).toBe('predict')
     expect(state().mode).toBe('predict')
+    expect(state().predictSource).toBe('lab')
 
     TxrIntake.setIntent('train')
     expect(state().intent).toBe('train')
     expect(state().mode).toBe('study')
+    expect(state().predictSource).toBeNull()
 
-    TxrIntake.setIntent('reuse')
-    expect(state().intent).toBe('reuse')
+    TxrIntake.setIntent('predict', 'saved')
+    expect(state().intent).toBe('predict')
     expect(state().mode).toBe('predict')
+    expect(state().predictSource).toBe('saved')
+
+    TxrIntake.setIntent('predict')
+    expect(state().predictSource).toBeNull()
   })
 
   it('setIntent forgets the file check when the mode changes (it was made for the other mode), and keeps it otherwise', () => {
     const checked = validationOf()
-    TxrIntake.setIntent('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
     useTxrIntakeStore.setState({ validation: checked })
-    TxrIntake.setIntent('reuse') // predict → predict: the same check
+    TxrIntake.setIntent('predict', 'saved') // predict → predict: the same check
     expect(state().validation).toBe(checked)
     TxrIntake.setIntent('train') // predict → study: the predict check is not the learn files' check
     expect(state().validation).toBeNull()
     useTxrIntakeStore.setState({ validation: checked })
     TxrIntake.setIntent('train') // study → study
     expect(state().validation).toBe(checked)
-    TxrIntake.setIntent('pretrained') // study → predict
+    TxrIntake.setIntent('predict', 'lab') // study → predict
     expect(state().validation).toBeNull()
   })
 
@@ -271,7 +277,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
   })
 
   it('buildTxrRunInput renders the predict snapshot as the run measurements table', () => {
-    TxrIntake.setIntent('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
     TxrIntake.adoptFile('predictMeasurements', loadedFile('new.csv'))
     const input = buildTxrRunInput(state() as IntakeSnapshot, 'predict')
     expect(input.patients).toBeUndefined()
@@ -285,7 +291,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
   })
 
   it('the learn run never carries the predict file (predict file, then learn files)', () => {
-    TxrIntake.setIntent('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
     TxrIntake.adoptExampleFile('predictMeasurements', loadedFile('predict-example.csv'))
     TxrIntake.setIntent('train')
     TxrIntake.adoptExampleFile('patients', loadedFile('patients-example.csv'))
@@ -302,7 +308,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     TxrIntake.setIntent('train')
     TxrIntake.adoptFile('patients', loadedFile('patients.csv'))
     TxrIntake.adoptFile('measurements', loadedFile('measurements.csv'))
-    TxrIntake.setIntent('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
     TxrIntake.adoptFile('predictMeasurements', loadedFile('predict.csv'))
 
     const input = buildTxrRunInput(state() as IntakeSnapshot, 'predict')
@@ -316,7 +322,7 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     TxrIntake.setIntent('train')
     TxrIntake.adoptFile('patients', loadedFile('patients.csv'))
     TxrIntake.adoptFile('measurements', loadedFile('measurements.csv'))
-    TxrIntake.setIntent('pretrained')
+    TxrIntake.setIntent('predict', 'lab')
 
     expect(() => buildTxrRunInput(state() as IntakeSnapshot, 'predict')).toThrow(
       /no measurements file adopted/,
@@ -353,6 +359,14 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     expect(persisted.joins).toEqual([{ variants: ['ldh', 'LDH'], key: 'LDH' }])
     expect(persisted.mapping).toEqual([{ key: 'LDH', marker_id: 'ldh' }])
     expect(persisted.parameters).toEqual({ decision_day: 84, baseline_max_day: 0 })
+    // The ONE predict intent's source preset is a small field (it rides the
+    // storage key): the path the list step promises survives a reload.
+    TxrIntake.setIntent('predict', 'saved')
+    const reRead = JSON.parse(window.localStorage.getItem('txr-intake-storage') ?? '{}') as {
+      state: Record<string, unknown>
+    }
+    expect(reRead.state.intent).toBe('predict')
+    expect(reRead.state.predictSource).toBe('saved')
     // The heavy bodies never ride the storage key.
     expect(persisted.measurements).toBeUndefined()
     expect(persisted.patients).toBeUndefined()
@@ -386,6 +400,24 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     expect(rehydrated.mapping).toEqual([])
     expect(rehydrated.parameters).toEqual({ decision_day: 42, baseline_max_day: 0 })
     expect(rehydrated.validation).toBeNull()
+  })
+
+  it('a persisted OLD two-list intent rehydrates as the ONE predict intent (predict-card merge r1)', async () => {
+    window.localStorage.setItem(
+      'txr-intake-storage',
+      JSON.stringify({
+        state: { intent: 'reuse', predictSource: 'lab', mode: 'predict', study: {}, fileRecalls: {}, joins: [], mapping: [], parameters: {} },
+        version: 0,
+      }),
+    )
+    vi.resetModules()
+    const fresh = await import('./TxrIntake.store')
+    const rehydrated = fresh.useTxrIntakeStore.getState()
+    // The old path intents collapse onto `predict`; the source preset is the
+    // honest sort of the persisted value (shape-guarded).
+    expect(rehydrated.intent).toBe('predict')
+    expect(rehydrated.mode).toBe('predict')
+    expect(rehydrated.predictSource).toBe('lab')
   })
 })
 

@@ -53,6 +53,8 @@ const api = vi.hoisted(() => ({
   template: vi.fn(),
   example: vi.fn(),
   exampleSet: vi.fn(),
+  listModels: vi.fn(),
+  pretrainedList: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -70,6 +72,12 @@ vi.mock('@/api-client', () => ({
     },
     Models: {
       exampleSet: api.exampleSet,
+      // The Start cards' count reads (round 1: the two counts hooks are
+      // real; the mocks answer a settled-empty state).
+      listModels: api.listModels,
+    },
+    Pretrained: {
+      listModels: api.pretrainedList,
     },
   },
 }))
@@ -144,7 +152,7 @@ function seedTrain(problems: ValidationResponse['problems'] = []): void {
 
 function seedPredict(problems: ValidationResponse['problems'] = []): void {
   useTxrIntakeStore.setState({
-    intent: 'pretrained',
+    intent: 'predict',
     mode: 'predict',
     predictMeasurements: file('predict.csv'),
     validation: validation(problems),
@@ -181,8 +189,8 @@ function renderApp(entry: string) {
           element={<StandIn step="choose-methods" fallback="/files" />}
         />
         <Route
-          path="/pretrained-models"
-          element={<StandIn step="pretrained-models" fallback="/predict-files" />}
+          path="/choose-models"
+          element={<StandIn step="choose-models" fallback="/predict-files" />}
         />
       </Routes>
     </MemoryRouter>,
@@ -227,6 +235,11 @@ beforeEach(() => {
   api.example.mockImplementation(({ kind }: { kind: string }) =>
     Promise.resolve(kind === 'patients' ? PATIENTS_CSV : MEASUREMENTS_CSV),
   )
+  // The Start cards' count reads settle: one ready-made model exists, so
+  // the predict card is state A with its plain CTA (the tests walk the
+  // predict path from that card).
+  api.pretrainedList.mockResolvedValue({ models: [{ id: 'm-1' }], origin: 'embedded' })
+  api.listModels.mockResolvedValue({ models: [], total: 0 })
   window.localStorage.clear()
   store().reset()
   useStepTrailStore.setState({ trail: [], current: null, leaving: false })
@@ -297,7 +310,7 @@ describe('Back placement on B, C and N (every state)', () => {
     cleanup()
 
     api.validate.mockReturnValue(new Promise(() => undefined))
-    useTxrIntakeStore.setState({ intent: 'pretrained', mode: 'predict', predictMeasurements: file('predict.csv') })
+    useTxrIntakeStore.setState({ intent: 'predict', mode: 'predict', predictMeasurements: file('predict.csv') })
     renderApp('/predict-files')
     await waitFor(() => expect(api.validate).toHaveBeenCalled())
     expectBackBefore('txr-intake-continue')
@@ -336,13 +349,18 @@ describe('Back targets along the Start paths', () => {
     expect(useStepTrailStore.getState().trail).toEqual(['/'])
   })
 
-  it('row 1 — the pretrained card: A → N → D; Back from D is N, Back from N is Start', async () => {
+  it('row 1 — the ready-made path: A → N → the merged model step; Back from it is N, Back from N is Start', async () => {
     seedPredict()
     renderApp('/')
-    await click('txr-intake-start-card-pretrained-cta')
+    await click('txr-intake-start-card-predict-cta')
     expect(routeAt()).toBe('/predict-files')
+    // The merged card's button pins no source (round 2: the ONE /choose-models
+    // list — the source preset is read by the list once on its mount); the
+    // ready-made row pins the lab source, exactly as `flow.startPath`'s
+    // `pretrained` alias does.
+    act(() => store().setIntent('predict', 'lab'))
     await click('txr-intake-continue')
-    expect(routeAt()).toBe('/pretrained-models')
+    expect(routeAt()).toBe('/choose-models')
     await click('txr-step-back')
     expect(routeAt()).toBe('/predict-files')
     await click('txr-step-back')
@@ -377,7 +395,7 @@ describe('Back targets along the Start paths', () => {
   it('row 7 — N study link, then Continue: Back from B is N; then Back from N is Start', async () => {
     seedPredict()
     renderApp('/')
-    await click('txr-intake-start-card-pretrained-cta')
+    await click('txr-intake-start-card-predict-cta')
     await click('txr-intake-aside-study')
     expect(routeAt()).toBe('/study')
     await click('txr-step-back')
@@ -454,7 +472,7 @@ describe('the "← Step x of y" line (the step line goes back, like the Back but
     expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 2 of 3')
     cleanup()
     // The study questions opened from N are a side trip: the line has no number.
-    useTxrIntakeStore.setState({ intent: 'pretrained', mode: 'predict' })
+    useTxrIntakeStore.setState({ intent: 'predict', mode: 'predict' })
     renderApp('/study')
     expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Back')
     cleanup()
@@ -486,7 +504,7 @@ describe('the "← Step x of y" line (the step line goes back, like the Back but
   it('row 1 — the pretrained card: the line on N goes to Start (B is skipped)', async () => {
     seedPredict()
     renderApp('/')
-    await click('txr-intake-start-card-pretrained-cta')
+    await click('txr-intake-start-card-predict-cta')
     expect(routeAt()).toBe('/predict-files')
     await click('txr-step-line-back')
     expect(routeAt()).toBe('/')

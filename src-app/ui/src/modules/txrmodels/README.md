@@ -1,38 +1,42 @@
 # txrmodels
 
-The model screens of the TxResBench app: screen D (board `Pretrained.dc.html`
-— "Choose the models to run"), screen I (board `Saved.dc.html` — "Choose the
-saved models to run", the saved models grouped by the training run) and
-screen J (board `Models.dc.html` — "Your models", the inventory of every
-kept model), plus the save dialogs L / L2 / L3 (boards
-`SaveModels.dc.html`, `SaveOne.dc.html`, `SaveDone.dc.html`) that open over
-the results screen of a finished run.
+The model screens of the TxResBench app: the merged model step (the predict
+path's ONE list — "Choose the models to run", the old screens D and I merged
+by the predict-card merge: the lab catalogue, the saved models and the opened
+model files in one flat list) and screen J (board `Models.dc.html` — "Your
+models", the inventory of every kept model), plus the save dialogs L / L2 / L3
+(boards `SaveModels.dc.html`, `SaveOne.dc.html`, `SaveDone.dc.html`) that
+open over the results screen of a finished run. The old D/I pages (boards
+`Pretrained.dc.html` / `Saved.dc.html`) are gone (round 3); their addresses
+`/pretrained-models` and `/saved-models` still answer — as redirects to the
+merged list with the source preset the old intent pinned.
 
-The two choice screens (D and I) mount the ONE shared selection list
-(`TxrSelectList` from `txrlist`, per the FLOW.md design: "D, I and E are ONE
-list component with different rows") — this module builds the model rows,
-hosts the chips/sort/search, and owns the Run handoff into the engine. The
-save dialogs are this module's: `txrresults`' "Save the models" button only
+The merged model step mounts the ONE shared selection list (`TxrSelectList`
+from `txrlist`, per the FLOW.md design: "D, I and E are ONE list component
+with different rows") — this module builds the model rows, hosts the
+chips/sort/search, and owns the Run handoff into the engine. The save
+dialogs are this module's: `txrresults`' "Save the models" button only
 emits the event; the dialog host subscribes and owns the save flow.
 
 ## Routes
 
 | screen | board | route | what the user sees |
 |---|---|---|---|
-| D — choose pretrained models | `Pretrained.dc.html` | `/pretrained-models` | the real model catalogue, checked against the uploaded predict file: the card rows (tag, performance on other cohorts, can-run status with what is missing, time, Model card), the download state for non-bundled models, the chips + sort, the bottom bar (selected count, total time, run-at-a-time, research notice, Run) |
-| I — choose saved models | `Saved.dc.html` | `/saved-models` | one section per saved set (facts line, select-all, Rename / Delete the run's models), the model rows with their own-data performance, search + "Same outcome as my file" + sort, the same bottom bar, Run (reuse mode) |
+| models — the merged model step | (the D/I merge) | `/choose-models` | the ONE list of the predict path's model choice: the lab catalogue rows, the saved (`run`) rows and the imported rows in one flat list (a downloaded lab model is never listed twice), each with its small-caps source label; the source chips (From the lab / Saved / Imported), the KEPT chips (the three lab-only ones when the list has a lab row, Same outcome as my file), the search over the run name, the sorts, the downloads strip, the mixed-day reason, the no-model panel, one reuse-mode Run |
 | J — your models | `Models.dc.html` | `/models` | the inventory table (Model + subline, Method, Predicts, Decision day, Trained on, Made, Use / Export / Rename / Delete), search with the board's label, "Open a model file", the models-folder footnotes + desktop-gated "Open the folder"; the subline reads the marker KIND ("any marker" for the catalogue-`any` rows, never "0 markers") and names the set for same-named rows; under 640 px the table stacks as labelled cards (ITEM-5, RES-16/17/18/19) |
+| (redirect) D — the old ready-made address | — | `/pretrained-models` | redirects (replace) to `/choose-models?source=lab` — kept for old links and bookmarks; not a flow step any more |
+| (redirect) I — the old saved address | — | `/saved-models` | redirects (replace) to `/choose-models?source=saved` (Saved + Imported chips on) — kept for old links and bookmarks; not a flow step any more |
 
 Every route is `requiresAuth: true` under the shell layout (`TxrLayoutDef`
 from `txrshell/module.tsx`). The path builders live in `routes.ts` and are
-re-exported by the barrel (`index.ts`): `pretrainedModelsPath()`,
-`savedModelsPath()` and `modelsPath(setId?)`. The module also OWNS `/models`
-in the router: the same route the `txrshell` scaffold rendered (its comment
-records the handoff — the scaffold route block is removed) — a second
-`/models` registration would collide, so the takeover is the route's only
-owner. `modelsPath(setId)` targets `?set=<set_id>`: screen J restricts the
-table to that set and shows a "Showing the set … · Show all" affordance
-(screen K binds the same convention).
+re-exported by the barrel (`index.ts`): `chooseModelsPath(source?)` and
+`modelsPath(setId?)`. The module also OWNS `/models` in the router: the same
+route the `txrshell` scaffold rendered (its comment records the handoff —
+the scaffold route block is removed) — a second `/models` registration
+would collide, so the takeover is the route's only owner. `modelsPath(setId)`
+targets `?set=<set_id>`: screen J restricts the table to that set and shows
+a "Showing the set … · Show all" affordance (screen K binds the same
+convention).
 
 ## Events
 
@@ -57,26 +61,26 @@ selection list and the intake/run/results seams:
 
 | surface | source | used by |
 |---|---|---|
-| models list/detail/sets/eligibility/save/import/export/rename/delete/resolve | `ApiClient.Models.*` + `ApiClient.ModelSets.*` (model-store routes) | the J table + I rows + the L/L2/L3 dialogs + the D/I Run resolve |
-| pretrained list/card/eligibility/downloads/download/install | `ApiClient.Pretrained.*` (pretrained-catalogue routes) | the D list + the download-state column + install-then-run |
-| run create/detail/predictions/analysis-config | `ApiClient.Txr.*` (execution-engine routes) | the L checklist + the D/I Run creation + the I same-outcome chip |
-| the shared list + its formatters | `txrlist` (PROV-UI-LIST-1/2/4) | the D/I host wiring — its README's three-step host contract is the binding prose |
-| the intake store + `buildTxrRunInput` | `txrintake` (PROV-UI-INTAKE-2) | the D/I Run `input` — always through the builder, never re-mapped |
+| models list/detail/sets/eligibility/save/import/export/rename/delete/resolve | `ApiClient.Models.*` + `ApiClient.ModelSets.*` (model-store routes) | the J table + the merged list's saved/imported rows + the L/L2/L3 dialogs + the merged Run resolve |
+| pretrained list/card/eligibility/downloads/download/install | `ApiClient.Pretrained.*` (pretrained-catalogue routes) | the merged list's lab rows + the downloads strip + install-then-run |
+| run create/detail/predictions/analysis-config | `ApiClient.Txr.*` (execution-engine routes) | the L checklist + the merged Run creation + the Same-outcome chip |
+| the shared list + its formatters | `txrlist` (PROV-UI-LIST-1/2/4) | the merged host wiring — its README's three-step host contract is the binding prose |
+| the intake store + `buildTxrRunInput` | `txrintake` (PROV-UI-INTAKE-2) | the merged Run `input` — always through the builder, never re-mapped |
 | `runningPath`, `resultsPath`/`revealRunDir` | `txrrun`, `txrresults` | the Run handoff + the J open-folder |
 
 The generated types and operation ids are provider-owned (the providers run
 the shared OpenAPI regen once); this module never regenerates OpenAPI and
 never edits `src-app/ui/src/api-client/**` or `src-app/ui/openapi/**`.
 
-The one inventory object (`InventoryEligibilityRequest`) the D and I
+The one inventory object (`InventoryEligibilityRequest`) the merged list's
 eligibility calls carry is the intake's — the ONE builder pinned at
 reconcile (ui-list DEC-15; the same pin ui-run's plan records), never
 re-implemented here.
 
 ## Copy source
 
-Every user-facing string is the boards' wording, verbatim: the D/I titles
-and step lines, the bottom-bar notice ("For research. Not for deciding a
+Every user-facing string is the boards' wording, verbatim: the merged step's
+title and lines, the bottom-bar notice ("For research. Not for deciding a
 patient's treatment."), the J header line and footnotes, the dialog copy.
 The boards' NUMBERS — patient counts, model counts, percents, sizes, AUCs,
 times — are design examples, never data and never constants in code or

@@ -1098,7 +1098,8 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(screen.getByTestId('route-location').textContent).toBe(
       '/predict-files?use=a0000000-0000-4000-8000-000000000011&name=CRC%20cohort%2C%20day%2060',
     )
-    expect(useTxrIntakeStore.getState().intent).toBe('reuse')
+    expect(useTxrIntakeStore.getState().intent).toBe('predict')
+    expect(useTxrIntakeStore.getState().predictSource).toBe('saved')
     expect(useTxrModelsStore.getState().pendingUseModelId).toBe(RUN_ROW.id)
   })
 

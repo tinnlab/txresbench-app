@@ -36,7 +36,7 @@
  *   pattern; reconcile tightens).
  *
  * The request body carries the ONE inventory object VERBATIM (the ui-list
- * DEC-15 one-builder pin — the same object the methods / saved-models
+ * DEC-15 one-builder pin — the same object the methods / saved-row
  * eligibility calls carry).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'

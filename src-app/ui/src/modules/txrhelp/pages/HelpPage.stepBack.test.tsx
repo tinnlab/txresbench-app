@@ -13,10 +13,12 @@ import { HelpPage } from './HelpPage'
 import '@/core/actions/builtin/stepActions'
 import { RouterBridge } from '@/core/actions/navigateBridge'
 
-const api = vi.hoisted(() => ({ example: vi.fn() }))
+const api = vi.hoisted(() => ({ example: vi.fn(), exampleSet: vi.fn() }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
     FileValidation: { example: api.example },
+    // The predict example path always ensures the example set.
+    Models: { exampleSet: api.exampleSet },
   },
 }))
 
@@ -41,7 +43,16 @@ function renderHelp() {
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   api.example.mockReset()
+  api.exampleSet.mockReset()
   api.example.mockResolvedValue(PREDICT_CSV)
+  api.exampleSet.mockResolvedValue({
+    state: 'ready',
+    set_id: 'set-1',
+    methods: ['kelim'],
+    run_id: undefined,
+    run_status: undefined,
+    error: undefined,
+  })
   window.localStorage.clear()
   useTxrIntakeStore.getState().reset()
   useStepTrailStore.setState({
@@ -64,7 +75,7 @@ describe('Help as the start of a path (the step trail)', () => {
   it('a quick-start card link starts the trail at Help', async () => {
     renderHelp()
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-help-quickstart-cta-pretrained'))
+      fireEvent.click(screen.getByTestId('txr-help-quickstart-cta-predict'))
     })
     expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
     expect(useStepTrailStore.getState().trail).toEqual(['/help'])
@@ -72,7 +83,7 @@ describe('Help as the start of a path (the step trail)', () => {
 
   it('a quick-start card’s example data starts the trail at Help too', async () => {
     renderHelp()
-    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    fireEvent.click(screen.getByTestId('txr-help-use-example-predict'))
     await waitFor(() => {
       expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
     })

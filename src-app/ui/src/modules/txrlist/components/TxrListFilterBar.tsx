@@ -141,6 +141,7 @@ export function TxrListFilterBar({
           className="rounded-full font-normal"
           style={{ ...(chip.active ? ACTIVE_CHIP : BUILT_IN_CHIP), height: 'auto' }}
           aria-pressed={chip.active}
+          disabled={chip.disabled === true}
           onClick={chip.onToggle}
         >
           {chip.label} {chip.count}

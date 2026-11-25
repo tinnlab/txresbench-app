@@ -5,8 +5,10 @@
  * the "What the models look for" aside with the "No outcomes are needed,
  * and no patients file." line, the validate round in `mode: 'predict'` with
  * the patients key OMITTED (TEST-INT-3 / DRIFT-1 ITEM-6 #2), the board-N
- * status box (EXAMPLE-INT-3), the Continue gate into `/pretrained-models`
- * for intent `pretrained` and `/saved-models` for `reuse` (DEC-3).
+ * status box (EXAMPLE-INT-3), and the Continue gate into `/choose-models`
+ * (round 2 — the ONE merged model list; the round-1 bridge that chose
+ * `/pretrained-models` for source `lab` and `/saved-models` for `saved` is
+ * gone, the source preset is kept for the list's mount read).
  *
  * Harness identity with FilesPage.test.tsx (ITEM-6): the ApiClient is
  * mocked, the store is the real TxrIntake store (reset per test), and the
@@ -53,6 +55,7 @@ const api = vi.hoisted(() => ({
   validate: vi.fn(),
   template: vi.fn(),
   example: vi.fn(),
+  exampleSet: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -62,6 +65,7 @@ vi.mock('@/api-client', () => ({
       template: api.template,
       example: api.example,
     },
+    Models: { exampleSet: api.exampleSet },
   },
 }))
 
@@ -192,9 +196,19 @@ beforeEach(() => {
   api.validate.mockReset()
   api.template.mockReset()
   api.example.mockReset()
+  api.exampleSet.mockReset()
   api.inspect.mockResolvedValue(inspectionFixture())
   api.validate.mockResolvedValue(validationFixture())
   api.template.mockResolvedValue('patient_id,day,marker,value,unit\n')
+  // The demo path's example-set ensure (the demo's recorded example models).
+  api.exampleSet.mockResolvedValue({
+    state: 'ready',
+    set_id: 'set-demo',
+    methods: ['kelim'],
+    run_id: undefined,
+    run_status: undefined,
+    error: undefined,
+  })
   window.localStorage.clear()
   store().reset()
 })
@@ -207,6 +221,10 @@ afterEach(() => {
 
 describe('PredictFilesPage (screen N, ITEM-7)', () => {
   it('renders ONE measurements card with the board N copy, the aside and no patients card', () => {
+    // The ONE predict path: the path sentence and the aside lead name every
+    // model kind the merged list shows (round 3 — the old D/I split is gone;
+    // the source preset still exists but nothing on this page reads it).
+    store().setIntent('predict', 'lab')
     renderPredict()
     expect(screen.getByText('Add the patients to predict')).toBeTruthy()
     expect(screen.getByTestId('txr-intake-file-card-measurements')).toBeTruthy()
@@ -222,12 +240,18 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(screen.getByText('for example LDH, ctDNA')).toBeTruthy()
     expect(screen.getByText('lets us check the scale against the model')).toBeTruthy()
     expect(screen.queryByText('your own code, the same in both files')).toBeNull()
+    // The ONE path sentence (round 3): "You will pick from the models that
+    // can run on this file: ready-made models from the lab, models you
+    // saved, and models opened from a file."
+    expect(screen.getByTestId('txr-intake-predict-path').textContent).toBe(
+      'You will pick from the models that can run on this file: ready-made models from the lab, models you saved, and models opened from a file.',
+    )
     // The aside + the board's bottom line.
     expect(screen.getByTestId('txr-intake-aside')).toBeTruthy()
     expect(screen.getByText('What the models look for')).toBeTruthy()
     expect(
       screen.getByText(
-        'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
+        'After you add the file we check which models can run on it. These are the draws most models use:',
       ),
     ).toBeTruthy()
     expect(screen.getByText('No outcomes are needed, and no patients file.')).toBeTruthy()
@@ -289,28 +313,31 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(continueButton().disabled).toBe(false)
   })
 
-  it('Continue goes to the pretrained models screen for intent pretrained', async () => {
-    store().setIntent('pretrained')
+  it('Continue always goes to the merged model list (round 2 — the old bridge is gone)', async () => {
+    store().setIntent('predict', 'lab')
     renderPredict()
     pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(continueButton().disabled).toBe(false))
 
     fireEvent.click(continueButton())
-    expect(routeAt()).toBe('/pretrained-models')
+    expect(routeAt()).toBe('/choose-models')
     expect(store().mode).toBe('predict')
+    // The round-1 source preset is kept for the merged list's mount read.
+    expect(store().predictSource).toBe('lab')
   })
 
-  it('Continue goes to the saved models screen for intent reuse', async () => {
-    store().setIntent('reuse')
+  it('Continue goes to the merged model list for source saved too (round-1 bridge)', async () => {
+    store().setIntent('predict', 'saved')
     renderPredict()
     pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
     await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(continueButton().disabled).toBe(false))
 
     fireEvent.click(continueButton())
-    expect(routeAt()).toBe('/saved-models')
+    expect(routeAt()).toBe('/choose-models')
     expect(store().mode).toBe('predict')
+    expect(store().predictSource).toBe('saved')
   })
 
   it('an error problem keeps Continue disabled and the fix affordance removes the file', async () => {
@@ -467,29 +494,41 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
     expect(units.textContent).toContain(': add the unit column so we can check')
   })
 
-  // R2-12 (qa-fixes2): the aside's lead named "pretrained models" on the
-  // saved-models flow too — the board's byte is the pretrained path's; a
-  // reuse flow reads its own words (the two screens differ only here).
-  it('the aside lead names saved models for intent reuse (R2-12)', () => {
+  // R2-12 (qa-fixes2) → round 3: the aside's lead used to name the list the
+  // Continue took (the ready-made list's byte vs the saved list's); the ONE
+  // merged list made it ONE line for both source presets.
+  it('the aside lead is the ONE merged line for both source presets (round 3)', () => {
+    store().setIntent('predict', 'lab')
     renderPredict()
     expect(
       screen.getByText(
-        'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
+        'After you add the file we check which models can run on it. These are the draws most models use:',
       ),
     ).toBeTruthy()
     cleanup()
-    store().setIntent('reuse')
+    store().setIntent('predict', 'saved')
     renderPredict()
+    expect(
+      screen.getByText(
+        'After you add the file we check which models can run on it. These are the draws most models use:',
+      ),
+    ).toBeTruthy()
     expect(
       screen.queryByText(
         'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
       ),
     ).toBeNull()
     expect(
-      screen.getByText(
+      screen.queryByText(
         'After you add the file we check which of your saved models can run on it. These are the draws most models use:',
       ),
-    ).toBeTruthy()
+    ).toBeNull()
+    // The path sentence is the ONE line too (never the old two-list spell).
+    expect(screen.getByTestId('txr-intake-predict-path').textContent).toBe(
+      'You will pick from the models that can run on this file: ready-made models from the lab, models you saved, and models opened from a file.',
+    )
+    expect(screen.queryByText(/(This is the ready-made model path|This is the saved-model path)/)).toBeNull()
+    expect(store().predictSource).toBe('saved') // the preset itself is untouched
   })
 
   it('a wrong file type is refused with the plain sentence on the N card too (F4)', async () => {
@@ -529,7 +568,7 @@ describe('demo mode (ITEM-6) — the example predict card replaces the upload', 
     expect(screen.queryByTestId('txr-intake-file-drop-measurements')).toBeNull()
     expect(document.querySelector('input[type=file]')).toBeNull()
     expect(screen.queryByTestId('txr-intake-clear-example')).toBeNull()
-    expect(screen.queryByTestId('txr-use-example-pretrained')).toBeNull()
+    expect(screen.queryByTestId('txr-use-example-predict')).toBeNull()
 
     await waitFor(() => {
       expect(api.validate).toHaveBeenCalled()

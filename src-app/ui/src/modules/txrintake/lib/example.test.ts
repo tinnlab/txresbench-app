@@ -77,13 +77,11 @@ describe('the shared table loader', () => {
 })
 
 describe('the path tables and the example study answers', () => {
-  it('train fills the two C slots + kinds; the predict paths fill the N slot + the predict table', () => {
+  it('train fills the two C slots + kinds; the predict path fills the N slot + the predict table', () => {
     expect(exampleSlotsFor('train')).toEqual(['patients', 'measurements'])
-    expect(exampleSlotsFor('pretrained')).toEqual(['predictMeasurements'])
-    expect(exampleSlotsFor('reuse')).toEqual(['predictMeasurements'])
+    expect(exampleSlotsFor('predict')).toEqual(['predictMeasurements'])
     expect(exampleKindsFor('train')).toEqual(['patients', 'measurements'])
-    expect(exampleKindsFor('pretrained')).toEqual(['predict-measurements'])
-    expect(exampleKindsFor('reuse')).toEqual(['predict-measurements'])
+    expect(exampleKindsFor('predict')).toEqual(['predict-measurements'])
   })
 
   it('the answers are the example family facts (no real disease/drug — both unanswered, survival task, day 56)', () => {
@@ -115,30 +113,24 @@ describe('runExampleFlow', () => {
     expect(s.validation).toBeNull()
   })
 
-  it('pretrained: intent + the predict table only', async () => {
-    await runExampleFlow('pretrained')
+  it('predict: the ONE predict intent, the predict table, the saved source preset AND the ITEM-3 set handoff', async () => {
+    api.exampleSet.mockResolvedValueOnce({ state: 'ready', set_id: 'set-1', methods: ['kelim'], run_id: undefined, run_status: undefined, error: undefined })
+    await runExampleFlow('predict')
     const s = state()
-    expect(s.intent).toBe('pretrained')
+    expect(s.intent).toBe('predict')
     expect(s.mode).toBe('predict')
+    expect(s.predictSource).toBe('saved')
     expect(s.patients).toBeNull()
     expect(s.measurements).toBeNull()
     expect(s.exampleSlots.predictMeasurements).toBe(true)
     expect(s.predictMeasurements?.table.rows).toEqual([['J1000', '0', 'M1', '1.2', 'a.u.']])
-    expect(s.pendingExampleSetId).toBeNull()
-  })
-
-  it('reuse: the path files AND the ITEM-3 set handoff (the example set ticked later)', async () => {
-    api.exampleSet.mockResolvedValueOnce({ state: 'ready', set_id: 'set-1', methods: ['kelim'], run_id: undefined, run_status: undefined, error: undefined })
-    await runExampleFlow('reuse')
-    const s = state()
-    expect(s.intent).toBe('reuse')
-    expect(s.exampleSlots.predictMeasurements).toBe(true)
     expect(s.pendingExampleSetId).toBe('set-1')
   })
 
   it('a confirmed join from a previous file never survives the adoption (the re-validation re-derives)', async () => {
+    api.exampleSet.mockResolvedValueOnce({ state: 'ready', set_id: 'set-1', methods: ['kelim'], run_id: undefined, run_status: undefined, error: undefined })
     state().acceptJoin({ variants: ['ldh', 'LDH'], key: 'LDH' })
-    await runExampleFlow('pretrained')
+    await runExampleFlow('predict')
     expect(state().joins).toEqual([])
     expect(state().mapping).toEqual([])
   })

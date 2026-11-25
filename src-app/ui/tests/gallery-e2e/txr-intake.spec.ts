@@ -20,7 +20,8 @@ import { expect, test, type Page } from '@playwright/test'
  *     enablement on the warning-only state.
  *   · TEST-INT-16 (INV-3, `txr-intake-n` + `txr-intake-narrow-390`) —
  *     the N screen's predict-mode validate + Continue reading
- *     `/pretrained-models` for intent `pretrained`; and the three screens at
+ *     `/choose-models` (the merged model step — ONE route for both source
+ *     presets, round 3); and the three screens at
  *     390×844: no horizontal overflow, cards stack, Continue on-screen.
  *   · TEST-INT-18 (ITEM-8, `txr-intake-c`)  — F12's browser-tier leg: the
  *     REAL drag-and-drop path. The report's synthetic events never reached
@@ -343,7 +344,7 @@ test.describe('txr-intake-c — the real drag-and-drop path (TEST-INT-18, ITEM-8
 })
 
 test.describe('txr-intake-n — predict mode (TEST-INT-16)', () => {
-  test('one card validates in predict mode, Continue reads /pretrained-models', async ({ page }) => {
+  test('one card validates in predict mode, Continue reads /choose-models', async ({ page }) => {
     await page.goto(`${GALLERY}txr-intake-n`)
     const fixtures = await readFixtureBundle(page)
 
@@ -366,7 +367,7 @@ test.describe('txr-intake-n — predict mode (TEST-INT-16)', () => {
 
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
     await page.getByTestId('txr-intake-continue').click()
-    await expect(page.getByTestId('txr-intake-nav-result')).toHaveText('/pretrained-models')
+    await expect(page.getByTestId('txr-intake-nav-result')).toHaveText('/choose-models')
   })
 })
 

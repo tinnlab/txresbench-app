@@ -119,6 +119,20 @@ export function TxrListRowView({ row, checked, onToggle, onAction }: TxrListRowP
         onCheckedChange={() => onToggle?.(row)}
       />
       <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+        {row.source !== null && row.source !== undefined ? (
+          <div
+            data-testid={`txr-list-row-${row.key}-source`}
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              fontVariant: 'all-small-caps',
+              color: 'var(--txr-muted)',
+            }}
+          >
+            {row.source.label}
+          </div>
+        ) : null}
         <div style={{ fontFamily: "'Source Code Pro', monospace", fontSize: 13, fontWeight: 500 }}>
           {row.name}
         </div>

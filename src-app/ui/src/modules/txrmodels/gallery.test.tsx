@@ -61,25 +61,26 @@ const SIBLING_OWNED_KEYS = [
   'Txr.getRun',
 ]
 
-/** The plan's nine slate of slugs (PROV-UI-MODELS-6's enumeration) plus
+/** The plan's slate of slugs (PROV-UI-MODELS-6's enumeration; the old D/I
+ *  stories left in round 3 — the merged-list stories take their place) plus
  *  the ITEM-5 J phone-width story (RES-16 — the inventory's own 390 px
- *  story, same frame as the D narrow one), the ONE-table expanded-state
- *  story (the one-table round), the part-2 search + sort stories (the
- *  client-side search state and the Name A→Z state) and the three
- *  app-shell ITEM-3 shell-route surfaces (the real pages inside the real
- *  shell — TEST-AS-2's part-2 half). */
+ *  story), the ONE-table expanded-state story (the one-table round), the
+ *  part-2 search + sort stories (the client-side search state and the Name
+ *  A→Z state), the app-shell ITEM-3 shell-route surfaces (the real pages
+ *  inside the real shell — TEST-AS-2's part-2 half) and the merged
+ *  list's no-file / one-source-failure stories (the old D empty/error
+ *  stories, re-pointed round 3). */
 const STORY_SLUGS = [
-  'txr-models-d',
-  'txr-models-d-narrow-390',
-  'txr-models-i',
   'txr-models-j',
   'txr-models-j-expanded',
   'txr-models-j-narrow-390',
   'txr-models-j-search',
   'txr-models-j-sort-name',
   'txr-shell-route-models',
-  'txr-shell-route-saved-models',
-  'txr-shell-route-pretrained-models',
+  'txr-models-choose',
+  'txr-models-choose-narrow-390',
+  'txr-models-choose-none',
+  'txr-shell-route-choose-models',
   'txr-models-l',
   'txr-models-l2',
   'txr-models-l3',
@@ -107,17 +108,12 @@ describe('txrmodels gallery seed (TEST-MOD-16)', () => {
 
   it('mounts every story under its route (the gallery frame binds one path)', () => {
     const bySlug = new Map((gallery.seeded ?? []).map(story => [story.slug, story]))
-    // The D and dialog frames render DESCENDANT Routes (the run/save
-    // navigations are observed in-frame), so the harness parent route is
-    // the splat — the initialPath still binds the real screen.
-    for (const slug of ['txr-models-d', 'txr-models-d-narrow-390', 'txr-models-l', 'txr-models-l2', 'txr-models-l3']) {
+    // The dialog frames render DESCENDANT Routes (the save navigations are
+    // observed in-frame), so the harness parent route is the splat — the
+    // initialPath still binds the real screen.
+    for (const slug of ['txr-models-l', 'txr-models-l2', 'txr-models-l3']) {
       expect(bySlug.get(slug)?.path, slug).toBe('/*')
     }
-    for (const slug of ['txr-models-d', 'txr-models-d-narrow-390', 'txr-models-empty', 'txr-models-error']) {
-      expect(bySlug.get(slug)?.initialPath, slug).toBe('/pretrained-models')
-    }
-    expect(bySlug.get('txr-models-i')?.path).toBe('/saved-models')
-    expect(bySlug.get('txr-models-i')?.initialPath).toBe('/saved-models')
     expect(bySlug.get('txr-models-j')?.path).toBe('/models')
     expect(bySlug.get('txr-models-j')?.initialPath).toBe('/models')
     // The ONE-table expanded-state story is the same J frame with a set
@@ -134,8 +130,17 @@ describe('txrmodels gallery seed (TEST-MOD-16)', () => {
     // (RES-16) — the same real route, the same board.
     expect(bySlug.get('txr-models-j-narrow-390')?.path).toBe('/models')
     expect(bySlug.get('txr-models-j-narrow-390')?.initialPath).toBe('/models')
-    expect(bySlug.get('txr-models-empty')?.path).toBe('/pretrained-models')
-    expect(bySlug.get('txr-models-error')?.path).toBe('/pretrained-models')
+    // The no-file and source-failure stories are the merged list's (the old
+    // D story pair's re-pointed round-3 home — the D page is gone).
+    expect(bySlug.get('txr-models-empty')?.initialPath).toBe('/choose-models')
+    expect(bySlug.get('txr-models-error')?.initialPath).toBe('/choose-models')
+    // The merged-list stories bind the round-2 route (the D/I frames'
+    // descendant-Routes pattern — the run's in-frame navigation shows the
+    // landing line).
+    for (const slug of ['txr-models-choose', 'txr-models-choose-narrow-390', 'txr-models-choose-none', 'txr-shell-route-choose-models']) {
+      expect(bySlug.get(slug)?.path, slug).toBe('/*')
+      expect(bySlug.get(slug)?.initialPath, slug).toBe('/choose-models')
+    }
     for (const slug of ['txr-models-l', 'txr-models-l2', 'txr-models-l3']) {
       expect(bySlug.get(slug)?.initialPath, slug).toBe('/analysis/run-c/results')
     }

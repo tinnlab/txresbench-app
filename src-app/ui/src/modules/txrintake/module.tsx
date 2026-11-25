@@ -19,8 +19,8 @@ import '@/core/actions/builtin/intakeActions'
 /**
  * txrintake — the intake flow of TxResBench: screen A (Start), B (Your
  * study), C (Your files) and N (Add the patients to predict), the four
- * screens a clinician walks before the method/model choice screens (E, D, I)
- * that `ui-run` and `ui-models` build.
+ * screens a clinician walks before the method/model choice screens (E, and
+ * the merged model step) that `ui-run` and `ui-models` build.
  *
  * Route handoff: this module owns `/` (screen A) — the `txrshell` scaffold
  * route for `/` is removed so the app opens on the real Start screen. Same
@@ -32,17 +32,14 @@ import '@/core/actions/builtin/intakeActions'
  *
  * Route conventions DECLARED here for the sibling choice screens (the
  * ownership stays with their modules; RECONCILE confirms the bindings with
- * `ui-run` and `ui-models`): E = `/choose-methods`, D = `/pretrained-models`,
- * I = `/saved-models` — see ROUTE_CONVENTIONS. Every route is read from the
- * one list of steps (`txrshell/lib/flowSteps.ts`).
+ * `ui-run`): E = `/choose-methods` — see ROUTE_CONVENTIONS. Every route is
+ * read from the one list of steps (`txrshell/lib/flowSteps.ts`); the old D/I
+ * screens are gone (round 3) and their addresses are txrmodels' redirects,
+ * declared there, not here.
  */
 export const ROUTE_CONVENTIONS = {
   /** Screen E — choose methods and settings (`ui-run`). */
   methods: FLOW_ROUTES.methods,
-  /** Screen D — choose pretrained models (`ui-models`). */
-  pretrainedModels: FLOW_ROUTES.pretrainedModels,
-  /** Screen I — choose saved models (`ui-models`). */
-  savedModels: FLOW_ROUTES.savedModels,
 } as const
 
 const StartPage = lazyWithPreload(() =>

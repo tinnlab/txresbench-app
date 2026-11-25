@@ -172,11 +172,12 @@ export async function ensureExampleSet(
 }
 
 /**
- * The ONE example adoption (qa-fixes3 ITEM-4): set the path's intent, fill
- * the study answers consistent with the example family (train path only),
- * adopt the example tables into the path's slots through
+ * The ONE example adoption (qa-fixes3 ITEM-4; the predict-card merge kept
+ * the two paths, collapsed the two predict ones): set the path's intent,
+ * fill the study answers consistent with the example family (train path
+ * only), adopt the example tables into the path's slots through
  * `adoptExampleFile` (so the badge/banner/Clear-example stay honest), and
- * for the reuse path ensure the example saved set exists (ITEM-3) — the
+ * for the predict path ensure the example saved set exists (ITEM-3) — the
  * progress + failure are the caller's (the button renders them).
  *
  * The flows the pages run afterwards are the SAME drop flows: adoption
@@ -191,7 +192,11 @@ export async function runExampleFlow(
     cancelled?: () => boolean
   } = {},
 ): Promise<void> {
-  useTxrIntakeStore.getState().setIntent(path)
+  // Round-1 audit item 3: keep an existing source preset (the lab preset of
+  // a started flow is not overwritten by the example path's default saved).
+  const current = useTxrIntakeStore.getState()
+  const source = path === 'train' ? null : (current.predictSource ?? 'saved')
+  useTxrIntakeStore.getState().setIntent(path, source)
   if (path === 'train') {
     useTxrIntakeStore.getState().patchStudy(EXAMPLE_STUDY)
     useTxrIntakeStore.getState().patchParameters({ decision_day: EXAMPLE_DECISION_DAY })
@@ -212,8 +217,6 @@ export async function runExampleFlow(
   const table = await fetchExampleTable('predict-measurements')
   useTxrIntakeStore.getState().adoptExampleFile('predictMeasurements', exampleLoadedFile(table, 'measurements'))
   useTxrIntakeStore.setState({ joins: [], mapping: [] })
-  if (path === 'reuse') {
-    const ready = await ensureExampleSet(hooks.onSetProgress, { cancelled: hooks.cancelled })
-    useTxrIntakeStore.getState().setPendingExampleSet(ready.set_id ?? null)
-  }
+  const ready = await ensureExampleSet(hooks.onSetProgress, { cancelled: hooks.cancelled })
+  useTxrIntakeStore.getState().setPendingExampleSet(ready.set_id ?? null)
 }

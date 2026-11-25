@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 /**
  * TEST-AS-2 (ITEM-2 half + app-shell ITEM-3's half) — the app-shell route
  * byte of the audit's section 4, driven over the shell-wrapped route
- * surfaces (`txr-shell-route-*`): each of the fourteen shell pages INSIDE
+ * surfaces (`txr-shell-route-*`): each of the thirteen shell pages INSIDE
  * the real shell at 1440x900, 1280x720 and 1024x768, and at the desktop
  * window's default 1200x800 and minimum 1000x640 (`desktop_window_config`,
  * src-app/desktop/tauri/src/lib.rs; the step-4 fix: no size here was the
@@ -38,8 +38,8 @@ import { expect, test } from '@playwright/test'
  * results heatmap's pinned patient column + sticky header ride the table's
  * OWN bounded scroll box (the box is the scrollport again — the page's
  * ScrollRegion scrolls the page around the boxes), likewise the H bars
- * table's sticky thead, the J inventory table's sticky thead, the D/I
- * shared-list frames (toolbar fixed above the region, counters + Run
+ * table's sticky thead, the J inventory table's sticky thead, the merged
+ * shared-list frame (toolbar fixed above the region, counters + Run
  * pinned), the history list frame (its footer bar pinned), and the help
  * article — the rail's spy follows the region, an anchor lands flush at
  * its top (scroll-margin 0 in shell mode) and the print byte prints the
@@ -48,7 +48,7 @@ import { expect, test } from '@playwright/test'
  * The 390x844 flow-mode leg: the document scrolls, the header is sticky
  * and ONE 56 px row (the audit's flow byte).
  *
- * The full 14-route matrix with long-table fixtures (95 / 300 rows), the
+ * The full 13-route matrix with long-table fixtures (95 / 300 rows), the
  * Back-scroll-restore leg and the real desktop screenshots are ITEM-4's
  * spec (TEST-AS-3); this spec owns the part-1 pages of ITEM-2 and the
  * part-2 pages of ITEM-3.
@@ -72,8 +72,7 @@ const SURFACES = [
   { slug: 'txr-shell-route-method', label: 'Method', regions: 1 },
   { slug: 'txr-shell-route-history', label: 'History', regions: 1 },
   { slug: 'txr-shell-route-models', label: 'Models', regions: 1 },
-  { slug: 'txr-shell-route-saved-models', label: 'Saved models', regions: 1 },
-  { slug: 'txr-shell-route-pretrained-models', label: 'Pretrained models', regions: 1 },
+  { slug: 'txr-shell-route-choose-models', label: 'Choose models', regions: 1 },
   { slug: 'txr-shell-route-help', label: 'Help', regions: 1 },
 ] as const
 
@@ -91,7 +90,8 @@ const SIZES = [
  *  scroll regions must cover together. Area, not summed heights: two short
  *  regions side by side must not add up to a tall one. Measured at the
  *  step-4 fix: every route but E between 49 % and 100 % at every size
- *  here (Saved models at the desktop's 1000x640 is the lowest); E was 1 %
+ *  here (the old saved-models page at the desktop's 1000x640 was the
+ *  lowest, measured before the D/I merge); E was 1 %
  *  at 1200x800 before the fix and is 71 % or more after it. */
 const MIN_REGION_SHARE = 0.4
 
@@ -151,8 +151,8 @@ async function sizeFrame(page: import('@playwright/test').Page, height: number) 
  *  is pinned over the whole viewport, so the page gets the window's full
  *  width and height. (`sizeFrame` keeps the gallery's own side chrome, which
  *  takes about 80 px of the width; a narrower page wraps into a taller fixed
- *  top: Saved models at 1000x640 has a 219 px region there and 288 px in the
- *  real 1000 px window.) */
+ *  top: the old saved-models page at 1000x640 had a 219 px region there and
+ *  288 px in the real 1000 px window, measured before the D/I merge.) */
 async function pinFrame(
   page: import('@playwright/test').Page,
   size: { width: number; height: number },
@@ -641,7 +641,7 @@ async function failExampleFetch(page: import('@playwright/test').Page) {
 test('route Start: a Use example error is the card\'s last row, under the buttons, across the card', async ({
   page,
 }) => {
-  const paths = ['pretrained', 'train', 'reuse'] as const
+  const paths = ['predict', 'train'] as const
   for (const size of [
     { width: 1440, height: 900 },
     { width: 390, height: 844 },
@@ -745,7 +745,7 @@ async function startCardRow(page: import('@playwright/test').Page, path: string)
 test('route Start: Use example keeps its width while loading (and Try again while it retries); the row stays off the card border', async ({
   page,
 }) => {
-  const paths = ['pretrained', 'train', 'reuse'] as const
+  const paths = ['predict', 'train'] as const
   const open = async (size: { width: number; height: number }) => {
     await page.setViewportSize(size)
     await page.goto(`${GALLERY}txr-shell-route-start`, { waitUntil: 'domcontentloaded' })
@@ -1050,49 +1050,33 @@ async function expectBarSpansFrame(page: import('@playwright/test').Page, frameT
   expect(await check(), `${label}@1920 the frame grew with the window`).toBeGreaterThan(1700)
 }
 
-test('route Saved models: the toolbar is fixed above the region, the rows render, the counters + Run stay pinned', async ({
+test('route Choose models: the toolbar is fixed above the region, the rows render, the counters + Run stay pinned', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto(`${GALLERY}txr-shell-route-saved-models`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`${GALLERY}txr-shell-route-choose-models`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(SETTLE)
   await sizeFrame(page, 900)
   // The shared list's rows render inside the region (the virtualizer's
   // scrollport is the region — the split works end to end).
   const rows = await page.locator('[data-testid^="txr-list-row-"]').count()
-  expect(rows, 'the saved-model rows render').toBeGreaterThan(0)
-  const toolbar = await page.getByTestId('txr-models-i-toolbar').boundingBox()
-  const region = await page.locator('[aria-label="Saved models"]').boundingBox()
+  expect(rows, 'the merged model rows render').toBeGreaterThan(0)
+  // The story's mount preset is the lab source; the All chip clears it so
+  // the whole list's rows overflow the region and the scroll is real.
+  await page.getByTestId('txr-list-filter-all').click()
+  // The region scrolls; the fixed toolbar does not move with it (the old
+  // pretrained-frame leg, re-pointed).
+  await scrollRegionTo(page, 'Models to choose', 200)
+  const toolbar = await page.getByTestId('txr-models-choose-toolbar').boundingBox()
+  const region = await page.locator('[aria-label="Models to choose"]').boundingBox()
   expect(toolbar).not.toBeNull()
   expect(toolbar!.y, 'the toolbar sits ABOVE the region').toBeLessThan(region!.y)
-  const bar = await page.getByTestId('txr-models-i-bar').boundingBox()
+  const bar = await page.getByTestId('txr-models-choose-bar').boundingBox()
   const frame = await page.locator('[data-gallery-frame]').boundingBox()
   expect(bar).not.toBeNull()
   expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
   await expect(page.getByTestId('txr-list-run')).toHaveText('Run 0 models')
-  await expectBarSpansFrame(page, 'txr-models-i-frame', 'Saved models')
-})
-
-test('route Pretrained models: the list frame pins its toolbar above the region and the counters + Run in the bar', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 640 })
-  await page.goto(`${GALLERY}txr-shell-route-pretrained-models`, { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(SETTLE)
-  await sizeFrame(page, 640)
-
-  const rows = await page.locator('[data-testid^="txr-list-row-"]').count()
-  expect(rows, 'the catalogue rows render').toBeGreaterThan(0)
-  await scrollRegionTo(page, 'Models to choose', 200)
-  const toolbar = await page.getByTestId('txr-models-d-toolbar').boundingBox()
-  const region = await page.locator('[aria-label="Models to choose"]').boundingBox()
-  expect(toolbar).not.toBeNull()
-  expect(toolbar!.y, 'the toolbar sits ABOVE the region').toBeLessThan(region!.y)
-  const bar = await page.getByTestId('txr-models-d-bar').boundingBox()
-  const frame = await page.locator('[data-gallery-frame]').boundingBox()
-  expect(bar).not.toBeNull()
-  expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
-  await expectBarSpansFrame(page, 'txr-models-d-frame', 'Pretrained models')
+  await expectBarSpansFrame(page, 'txr-models-choose-frame', 'Choose models')
 })
 
 test('route Help: the rail follows the region, an anchor lands flush at its top, the print byte prints the article', async ({

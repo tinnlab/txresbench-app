@@ -21,7 +21,7 @@ import {
  * sandbox, no env download, finishes in milliseconds, DEC-14's scope).
  *
  * Spec ↔ TESTS.md:
- *   · TEST-AS-3 — all 14 routes at 1440x900, 1280x720 and 1024x768: the
+ *   · TEST-AS-3 — the 13 routes at 1440x900, 1280x720 and 1024x768: the
  *     document does not scroll, 1-2 regions, the header never moves while
  *     every region scrolls; at 390x844 the document scrolls and the header
  *     is sticky and one row; the browser Back button restores a region's
@@ -48,7 +48,9 @@ const SIZES = [
   { width: 1024, height: 768 },
 ] as const
 
-/** The 14 routes of the audit's matrix (the run id + method id of the fixture run). */
+/** The 13 routes of the audit's matrix (the run id + method id of the fixture
+ *  run; the old D/I routes are gone — the merged `/choose-models` step keeps
+ *  the model step's byte, the shell nav's ONE Models entry is screen J). */
 function routeList(runId: string): Array<{ path: string; label: string }> {
   return [
     { path: '/', label: 'Start' },
@@ -62,8 +64,7 @@ function routeList(runId: string): Array<{ path: string; label: string }> {
     { path: `/analysis/${runId}/results/methods/${CANNOT_RUN_METHOD}`, label: 'Method' },
     { path: '/history', label: 'History' },
     { path: '/models', label: 'Models' },
-    { path: '/saved-models', label: 'Saved models' },
-    { path: '/pretrained-models', label: 'Pretrained models' },
+    { path: '/choose-models', label: 'Choose models' },
     { path: '/help', label: 'Help' },
   ]
 }
@@ -113,7 +114,7 @@ async function scrollRegionTo(page: import('@playwright/test').Page, label: stri
 
 test.describe('txr-shell — the audit section-4 bytes under the real app (TEST-AS-3, ITEM-4)', () => {
   for (const size of SIZES) {
-    test(`the 14 routes at ${size.width}x${size.height}: the raw document byte, 1-2 regions, the header never moves`, async ({
+    test(`the 13 routes at ${size.width}x${size.height}: the raw document byte, 1-2 regions, the header never moves`, async ({
       page,
     }) => {
       await page.setViewportSize(size)

@@ -5,6 +5,7 @@
  * helpers on their own.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
+import { stepOfUrl } from '@/modules/txrshell/lib/flowSteps'
 import {
   backTarget,
   beginPath,
@@ -16,7 +17,6 @@ import {
   pathOf,
   recordStep,
   replaceCurrent,
-  replaceCurrentStep,
   STEP_BACK_DIALOG_OPEN,
   STEP_BACK_LEAVING,
   STEP_BACK_NO_STEP,
@@ -31,8 +31,7 @@ const STUDY = '/study'
 const FILES = '/files'
 const PREDICT = '/predict-files'
 const METHODS = '/choose-methods'
-const PUBLISHED = '/pretrained-models'
-const SAVED = '/saved-models'
+const CHOOSE = '/choose-models'
 
 /** The fallback each step page declares (the plan's row 13). */
 // The pages' own fallbacks: the step before on the learn path
@@ -42,8 +41,7 @@ const FALLBACK: Record<TxrStepId, string> = {
   files: START,
   'predict-files': START,
   'choose-methods': STUDY,
-  'pretrained-models': PREDICT,
-  'saved-models': PREDICT,
+  'choose-models': PREDICT,
 }
 
 const STEP_OF: Record<string, TxrStepId> = {
@@ -51,8 +49,7 @@ const STEP_OF: Record<string, TxrStepId> = {
   [FILES]: 'files',
   [PREDICT]: 'predict-files',
   [METHODS]: 'choose-methods',
-  [PUBLISHED]: 'pretrained-models',
-  [SAVED]: 'saved-models',
+  [CHOOSE]: 'choose-models',
 }
 
 /** A step view mounts: the trail records it and it becomes the current step. */
@@ -105,7 +102,7 @@ describe('the pure helpers', () => {
   })
 
   it('backTarget is the entry before the step, null at the start of the trail or when absent', () => {
-    expect(backTarget([START, PREDICT, PUBLISHED], PUBLISHED)).toBe(PREDICT)
+    expect(backTarget([START, PREDICT, CHOOSE], CHOOSE)).toBe(PREDICT)
     expect(backTarget([START, PREDICT], PREDICT)).toBe(START)
     expect(backTarget([PREDICT], PREDICT)).toBeNull()
     expect(backTarget([START], FILES)).toBeNull()
@@ -117,12 +114,12 @@ describe('the pure helpers', () => {
   })
 
   it('replaceCurrent swaps the step for another (or appends when absent)', () => {
-    expect(replaceCurrent([START, PREDICT, PUBLISHED], PUBLISHED, SAVED)).toEqual([
+    expect(replaceCurrent([START, PREDICT, CHOOSE], CHOOSE, PREDICT)).toEqual([
       START,
       PREDICT,
-      SAVED,
+      PREDICT,
     ])
-    expect(replaceCurrent([START, PREDICT], PUBLISHED, SAVED)).toEqual([START, PREDICT, SAVED])
+    expect(replaceCurrent([START, PREDICT], CHOOSE, PREDICT)).toEqual([START, PREDICT, PREDICT])
   })
 
   it('beginTrail starts at the origin', () => {
@@ -131,20 +128,21 @@ describe('the pure helpers', () => {
 })
 
 describe('the flow map (each row: Back from each step of the path)', () => {
-  it('row 1: the pretrained card (or its "Use example"): A → N → D; D→N, N→A', () => {
+  it('row 1: the ONE predict card (or its "Use example"): A → N → the model step; model step → N, N → A', () => {
     beginPath(START)
     show(PREDICT)
-    show(PUBLISHED)
+    show(CHOOSE)
     expect(back()).toBe(PREDICT)
     expect(back()).toBe(START)
   })
 
-  it('row 2: the saved card (or its "Use example"): A → N → I; I→N, N→A', () => {
-    beginPath(START)
-    show(PREDICT)
-    show(SAVED)
-    expect(back()).toBe(PREDICT)
-    expect(back()).toBe(START)
+  it('row 2: the old D/I addresses are no longer steps (round 3 — they redirect to the ONE list)', () => {
+    // The redirects live in txrmodels (`module.tsx`), never in the step
+    // trail: the old addresses are ordinary pages to the trail, so a step
+    // visit is never recorded under them.
+    expect(stepOfUrl('/pretrained-models')).toBeNull()
+    expect(stepOfUrl('/saved-models')).toBeNull()
+    expect(stepOfUrl(CHOOSE)).toBe('choose-models')
   })
 
   it('row 3: the train card "Add my data": A → C → B → E; E→B, B→C, C→A', () => {
@@ -209,11 +207,11 @@ describe('the flow map (each row: Back from each step of the path)', () => {
     expect(back()).toBe('/help')
   })
 
-  it('row 9: Your models "Use": N(?use=) → I; I→N with the search, N→Your models', () => {
+  it('row 9: Your models "Use": N(?use=) → the model step; the model step → N with the search, N → Your models', () => {
     beginPath('/models')
     const withUse = `${PREDICT}?use=m1&name=Model%201`
     show(withUse, '/models')
-    show(SAVED)
+    show(CHOOSE)
     expect(back()).toBe(withUse)
     expect(back()).toBe('/models')
   })
@@ -224,7 +222,7 @@ describe('the flow map (each row: Back from each step of the path)', () => {
     expect(back()).toBe('/history')
   })
 
-  it('row 11: backward hops cut the trail there (E "Change files" → C; D/I buttons → N)', () => {
+  it('row 11: backward hops cut the trail there (E "Change files" → C; the model step "Go to the measurements step" → N)', () => {
     beginPath(START)
     show(FILES)
     show(STUDY)
@@ -235,8 +233,8 @@ describe('the flow map (each row: Back from each step of the path)', () => {
 
     beginPath(START)
     show(PREDICT)
-    show(SAVED)
-    show(PREDICT) // "Go to the measurements step" / I "Use example"
+    show(CHOOSE)
+    show(PREDICT) // "Go to the measurements step" / the model step "Use example"
     expect(back()).toBe(START)
   })
 
@@ -256,14 +254,12 @@ describe('the flow map (each row: Back from each step of the path)', () => {
     expect(back()).toBe('/history')
   })
 
-  it('row 11 + 13 — after a reload on D or I, "Go to the measurements step" / I "Use example" lands on N, whose Back is Start', () => {
-    for (const model of [PUBLISHED, SAVED]) {
-      useStepTrailStore.setState({ trail: [], current: null })
-      show(model) // the reload: the trail holds only the model step
-      show(PREDICT)
-      expect(useStepTrailStore.getState().trail).toEqual([PREDICT])
-      expect(back()).toBe(START)
-    }
+  it('row 11 + 13 — after a reload on the model step, "Go to the measurements step" lands on N, whose Back is Start', () => {
+    useStepTrailStore.setState({ trail: [], current: null })
+    show(CHOOSE) // the reload: the trail holds only the model step
+    show(PREDICT)
+    expect(useStepTrailStore.getState().trail).toEqual([PREDICT])
+    expect(back()).toBe(START)
   })
 
   it('a detour to B from a later step is not a backward hop (N study link, row 7): B goes back to N', () => {
@@ -273,24 +269,13 @@ describe('the flow map (each row: Back from each step of the path)', () => {
     expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, STUDY])
   })
 
-  it('row 12: the D ↔ I switch replaces the step: Back from the new list goes to N', () => {
-    beginPath(START)
-    show(PREDICT)
-    show(PUBLISHED)
-    replaceCurrentStep(SAVED)
-    show(SAVED)
-    expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, SAVED])
-    expect(back()).toBe(PREDICT)
-  })
-
   it('row 13: a reload or a deep link (no trail): each step goes to its fallback', () => {
     for (const [url, expected] of [
       [STUDY, FILES],
       [FILES, START],
       [PREDICT, START],
       [METHODS, STUDY],
-      [PUBLISHED, PREDICT],
-      [SAVED, PREDICT],
+      [CHOOSE, PREDICT],
     ] as const) {
       useStepTrailStore.setState({ trail: [], current: null })
       show(url)
@@ -334,21 +319,21 @@ describe('the refusals', () => {
   it('refuses with the blocked reason (a run is starting) and leaves the trail alone', () => {
     beginPath(START)
     show(PREDICT)
-    show(PUBLISHED)
+    show(CHOOSE)
     useStepTrailStore.setState(s => ({
       current: s.current && { ...s.current, blockedReason: 'Starting the run…' },
     }))
     expect(() => takeStepBack()).toThrow('Starting the run…')
-    expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, PUBLISHED])
+    expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, CHOOSE])
   })
 
   it('refuses while a page dialog is open', () => {
     beginPath(START)
     show(PREDICT)
-    show(SAVED)
+    show(CHOOSE)
     useStepTrailStore.setState(s => ({ current: s.current && { ...s.current, dialogOpen: true } }))
     expect(() => takeStepBack()).toThrow(STEP_BACK_DIALOG_OPEN)
-    expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, SAVED])
+    expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, CHOOSE])
   })
 })
 
@@ -365,8 +350,11 @@ describe('the way back from Help to a step', () => {
       title: 'Add the patients to predict',
     })
     expect(stepPlaceOf('/choose-methods')).toEqual({ step: 4, title: 'Choose the methods and settings' })
-    expect(stepPlaceOf('/pretrained-models')).toEqual({ step: 3, title: 'Choose the models to run' })
-    expect(stepPlaceOf('/saved-models')).toEqual({ step: 3, title: 'Choose the saved models to run' })
+    // The ONE model step: the old D/I addresses are no longer steps (the
+    // redirects land here — round 3).
+    expect(stepPlaceOf('/choose-models')).toEqual({ step: 3, title: 'Choose the models to run' })
+    expect(stepPlaceOf('/pretrained-models')).toBeNull()
+    expect(stepPlaceOf('/saved-models')).toBeNull()
     expect(stepPlaceOf(START)).toBeNull()
     expect(stepPlaceOf('/help')).toBeNull()
   })

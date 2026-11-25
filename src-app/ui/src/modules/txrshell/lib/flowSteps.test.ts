@@ -36,12 +36,10 @@ describe('the order of the paths', () => {
       of: 3,
       title: 'Add the patients to predict',
     })
-    expect(stepPlace('pretrained-models')).toEqual({ step: 3, of: 3, title: 'Choose the models to run' })
-    expect(stepPlace('saved-models')).toEqual({
-      step: 3,
-      of: 3,
-      title: 'Choose the saved models to run',
-    })
+    // The merged list is the ONE model step (the old D/I views left the
+    // path in round 3; their addresses are txrmodels' redirects, not
+    // steps).
+    expect(stepPlace('choose-models')).toEqual({ step: 3, of: 3, title: 'Choose the models to run' })
   })
 
   it('the study questions are a side trip of the predict path, not a numbered step', () => {
@@ -54,7 +52,7 @@ describe('the order of the paths', () => {
     expect(stepOrder('study')).toBe(2)
     expect(stepOrder('choose-methods')).toBe(3)
     expect(stepOrder('predict-files')).toBe(1)
-    expect(stepOrder('saved-models')).toBe(2)
+    expect(stepOrder('choose-models')).toBe(2)
   })
 })
 

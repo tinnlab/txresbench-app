@@ -8,23 +8,35 @@ import { expect, test, type Locator } from '@playwright/test'
  * stores — the same surfaces a clinician sees).
  *
  * Spec ↔ TESTS.md enumeration:
- *   · TEST-MOD-17 (INV-1/3, `txr-models-d`) — the pretrained board: the
- *     Step-4 header + the checked-against line + the verdict totals, the
- *     shared list rows (mono id · day N, tag, Published/Learned here chip,
- *     performance, verdict + detail, time, Model card), the built-in
- *     count chips + the four host chips, the selection-driven count +
- *     total, the research notice, checking a not-installed card starts the
- *     download (bytes + pct in the downloads strip) and the Run click is
- *     refused while it downloads; the Model card opens from the row
- *     action; with the strip clear, Run records the created-run payload
- *     + the in-frame navigation — EXAMPLE-UM-1.
- *   · TEST-MOD-18 (INV-1/2, `txr-models-i` + `txr-models-j` +
- *     `txr-models-j-expanded` + `txr-models-d-narrow-390`) — the saved
- *     board's two run sections (facts lines, select-all checks the
- *     section's eligible models only, Rename/Delete actions), the
- *     Same-outcome chip narrowing to the matching endpoint/horizon, the
- *     find-a-model-or-run search, the sort flip (Newest run first →
- *     Patients covered); the J ONE table (brief 7's folder-style: the
+ *   · TEST-MOD-17 (INV-1/3, `txr-models-choose`) — the merged model
+ *     board (the old D/I pages' one replacement, round 3): the Step-3
+ *     header + the checked-against line ("Ready-made, saved and imported
+ *     models are all here; pick as many as you like.") + the whole-list
+ *     verdict totals ("17 models · 14 can run, 3 cannot"), the shared
+ *     list rows (the lab row's mono id · day N, tag, Published-rule /
+ *     Learned-here chip, performance, verdict + detail, time, Model
+ *     card), the built-in count chips + the host chips (the three source
+ *     chips with their counts, the lab-only chips, the whole-list
+ *     Same-outcome chip), the selection-driven count + total, the
+ *     research notice, checking a not-installed card starts the download
+ *     (bytes + pct in the downloads strip) and the Run click is refused
+ *     while it downloads; the Model card opens from the row action; with
+ *     the strip clear, Run records the created-run payload + the in-frame
+ *     navigation — EXAMPLE-UM-1.
+ *   · TEST-MOD-18 (INV-1/2, `txr-models-choose` +
+ *     `txr-models-choose-narrow-390` + `txr-models-j` +
+ *     `txr-models-j-expanded`) — the merged board's saved/imported arm
+ *     and its 390 px byte: the ONE flat list's saved rows (small-caps
+ *     source label, run-name subtitle, Trained-by-you chip, run verdict
+ *     + Details), the whole-list built-ins (All 17, Can run 13), the
+ *     select-all-that-can-run over the flat list, the Same-outcome chip
+ *     narrowing to the matching endpoint/horizon, the find-a-model-or-run
+ *     search, the sort flip (the mounted transfer order → Patients
+ *     covered) and the saved-side Run payload — the old I board's two run
+ *     sections, their select-alls and their set actions left with the
+ *     page and are replaced by these flat equivalents; the 390 px merged
+ *     board has no horizontal page overflow and the bottom-bar Run stays
+ *     inside the viewport; the J ONE table (brief 7's folder-style: the
  *     Name / Method / Predicts / Decision day / Trained on / Made header —
  *     the Set and Model columns merged — folder rows with the disclosure +
  *     the folder glyph + the "(N)" count + the set actions, closed by
@@ -36,9 +48,8 @@ import { expect, test, type Locator } from '@playwright/test'
  *     client-side search (set-name match with all its models, a model
  *     match forced-expanding its folder with only the matches and the
  *     "(2 of 3 models match)" Name-cell count, the honest no-match line),
- *     plus the box-is-the-scrollport layout byte at two viewport sizes;
- *     the 390 px story has no horizontal page overflow and the bottom-bar
- *     Run stays inside the viewport — EXAMPLE-UM-2/UM-3.
+ *     plus the box-is-the-scrollport layout byte at two viewport sizes —
+ *     EXAMPLE-UM-2/UM-3.
  *   · TEST-MOD-19 (INV-1/7, `txr-models-l` + `txr-models-l2`) — the L
  *     dialog opens over the results board through the REAL EventBus
  *     event (backdrop dimmed, no navigation), the checklist + the
@@ -52,12 +63,14 @@ import { expect, test, type Locator } from '@playwright/test'
  * What the fixtures FORCE (records in `fixtures.ts`'s header + DRIFT-1
  * ITEM-10): every value is the module fixture family's own — 42 patients /
  * 4 markers / days 0,14,28,56 / decision day 60 / horizons 240 and 165,
- * the verdicts 4 fit + 2 some + 1 cannot (D) and 5 fit + 3 some + 2
- * cannot (I), the sizes 4,600,000 per card and the 800 KB–12.8 MB
- * produced spread — never a board example number (INV-4). The D story's
- * total for the three selected cards is 45 + 90 + 120 = 255 s → "about 4
- * minutes in total"; the download card's 1,234,567 of
- * 4,600,000 bytes reads "1.2 MB of 4.4 MB" at 27%.
+ * the lab verdicts 4 fit + 2 some + 1 cannot and the saved verdicts
+ * 5 fit + 3 some + 2 cannot (the merged list: 7 catalogue rows + 10
+ * saved rows → "17 models, 14 can run, 3 cannot"), the sizes 4,600,000
+ * per card and the 800 KB–12.8 MB produced spread — never a board
+ * example number (INV-4). The merged story's total for the three
+ * selected lab cards is 45 + 90 + 120 = 255 s → "about 4 minutes in
+ * total"; the download card's 1,234,567 of 4,600,000 bytes reads
+ * "1.2 MB of 4.4 MB" at 27%.
  *
  * Run (own port on a shared box — the config derives one per worktree):
  *   npx playwright test -c playwright.gallery.config.ts \
@@ -73,55 +86,62 @@ const GALLERY = '/gallery.html?surface='
 // rather than inheriting the config's 120 s fast-loop cap.
 test.setTimeout(600_000)
 
-/** The board's research-use notice (DEC-13, the D/I bottom bars). */
+/** The board's research-use notice (DEC-13, the merged page's bottom bar). */
 const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."
 
-/** The checked-against line of the module fixture family (42 patients, 4
- *  markers, draws 0/14/28/56) — the D tail and the I tail. */
-const D_CHECKED_LINE =
-  'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Pick as many as you like.'
-const I_CHECKED_LINE =
-  'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Models from one training run are grouped; pick any of them.'
+/** The merged page's checked-against line of the module fixture family
+ *  (42 patients, 4 markers, draws 0/14/28/56) — the ONE round-2 tail
+ *  `formatCheckedAgainstLine` pins (`lib/format.ts` + the choose-page
+ *  unit suites; the old D/I tails are gone). */
+const MERGED_CHECKED_LINE =
+  'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Ready-made, saved and imported models are all here; pick as many as you like.'
+
+/** The merged page's whole-list totals (`formatChooseTotals` over the 7
+ *  lab + 10 saved rows: 9 fit + 5 some = 14 can run, 3 cannot — the one
+ *  accounting, never the source-split lines of the old boards). */
+const MERGED_TOTAL_TEXT = '17 models · 14 can run, 3 cannot'
 
 /** The fixture total for the three selected installed cards (45+90+120 s). */
 const D_TOTAL_TEXT = 'about 4 minutes in total'
 
-/** The gated-Run line (the D page's constant for a still-downloading card). */
+/** The gated-Run line (the merged page's constant for a still-downloading card). */
 const GATE_DOWNLOADING_LINE =
   'A selected model is still downloading. Wait for it to finish, or uncheck it.'
 
-/** The fixture ids (the D cards' row keys — DEC-8's `ps:` prefix over the
- *  catalogue id; the I rows' uuid keys via the ID helpers). */
+/** The fixture ids (the lab cards' row keys — DEC-8's `ps:` prefix over
+ *  the catalogue id; the merged list's saved rows' uuid keys). */
 const PS_ROW = (k: number): string => `ps:ps-${k}`
 const PS = (k: number): string => `ps-${k}`
 const FM = (k: number): string => `a0000000-0000-4000-8000-0000000000${String(k).padStart(2, '0')}`
 
-/** The D row's name/tag block (the board's mono id line + the tag line). */
+/** A row's top coordinate (the order checks' y read). */
 function yOf(row: Locator): Promise<number> {
   return row.evaluate(el => el.getBoundingClientRect().top)
 }
 
-test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () => {  test('board bytes, chips, selection → total, download gate, Model card, Run payload', async ({
+test.describe('txr-models-choose — choose the models to run (TEST-MOD-17)', () => {
+  test('board bytes, chips, selection → total, download gate, Model card, Run payload', async ({
     page,
   }) => {
-    await page.goto(`${GALLERY}txr-models-d`)
+    await page.goto(`${GALLERY}txr-models-choose`)
 
-    await expect(page.getByTestId('txr-models-d')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible()
     await expect(page.getByTestId('txr-list')).toBeVisible()
     await expect(page.getByTestId(`txr-list-row-${PS_ROW(1)}`)).toBeVisible()
 
     // ── the header bytes (fixture-derived facts, never board examples) ──
-    await expect(page.getByTestId('txr-models-d')).toContainText('Step 4 of 4')
-    await expect(page.getByTestId('txr-models-d')).toContainText('Choose the models to run')
-    await expect(page.getByTestId('txr-models-d-checked')).toHaveText(D_CHECKED_LINE)
-    await expect(page.getByTestId('txr-models-d-totals')).toHaveText('6 can run, 1 cannot')
+    await expect(page.getByTestId('txr-models-choose')).toContainText('Step 3 of 3')
+    await expect(page.getByTestId('txr-models-choose')).toContainText('Choose the models to run')
+    await expect(page.getByTestId('txr-models-choose-checked')).toHaveText(MERGED_CHECKED_LINE)
+    await expect(page.getByTestId('txr-models-choose-totals')).toHaveText(MERGED_TOTAL_TEXT)
 
-    // ── the first row's board bytes (Pretrained.dc.html's row surface) ──
+    // ── the ps-1 row's board bytes (Pretrained.dc.html's row surface) ──
     const row = await page.getByTestId(`txr-list-row-${PS_ROW(1)}`).textContent()
     for (const needle of [
+      'From the lab',
       'ps-1 · day 60',
       'Rule from the paper; colorectal',
-      'Published',
+      'Published rule',
       'other cohorts: AUC 0.71',
       'Can run',
       'all 42 patients',
@@ -131,23 +151,33 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
       expect(row, `row ps:1 must carry ${needle!}`).toContain(needle!)
     }
 
-    // ── built-ins + the four host chips (fixture counts) ──
-    // The built-in "Can run" count is ROW-derived (the enabled checkboxes):
-    // the fixture's row family is 3 can + 2 some + 2 cannot (the two
-    // genuinely-cannot cards — missing Ki-67, unavailable asset), so it
-    // reads 5, while the header totals (4 fit + 2 some + 1 cannot — the
-    // response's own record) read 6 can run / 1 cannot. Both halves are
-    // pinned by the ITEM-4/6 unit suites' own sources; the 5-vs-6
-    // discrepancy is the pre-existing fixture-family nuance (DRIFT-1
-    // ITEM-10 #10).
+    // ── built-ins + the host chips (fixture counts) ──
+    // The merged board's mount preset is the lab source (the story seeds
+    // predictSource 'lab'), so the bar's own rows read the 7 lab rows'
+    // view: All 7 and the ROW-derived "Can run 5" (3 can + 2 some — the
+    // two genuinely-cannot cards: missing Ki-67, unavailable asset). The
+    // source chips count the WHOLE source sets (Saved 10, Imported 0 —
+    // the 0-chip is disabled), and the Same-outcome chip counts every
+    // source (the 7 lab cards + the 6 saved rows matching pfs/day 240 —
+    // the merged list's whole-list rule, never the old I board's own
+    // split). Both halves are pinned by the ITEM-4/6 unit suites' own
+    // sources; the lab-only view's "Can run 5" vs the whole list's 13 is
+    // the same row-derived rule read over one source (DRIFT-1 ITEM-10
+    // #10).
     await expect(page.getByTestId('txr-list-filter-all')).toHaveText('All 7')
     await expect(page.getByTestId('txr-list-filter-can-run')).toHaveText('Can run 5')
+    await expect(page.getByTestId('txr-list-filter-source-lab')).toHaveText('From the lab 7')
+    await expect(page.getByTestId('txr-list-filter-source-saved')).toHaveText('Saved 10')
+    await expect(page.getByTestId('txr-list-filter-source-imported')).toHaveText('Imported 0')
     await expect(page.getByTestId('txr-list-filter-published')).toHaveText('Published rules 4')
     await expect(page.getByTestId('txr-list-filter-learned')).toHaveText(
       'Learned by the benchmark 3',
     )
     await expect(page.getByTestId('txr-list-filter-checked-2-plus')).toHaveText(
       'Checked on 2 or more other cohorts 3',
+    )
+    await expect(page.getByTestId('txr-list-filter-same-outcome')).toHaveText(
+      'Same outcome as my file 13',
     )
 
     // ── the host chip narrows the rows; the selection survives the view ──
@@ -157,6 +187,11 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
     await page.getByTestId('txr-list-filter-published').click()
     await expect(page.getByTestId(`txr-list-row-${PS_ROW(2)}`)).toBeVisible()
 
+    // ── the merged All chip clears every source filter (one flat list) ──
+    await page.getByTestId('txr-list-filter-all').click()
+    await expect(page.getByTestId('txr-list-filter-all')).toHaveText('All 17')
+    await expect(page.getByTestId('txr-list-filter-can-run')).toHaveText('Can run 13')
+
     // ── three selected installed cards → count + the DEC-7 total ──
     await page.getByTestId(`txr-list-checkbox-${PS_ROW(1)}`).click()
     await page.getByTestId(`txr-list-checkbox-${PS_ROW(3)}`).click()
@@ -164,12 +199,12 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
     await expect(page.getByTestId('txr-list-selected-count')).toHaveText('3 models selected')
     await expect(page.getByTestId('txr-list-total-time')).toContainText(D_TOTAL_TEXT)
     // The research notice is the bar's verbatim line; the E-only at-a-time
-    // + save controls are absent on this screen (INV-3).
+    // + save controls are absent on the model step (INV-3).
     await expect(page.getByTestId('txr-list-bottom-bar')).toContainText(RESEARCH_NOTICE)
     await expect(page.getByTestId('txr-list-at-a-time')).toHaveCount(0)
     await expect(page.getByTestId('txr-list-save-models')).toHaveCount(0)
 
-    // ── checking the not-installed card starts its download (the D strip) ──
+    // ── checking the not-installed card starts its download (the kept strip) ──
     await page.getByTestId(`txr-list-checkbox-${PS_ROW(5)}`).click()
     await expect(page.getByTestId('txr-list-selected-count')).toHaveText('4 models selected')
     await expect(page.getByTestId('txr-models-downloads')).toBeVisible()
@@ -181,7 +216,7 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
 
     // ── Run while a selected card downloads: refused, never created ──
     await page.getByTestId('txr-list-run').click()
-    await expect(page.getByTestId('txr-models-d-run-error')).toHaveText(GATE_DOWNLOADING_LINE)
+    await expect(page.getByTestId('txr-models-choose-run-error')).toHaveText(GATE_DOWNLOADING_LINE)
     await expect(page.getByTestId('txr-models-run-result')).toHaveText('run not fired yet')
 
     // ── Model card from the row action (the paper is TEXT, never a link) ──
@@ -210,8 +245,9 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
     expect(result.body.mode).toBe('reuse')
     expect(result.body.model_ids, `run payload (${resultText})`).toHaveLength(4)
     expect(result.body.config?.endpoint).toBe('pfs')
+    expect(result.body.config?.decision_day).toBe(60)
     expect(result.body.config?.look_ahead_day).toBe(240)
-    await expect(page.getByTestId('txr-models-d-run-landed')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-run-landed')).toBeVisible()
   })
 
   test('R2-08: the no-file empty state names WHICH models this screen lists', async ({
@@ -219,28 +255,28 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
   }) => {
     await page.goto(`${GALLERY}txr-models-empty`)
 
-    // The not-ready block + the honest note: the pretrained screen's list is
-    // the benchmark's published catalogue — never the identical saved-model
-    // empty state a `/pretrained-models` direct visit used to render (the
-    // two screens were indistinguishable).
-    await expect(page.getByTestId('txr-models-d-empty')).toBeVisible()
-    await expect(page.getByTestId('txr-models-d-empty')).toContainText(
+    // The not-ready block + the honest note: the merged list's own words —
+    // the three sources are named in the note, so the empty state answers
+    // what will be listed once the file checks out (the old D/I pages were
+    // indistinguishable on this state).
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-empty')).toContainText(
       'Add the patients\u2019 measurements you want to predict first.',
     )
-    await expect(page.getByTestId('txr-models-d-empty-note')).toContainText(
-      'The ready-made models are listed here once the file checks out',
+    await expect(page.getByTestId('txr-models-choose-empty-note')).toHaveText(
+      'The models are listed here once your file checks out: ready-made models from the lab, models you saved, and models opened from a file.',
     )
-    await expect(page.getByTestId('txr-models-d-empty-cta')).toHaveText(
+    await expect(page.getByTestId('txr-models-choose-empty-cta')).toHaveText(
       'Go to the measurements step',
     )
   })
 })
 
-test.describe('txr-models-d-narrow-390 — the board at the mobile width (TEST-MOD-18)', () => {
+test.describe('txr-models-choose-narrow-390 — the merged board at the mobile width (TEST-MOD-18)', () => {
   test('no horizontal overflow, Run on-screen at 390 px', async ({ page }) => {
-    await page.goto(`${GALLERY}txr-models-d-narrow-390`)
+    await page.goto(`${GALLERY}txr-models-choose-narrow-390`)
 
-    await expect(page.getByTestId('txr-models-d')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible()
     await expect(page.getByTestId(`txr-list-row-${PS_ROW(1)}`)).toBeVisible()
 
     // ── no horizontal page overflow (the entry-list measured pattern) ──
@@ -262,64 +298,68 @@ test.describe('txr-models-d-narrow-390 — the board at the mobile width (TEST-M
   })
 })
 
-test.describe('txr-models-i — choose the saved models (TEST-MOD-18)', () => {
-  test('two run sections, section select-all, same-outcome chip, search, sort', async ({
+test.describe('txr-models-choose — the saved/imported rows of the flat merged list (TEST-MOD-18)', () => {
+  test('one flat list: saved-row bytes, select-all-that-can-run, same-outcome chip, search, sort, Run', async ({
     page,
   }) => {
-    await page.goto(`${GALLERY}txr-models-i`)
+    await page.goto(`${GALLERY}txr-models-choose`)
 
-    await expect(page.getByTestId('txr-models-i')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible()
     await expect(page.getByTestId('txr-list')).toBeVisible()
+
+    // The merged board's mount preset is the lab source; the All chip
+    // clears it so the WHOLE ONE flat list is the view (round 3: the old
+    // I board's two run sections are gone — the saved/imported rows are
+    // plain rows of this list).
+    await page.getByTestId('txr-list-filter-all').click()
     await expect(page.getByTestId(`txr-list-row-${FM(1)}`)).toBeVisible()
 
-    // ── the header (the fixture's 10-model family) ──
-    await expect(page.getByTestId('txr-models-i-checked')).toHaveText(I_CHECKED_LINE)
-    // ITEM-5 (RES-22): ONE accounting — "can run" is what can START (the
-    // 5 fit + 3 some verdicts), so the sentence agrees with the "Can run
-    // 8" chip; the old line read "5 can run … 3 partly" next to the chip.
-    await expect(page.getByTestId('txr-models-i-totals')).toHaveText(
-      '10 saved models shown · 8 can run, 2 cannot (3 of them for some patients)',
+    // ── the header: the merged lines (ONE checked-against tail + the
+    //    whole-list totals — never the old saved-only sentence) ──
+    await expect(page.getByTestId('txr-models-choose-checked')).toHaveText(MERGED_CHECKED_LINE)
+    // ITEM-5 (RES-22): ONE accounting — "can run" is what can START, and
+    // the totals count every source now (9 fit + 5 some, 3 cannot).
+    await expect(page.getByTestId('txr-models-choose-totals')).toHaveText(MERGED_TOTAL_TEXT)
+
+    // ── built-ins over the whole merged list + the same-outcome count ──
+    await expect(page.getByTestId('txr-list-filter-all')).toHaveText('All 17')
+    await expect(page.getByTestId('txr-list-filter-can-run')).toHaveText('Can run 13')
+    await expect(page.getByTestId('txr-list-filter-same-outcome')).toHaveText(
+      'Same outcome as my file 13',
     )
 
-    // ── the two run sections with their facts lines + actions ──
-    const setA = page.getByTestId('txr-list-section-set-a')
-    await expect(setA).toContainText('CRC cohort, day 60')
-    await expect(setA).toContainText(
-      'trained 29 Nov on patients.csv · 42 patients · 7 models · progression, death by day 240',
-    )
-    const setB = page.getByTestId('txr-list-section-set-b')
-    await expect(setB).toContainText('Lung pilot, day 35')
-    await expect(setB).toContainText(
-      'trained 9 Oct on lung-pilot.csv · 42 patients · 3 models · death by day 165',
-    )
-    await expect(page.getByTestId('txr-list-section-action-set-a-rename')).toHaveText('Rename')
-    await expect(page.getByTestId('txr-list-section-action-set-a-delete')).toHaveText(
-      "Delete the run's models",
-    )
-
-    // ── a row's board bytes (the DEC-13 subtitle + Trained-by-you chip) ──
+    // ── a saved row's flat bytes: small-caps label, run-name subtitle,
+    //    the Trained-by-you chip, the run verdict + Details ──
+    await expect(page.getByTestId(`txr-list-row-${FM(1)}-source`)).toHaveText('Saved')
     const row = await page.getByTestId(`txr-list-row-${FM(1)}`).textContent()
     for (const needle of [
       'fm-1',
-      'decision day 60',
+      'CRC cohort, day 60 · decision day 60',
       'Trained by you',
       'own data, cross-checked: AUC 0.71',
       'Can run',
+      'all 42 patients',
+      'under 1 min',
       'Details',
     ]) {
       expect(row, `row fm-1 must carry ${needle!}`).toContain(needle!)
     }
 
-    // ── built-ins + the same-outcome chip count (pfs + day 240: six rows) ──
+    // The source chips scope the view: the saved-only frame is the old I
+    // board's family (the counts are unchanged: All 10 / Can run 8), now
+    // as one flat list.
+    await page.getByTestId('txr-list-filter-source-saved').click()
+    await expect(page.getByTestId(`txr-list-row-${FM(8)}`)).toBeVisible()
     await expect(page.getByTestId('txr-list-filter-all')).toHaveText('All 10')
     await expect(page.getByTestId('txr-list-filter-can-run')).toHaveText('Can run 8')
-    await expect(page.getByTestId('txr-list-filter-same-outcome')).toHaveText(
-      'Same outcome as my file 6',
-    )
 
-    // ── section select-all: exactly the section's eligible rows ──
-    await page.getByTestId('txr-list-section-select-all-set-a').click()
-    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('5 models selected')
+    // ── select-all-that-can-run: the ONE flat rule (the old section
+    //    select-alls and their section-scoped differential checks left
+    //    with the sections — this is the merged replacement: every
+    //    runnable row of the saved/imported arm) ──
+    await page.getByTestId('txr-list-select-all-can-run').click()
+    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('8 models selected')
+    await expect(page.getByTestId('txr-list-total-time')).toHaveText('about 8 minutes in total')
     for (const key of [FM(3), FM(7)]) {
       await expect(page.getByTestId(`txr-list-checkbox-${key}`)).toHaveAttribute(
         'data-disabled',
@@ -330,15 +370,18 @@ test.describe('txr-models-i — choose the saved models (TEST-MOD-18)', () => {
         'false',
       )
     }
+    // The Lung row (fm-8) IS runnable: the flat select-all checks it (the
+    // old section select-all left the other run's rows alone).
     await expect(page.getByTestId(`txr-list-checkbox-${FM(8)}`)).toHaveAttribute(
       'aria-checked',
-      'false',
+      'true',
     )
+    await page.getByTestId('txr-list-select-all-can-run').click()
+    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('0 models selected')
 
     // ── the same-outcome chip narrows to the matching endpoint/horizon ──
     await page.getByTestId('txr-list-filter-same-outcome').click()
     await expect(page.getByTestId(`txr-list-row-${FM(8)}`)).toHaveCount(0)
-    await expect(page.getByTestId('txr-list-section-set-b')).toHaveCount(0)
     await expect(page.getByTestId(`txr-list-row-${FM(1)}`)).toBeVisible()
     await page.getByTestId('txr-list-filter-same-outcome').click()
 
@@ -349,7 +392,7 @@ test.describe('txr-models-i — choose the saved models (TEST-MOD-18)', () => {
     await page.getByTestId('txr-list-search').fill('')
     await expect(page.getByTestId(`txr-list-row-${FM(1)}`)).toBeVisible()
 
-    // ── the sort flip: newest-run order vs patients-covered order ──
+    // ── the sort flip: the mounted transfer order vs patients-covered ──
     expect(await yOf(page.getByTestId(`txr-list-row-${FM(3)}`))).toBeLessThan(
       await yOf(page.getByTestId(`txr-list-row-${FM(5)}`)),
     )
@@ -362,6 +405,27 @@ test.describe('txr-models-i — choose the saved models (TEST-MOD-18)', () => {
         return a - b
       })
       .toBeLessThan(0)
+
+    // ── the saved-side Run: the three lung rows selected, the payload
+    //    reads the FIRST selected model's own facts (os · day 35 · 165) ──
+    await page.getByTestId('txr-list-search').fill('lung')
+    await page.getByTestId('txr-list-select-all-can-run').click()
+    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('3 models selected')
+    await expect(page.getByTestId('txr-list-total-time')).toHaveText('about 2 minutes in total')
+    await page.getByTestId('txr-list-search').fill('')
+    await page.getByTestId('txr-list-run').click()
+    await expect(page.getByTestId('txr-models-run-result')).toBeVisible()
+    const resultText = await page.getByTestId('txr-models-run-result').textContent()
+    const result = JSON.parse(resultText ?? '{}') as {
+      path: string
+      body: { mode?: string; config?: Record<string, unknown> }
+    }
+    expect(result.path).toBe('/analysis/run-d/running')
+    expect(result.body.mode).toBe('reuse')
+    expect(result.body.config?.endpoint).toBe('os')
+    expect(result.body.config?.decision_day).toBe(35)
+    expect(result.body.config?.look_ahead_day).toBe(165)
+    await expect(page.getByTestId('txr-models-choose-run-landed')).toBeVisible()
   })
 })
 

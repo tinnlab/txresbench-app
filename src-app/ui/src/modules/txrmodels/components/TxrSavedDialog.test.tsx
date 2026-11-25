@@ -116,12 +116,12 @@ describe('TxrSavedDialog (TEST-MOD-15)', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('predict new patients sets intent reuse and navigates to the predict-files screen', async () => {
+  it('predict new patients sets the predict intent and navigates to the predict-files screen', async () => {
     const { onClose } = renderDialog({ from: '/results' })
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-models-saved-predict'))
     })
-    expect(useTxrIntakeStore.getState().intent).toBe('reuse')
+    expect(useTxrIntakeStore.getState().intent).toBe('predict')
     expect(screen.getByTestId('route-probe').textContent).toBe('/predict-files')
     expect(onClose).toHaveBeenCalledTimes(1)
   })

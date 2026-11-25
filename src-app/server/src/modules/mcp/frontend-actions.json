@@ -176,9 +176,10 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "Pick one of the three ways of the Start screen: \"pretrained\" predicts with a ready-made model (already trained by the TxResBench team), \"reuse\" predicts with a model you saved, \"train\" learns from your own patients. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
+      "description": "Pick one of the two ways of the Start screen: \"train\" learns from your own patients, \"predict\" predicts new patients with a ready-made model, a saved model or an opened model file. The old two-list spellings stay accepted: \"pretrained\" (a ready-made model from the lab) and \"reuse\" (a model you saved) both start the predict way with that list pinned. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
       "aliases": [
         "learn from my data",
+        "predict new patients",
         "predict with a ready-made model",
         "predict with a pretrained model",
         "use a model I saved"
@@ -193,15 +194,48 @@
           "intent": {
             "type": "string",
             "enum": [
+              "predict",
+              "train",
               "pretrained",
-              "reuse",
-              "train"
+              "reuse"
             ],
-            "description": "\"pretrained\", \"reuse\" (a saved model) or \"train\" (learn from my data)."
+            "description": "\"predict\" (any model), \"train\" (learn from my data), or the old list spellings \"pretrained\" (a ready-made model) / \"reuse\" (a saved model)."
           },
           "startAtFiles": {
             "description": "Open the file step directly (every path already starts with its file step; kept for older callers).",
             "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "id": "flow.useExample",
+      "title": "Use the example data in a flow",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "description": "The one-click example path of the Start cards (and Help's try-it cards): \"predict\" adopts the example patients-to-predict table, ensures the \"Example models\" set (usually under a minute; the first time also downloads the methods) and opens the predict path's file step with that set ticked once it checks out; \"train\" fills the learn path's study answers and both example files and opens its file step. Back from the step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
+      "aliases": [
+        "use example",
+        "use the example data",
+        "try the example data"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "intent"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "predict",
+              "train"
+            ],
+            "description": "\"predict\" (the example patients to predict + the example models) or \"train\" (learn from my data)."
           }
         }
       }
@@ -593,6 +627,34 @@
       }
     },
     {
+      "id": "models.openModelFile",
+      "title": "Open a model file",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Models",
+      "description": "Open a saved model container (.txr file): on the Start page the picker opens in place and the imported model lands on the Models page; with no open picker (the agent path) it opens the Models page instead, where \"Open a model file\" is the same affordance. Refused in demo mode.",
+      "aliases": [
+        "open a model file",
+        "open model file",
+        "import a model file",
+        "use a model file"
+      ],
+      "keywords": [
+        "import",
+        "model file",
+        ".txr"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
       "id": "models.renameSet",
       "title": "Rename a model set",
       "kind": "global",
@@ -641,7 +703,7 @@
       "stateful": true,
       "permission": "mcp::use",
       "group": "Analysis",
-      "description": "On the model step (the ready-made or the saved models list), start the run with the models that are checked. Refused when the chosen models were trained at different decision days (each model runs at its own day), when no model is chosen, and when a selected model cannot be run (a download still running or failed, on the ready-made list). Requires the current state token (view.describe).",
+      "description": "On the model step (the merged model list), start the run with the models that are checked. Refused when the chosen models were trained at different decision days (each model runs at its own day), when no model is chosen, and when a selected lab model cannot be run (a download still running or failed). Requires the current state token (view.describe).",
       "aliases": [
         "run the models",
         "run the chosen models",
@@ -672,6 +734,136 @@
       }
     },
     {
+      "id": "models.setListFilters",
+      "title": "Filter and sort the model list",
+      "kind": "instance",
+      "context": "txr.model-list",
+      "mutating": true,
+      "stateful": true,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the merged model list, set the view: the source chips (From the lab / Saved / Imported), \"Can run only\", the host chips (Same outcome as my file, Published rules, Learned by the benchmark, Checked on 2 or more other cohorts), the search text over the run name and the sort. Each omitted field keeps the current value; \"all\" is cleared by passing empty sources, no chips and canRunOnly false. Requires the current state token (view.describe).",
+      "aliases": [
+        "filter the models",
+        "sort the models",
+        "set the model filters"
+      ],
+      "keywords": [
+        "models",
+        "filters",
+        "sort",
+        "state token"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "expected"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The model list (views.list, type txr.model-list)."
+          },
+          "expected": {
+            "type": "string",
+            "description": "The current state token of the model list (view.describe._state_token)."
+          },
+          "sources": {
+            "description": "The source chips to show (\"lab\", \"saved\", \"imported\"; several on = any of them).",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "lab",
+                "saved",
+                "imported"
+              ]
+            }
+          },
+          "canRunOnly": {
+            "description": "Show only the models that can run on the file.",
+            "type": "boolean"
+          },
+          "chips": {
+            "description": "The other host chips to show.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "same-outcome",
+                "published",
+                "learned",
+                "checked-2-plus"
+              ]
+            }
+          },
+          "search": {
+            "description": "Text to find over the run name and the model facts.",
+            "type": "string"
+          },
+          "sort": {
+            "description": "The sort: \"transfer\", \"newest-run\", \"patients\" or \"time\".",
+            "type": "string",
+            "enum": [
+              "transfer",
+              "newest-run",
+              "patients",
+              "time"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "models.setSelection",
+      "title": "Select models to run",
+      "kind": "instance",
+      "context": "txr.model-list",
+      "mutating": true,
+      "stateful": true,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the merged model list, set the checked models by their row ids (the same write the checkboxes and \"Select all that can run\" make). Rows the list shows as cannot run are never selectable. Requires the current state token (view.describe).",
+      "aliases": [
+        "select models",
+        "check models",
+        "set the model selection"
+      ],
+      "keywords": [
+        "models",
+        "selection",
+        "state token"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "expected",
+          "ids"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The model list (views.list, type txr.model-list)."
+          },
+          "expected": {
+            "type": "string",
+            "description": "The current state token of the model list (view.describe._state_token)."
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The row ids to check (the selection replaces the current one)."
+          }
+        }
+      }
+    },
+    {
       "id": "models.switchList",
       "title": "Switch between the ready-made models and your saved models",
       "kind": "global",
@@ -679,7 +871,7 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "On the model step of a new analysis, show the other model list for the same checked file: \"saved\" for your saved models, \"published\" for the ready-made models (already trained by the TxResBench team). The new list takes the place of the current one in the steps, so Back still goes to the file step.",
+      "description": "On the model step of a new analysis, show the other model kind of the one merged list: \"saved\" turns the Saved and Imported chips on, \"published\" turns the From the lab chip on. Everything else (the searched file, the selection) stays; the old two-list switch is this alias's mapping.",
       "aliases": [
         "use my saved models",
         "use the ready-made models",
@@ -711,7 +903,7 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "Your models \"Use\": start the saved-model path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the saved list once the file checks out. Back from that step returns to the page it was started from.",
+      "description": "Your models \"Use\": start the predict path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the merged model list once the file checks out. Back from that step returns to the page it was started from.",
       "aliases": [
         "use this model"
       ],

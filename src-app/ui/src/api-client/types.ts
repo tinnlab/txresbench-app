@@ -2499,8 +2499,8 @@ export interface PretrainedEligibilityEntry {
 /**
  * The eligibility request body — `model_ids` bounded 1..=200; `inventory` is
  *  PROV-MC-5's `InventoryEligibilityRequest` VERBATIM (imported, not restated),
- *  the same object `ui-models` feeds the methods / saved-models /
- *  pretrained list endpoints.
+ *  the same object `ui-models` feeds the methods / merged-model-list
+ *  endpoints (the old saved-models / pretrained lists left in round 3).
  */
 export interface PretrainedEligibilityRequest {
   inventory: InventoryEligibilityRequest

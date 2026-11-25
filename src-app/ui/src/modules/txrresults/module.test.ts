@@ -283,6 +283,11 @@ describe('txrresults module (TEST-UR-13)', () => {
           // the runStatus precedent).
           p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
+          // predict-card-merge (its DRIFT-1): the predict path's ONE shared
+          // step vocabulary — `txrshell/lib/flowSteps.ts` (+ its test) gains
+          // the `choose-models` step of the merged model list.
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' ,
 
       ),
@@ -402,6 +407,10 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'src-app/server/tests/sqlite/apply_chain.rs' &&
           p !== 'src-app/server/tests/sqlite/final_layout.rs' &&
           p !== 'src-app/server/src/modules/mcp/frontend-actions.json' &&
+          // predict-card-merge (its DRIFT-1): the committed-context pin's
+          // own test — `frontend_catalog.rs` (the manifest above supplies
+          // the merged list's two actions).
+          p !== 'src-app/server/src/modules/mcp/frontend_catalog.rs' &&
           p !== 'src-app/server/src/modules/history_store/repository.rs' &&
           // The methods' own results (native results under the chances):
           // the engine records each finished method's own score + yes/no

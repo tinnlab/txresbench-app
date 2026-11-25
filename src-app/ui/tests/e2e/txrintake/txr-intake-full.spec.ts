@@ -96,7 +96,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
 
     // The app has no login screen: the local session mint happens on the
     // page's own and the intake Start screen renders under the session guard.
-    await expect(page.getByTestId('txr-intake-start-card-pretrained')).toBeVisible({
+    await expect(page.getByTestId('txr-intake-start-card-predict')).toBeVisible({
       timeout: 45_000,
     })
     await expect(page.getByTestId('auth-login-submit')).toHaveCount(0)
@@ -280,10 +280,10 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     // The honest path: screen A's pretrained card (intent `pretrained`),
     // which the N screen's Continue routes on.
     await page.goto('/')
-    await expect(page.getByTestId('txr-intake-start-card-pretrained')).toBeVisible({
+    await expect(page.getByTestId('txr-intake-start-card-predict')).toBeVisible({
       timeout: 45_000,
     })
-    await page.getByTestId('txr-intake-start-card-pretrained-cta').click()
+    await page.getByTestId('txr-intake-start-card-predict-cta').click()
     await page.waitForURL('**/predict-files')
 
     // One measurements card, no patients card (the board-N screen).
@@ -305,14 +305,16 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     )
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
 
-    // Continue → the declared D route for intent `pretrained`.
+    // Continue → the declared merged model step (round 3: the predict files
+    // step declares `/choose-models` — the ONE merged list, which reads the
+    // store's pinned saved source as its chip preset).
     await page.getByTestId('txr-intake-continue').click()
     const navigations = await page.evaluate(
       () => (window as unknown as { __txrNav: string[] }).__txrNav,
     )
     expect(
       navigations,
-      'the Continue click must push the declared pretrained-models route',
-    ).toEqual(expect.arrayContaining([expect.stringContaining('/pretrained-models')]))
+      'the Continue click must push the declared choose-models route (the merged model list)',
+    ).toEqual(expect.arrayContaining([expect.stringContaining('/choose-models')]))
   })
 })

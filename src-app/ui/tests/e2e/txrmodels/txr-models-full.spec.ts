@@ -13,8 +13,9 @@ import {
  * INV-4/INV-5, EXAMPLE-UM-3/4).
  *
  * The gallery tier (`tests/gallery-e2e/txr-models.spec.ts`) proves the
- * D/I/J surfaces and the L/L2/L3 dialogs against the module's cassette;
- * THIS spec proves the same screens against the REAL engine, with the
+ * merged model step (the old D/I boards), screen J and the L/L2/L3 dialogs
+ * against the module's cassette; THIS spec proves the same screens against
+ * the REAL engine, with the
  * local session minted by the app itself (no login surface) and a run the
  * spec creates through `POST /api/txr/runs` — the synthetic 20-patient /
  * 1-marker cohort, one method id the engine classifies `cannot_run`
@@ -29,9 +30,11 @@ import {
  *         `GET /api/txr/models` with zero rows: the empty state + the
  *         Open-a-model-file CTA + the Models nav highlight + the real
  *         models-root footnote and no Open-the-folder in web mode);
- *     (b) `/pretrained-models` and `/saved-models` render their
- *         no-inventory not-ready states (no validated file — never a
- *         half-built list) against the real engine, no crash;
+ *     (b) the old `/pretrained-models` and `/saved-models` addresses no
+ *         longer mount their boards — each REDIRECTS (replace) to the
+ *         merged model step (`/choose-models?source=lab` / `?source=
+ *         saved`), whose not-ready state (no validated file — never a
+ *         half-built list) renders against the real engine, no crash;
  *     (c) the L dialog on the real engine: a terminal all-cannot-run run
  *         shows the results screen's honest entry gate (no Save button —
  *         the run produced nothing) and, driven through the SAME bus
@@ -126,38 +129,47 @@ test.describe('txr-models — the real backend (TEST-MOD-20)', () => {
     expect(errors, `page errors on /models: ${errors.join('; ')}`).toEqual([])
   })
 
-  test('screens D and I — the no-inventory not-ready states against the real engine', async ({
+  test('the old D/I addresses redirect to the merged model step — its not-ready state against the real engine', async ({
     page,
   }) => {
     const token = await mintLocalSession(page)
     await seedLocalSession(page, token)
     const errors = watchPageErrors(page)
 
-    // D: no validated predict file — the not-ready state, never a half list.
+    // The old D address: it no longer mounts its board — the route
+    // REPLACES the URL with the merged model step plus the lab source
+    // preset (round 2's redirect seam).
     await page.goto('/pretrained-models')
-    await expect(page.getByTestId('txr-models-d')).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByTestId('txr-models-d-empty')).toBeVisible()
-    await expect(page.getByTestId('txr-models-d-empty')).toContainText(
+    await expect(page).toHaveURL(/\/choose-models\?source=lab$/, { timeout: 90_000 })
+    // No validated predict file: the merged list's not-ready state, never a
+    // half-built list — the round-2 line, its note and the CTA that names
+    // the step which unlocks the page.
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByTestId('txr-models-choose-empty')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-empty')).toContainText(
       'Add the patients\u2019 measurements you want to predict first.',
     )
-    await expect(page.getByTestId('txr-models-d-empty-cta')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-empty-note')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-empty-cta')).toBeVisible()
     // qa-fixes ITEM-5 RES-20: the CTA names the step that unlocks the page.
-    await expect(page.getByTestId('txr-models-d-empty-cta')).toHaveText(
+    await expect(page.getByTestId('txr-models-choose-empty-cta')).toHaveText(
       'Go to the measurements step',
     )
 
-    // The same state on I.
+    // The old I address does the same with the saved source preset.
     await page.goto('/saved-models')
-    await expect(page.getByTestId('txr-models-i')).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByTestId('txr-models-i-empty')).toBeVisible()
-    await expect(page.getByTestId('txr-models-i-empty')).toContainText(
+    await expect(page).toHaveURL(/\/choose-models\?source=saved$/, { timeout: 90_000 })
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByTestId('txr-models-choose-empty')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-empty')).toContainText(
       'Add the patients\u2019 measurements you want to predict first.',
     )
-    await expect(page.getByTestId('txr-models-i-empty-cta')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-empty-note')).toBeVisible()
+    await expect(page.getByTestId('txr-models-choose-empty-cta')).toBeVisible()
 
     // The real catalogue + inventory reads against the real engine did not
-    // crash either screen (the renders above are the boards' own context).
-    expect(errors, `page errors on the not-ready screens: ${errors.join('; ')}`).toEqual([])
+    // crash the merged page either (the renders above are its own context).
+    expect(errors, `page errors on the merged not-ready state: ${errors.join('; ')}`).toEqual([])
   })
 
   test('the L dialog on a real all-cannot-run run: the entry gate, the no-models-to-save state and the disabled save', async ({

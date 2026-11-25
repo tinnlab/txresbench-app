@@ -2,13 +2,14 @@
  * TEST-MOD-02 — the PROV-UI-MODELS-1 path builders (`routes.ts` + the barrel
  * re-export; ITEM-1) and the module's hygiene scan (EXAMPLE-UM-5; ITEM-1/2).
  *
- * The D and I paths are the conventions `txrintake` already declared
- * (`ROUTE_CONVENTIONS.pretrainedModels` / `ROUTE_CONVENTIONS.savedModels`)
- * and this module registers them — the provider constant is the binding,
- * never a copied literal. The J path is the `/models` route `txrshell`'s
- * scaffold used to own; the same string, now owned here (DEC-2), and
- * `modelsPath(setId)` appends the `set` query param (DEC-19 — the convention
- * screen K (`ui-history`) binds for its "Made: N models" set links).
+ * The merged model step's path is `chooseModelsPath(source?)` — the ONE list
+ * of the predict path's model choice; `source` decorates the redirects from
+ * the old D/I addresses (round 2; the addresses themselves are not flow
+ * steps any more — round 3 — and live as `module.tsx`'s redirect routes).
+ * The J path is the `/models` route `txrshell`'s scaffold used to own; the
+ * same string, now owned here (DEC-2), and `modelsPath(setId)` appends the
+ * `set` query param (DEC-19 — the convention screen K (`ui-history`) binds
+ * for its "Made: N models" set links).
  *
  * The hygiene scan greps the module's shipped copy (source, README, and the
  * fixtures later items add — test files excluded, the sibling scans' scope):
@@ -24,9 +25,8 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AppModule } from '@txresbench/framework/module-system/types'
-import { ROUTE_CONVENTIONS } from '../txrintake/module'
 import txrModelsModule from './module'
-import { modelsPath, pretrainedModelsPath, savedModelsPath } from './index'
+import { chooseModelsPath, modelsPath } from './index'
 
 type RouteEntry = { path?: string }
 
@@ -52,19 +52,24 @@ function moduleFiles(dir: string): string[] {
 
 describe('PROV-UI-MODELS-1 — the path builders (TEST-MOD-02)', () => {
   it('builds the documented paths', () => {
-    expect(pretrainedModelsPath()).toBe('/pretrained-models')
-    expect(savedModelsPath()).toBe('/saved-models')
+    expect(chooseModelsPath()).toBe('/choose-models')
+    expect(chooseModelsPath('lab')).toBe('/choose-models?source=lab')
+    expect(chooseModelsPath('saved')).toBe('/choose-models?source=saved')
     expect(modelsPath()).toBe('/models')
     expect(modelsPath('set-a1b2')).toBe('/models?set=set-a1b2')
   })
 
-  it('matches the module route table and the declared conventions exactly', () => {
-    // The builder outputs are the module's own route table — one source.
-    expect(pretrainedModelsPath()).toBe(ROUTE_CONVENTIONS.pretrainedModels)
-    expect(savedModelsPath()).toBe(ROUTE_CONVENTIONS.savedModels)
+  it('matches the module route table exactly', () => {
     const routes = routesOf(txrModelsModule).map(r => r.path)
-    expect(routes).toContain(pretrainedModelsPath())
-    expect(routes).toContain(savedModelsPath())
+    // The two redirect addresses (the old D/I routes, round 2) + the merged
+    // list + J — the module owns all four.
+    expect(routes).toEqual([
+      '/pretrained-models',
+      '/saved-models',
+      '/choose-models',
+      '/models',
+    ])
+    expect(routes).toContain(chooseModelsPath())
     expect(routes).toContain(modelsPath())
     // The J path is the shell's old `/models` — the same string, now owned
     // here (DEC-2); the scaffold route is removed on the same branch.
@@ -81,6 +86,7 @@ describe('PROV-UI-MODELS-1 — the path builders (TEST-MOD-02)', () => {
   it('README records the module ownership, the route table, the handoff, the events and the provider bindings (PROV-UI-MODELS-8)', () => {
     const readme = readFileSync(path.join(MODULE_DIR, 'README.md'), 'utf8')
     expect(readme).toContain('txrmodels')
+    expect(readme).toContain('/choose-models')
     expect(readme).toContain('/pretrained-models')
     expect(readme).toContain('/saved-models')
     expect(readme).toContain('/models')

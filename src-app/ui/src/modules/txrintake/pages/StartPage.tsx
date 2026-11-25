@@ -1,13 +1,12 @@
 import { useCallback, useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { Button } from '@txresbench/kit'
+import { Link, useNavigate } from 'react-router-dom'
+import { Alert, Button, Skeleton } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
-import { useReadyMadeModelCount } from '../data/useReadyMadeModelCount'
-import { useSavedModelCount } from '../data/useSavedModelCount'
+import { usePredictModelCounts } from '../data/usePredictModelCounts'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
 import { beginPath } from '../lib/stepTrail'
 import { runAction } from '@/core/actions/defineAction'
@@ -15,45 +14,59 @@ import { useAppMode } from '@/modules/demo'
 import { DEMO_START_HINT, DEMO_START_PRIMARY } from '@/modules/demo/copy'
 import type { IntakeIntent } from '../types'
 import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
+import { useModelFileImport } from '@/modules/txrmodels/data/useModelFileImport'
 
 /**
- * Screen A — Start (board Start.dc.html): the three FLOW paths as cards
- * (Path 1 pretrained, Path 2 learn from my data, Path 3 saved models), the
- * "Not sure which fits?" banner pointing at the per-card "Use example"
- * buttons, and the dev/web web-URL notice (DEC-12).
+ * Screen A — Start (board Start.dc.html): the TWO FLOW paths as cards
+ * (Path 1 learn from my data, Path 2 predict new patients — the
+ * predict-card merge's round 1: the old ready-made and saved-model cards
+ * are one card now, with a counts-gated state), the "Not sure which fits?"
+ * banner pointing at the per-card "Use example" buttons, and the dev/web
+ * web-URL notice (DEC-12).
  *
  * Board-copy rule (DEC-13): board wording is used verbatim where it is a
  * label or behavior; every NUMBER on the board is a design example, never
  * data. The learn card's count is the LIVE runnable count (CONS-UI-INTAKE-3
- * via `useRunnableMethodCount`); the pretrained + saved cards carry no count
- * clauses until their nodes exist (pretrained-catalogue wave 4, model-store
- * wave 3 — no edge; OWNER-7, DEC-6).
- * Card order (the user, 2026-11-19): "Learn from my data", then "Predict
- * with a ready-made model", then "Use a model I saved". The three cards look
- * the same (no highlighted card) and their main buttons share the filled
- * look. Exactly one card carries the "Recommended to start" badge: the
- * ready-made card when the catalogue has at least one model
- * (`useReadyMadeModelCount`), otherwise "Learn from my data" (also while the
- * count is loading or failed). While the catalogue is empty the ready-made
- * card says none are released yet; with no saved model the saved-model card
- * says so (`useSavedModelCount`), and its button stays enabled.
+ * via `useRunnableMethodCount`).
+ *
+ * The two cards' state (round 1): "some model exists" = lab > 0 OR
+ * saved > 0 OR imported > 0 (`usePredictModelCounts`: lab = the ready-made
+ * catalogue, saved = store models with provenance `run`, imported =
+ * provenance `imported` — a downloaded lab model, provenance `pretrained`,
+ * is NOT saved). While all three counts are KNOWN and 0 (state B): the
+ * learn card's eyebrow+body change to the "start here" copy and the
+ * predict card gets its note, its one bullet and the two buttons (Use
+ * example primary + Open a model file). Loading (a count unknown and none
+ * known > 0) and FAILED counts never show state B: the predict card shows
+ * state A's title and buttons with skeleton lines; the learn card shows
+ * state A. Demo mode (ITEM-6): the predict card is state A (the demo has
+ * its recorded lab models), the primary goes and "Use example" becomes the
+ * primary reading DEMO_START_PRIMARY, and "Open a model file" is hidden.
+ *
+ * Badge (KEPT text): "Recommended to start" sits on the predict card when
+ * the lab catalogue has at least one model (`lab > 0`), else on "Learn
+ * from my data" (also while loading or failed).
  *
  * Intent navigation (PROV-UI-INTAKE-1 + DEC-20): each card's button sets the
  * intent FIRST (the store's `setIntent` maps it to the flow's mode) and then
- * navigates to the intake route the path starts on — pretrained/reuse →
- * `/predict-files` (N), train → `/files` (the learn path's files come first,
- * then the study questions; `txrshell/lib/flowSteps.ts`). "Use example" (qa-fixes3
- * ITEM-4) sets the intent AND the example files/answers in ONE click and
- * lands on the path's file step (`/files` for train, `/predict-files`
- * for the two predict paths) — the step's own flow validates the adopted
- * tables exactly as a user drop, and Continue is enabled when the file
- * checks out (the bottom banner's old single "Try the example data" link is
- * replaced by the three per-card buttons; the banner stays and points at
- * them).
+ * navigates to the intake route the path starts on — predict → `/predict-files`
+ * (N), train → `/files` (the learn path's files come first, then the study
+ * questions; `txrshell/lib/flowSteps.ts`). "Use example" (qa-fixes3 ITEM-4,
+ * predict-card merge round 1) is the registered `flow.useExample` — ONE
+ * click sets the intent AND the example files/answers AND (predict) the
+ * example set, and lands on the path's file step. "Open a model file" is
+ * the registered `models.openModelFile`: a human click opens the `.txr`
+ * picker in place and a successful import lands on the Models page with the
+ * imported model (the agent's path — no gesture — navigates to `/models`
+ * and says to choose there).
  */
 
 /** The study questions (the "Not sure which fits?" side trip). */
 const STUDY_ROUTE = FLOW_ROUTES.study
+
+/** The Models page (the import's landing; spelled here because txrintake
+ *  declares no dependency on txrmodels — the route is the shell's own). */
+const MODELS_ROUTE = '/models'
 
 /** The page's frame host. */
 const PAGE_ROOT: CSSProperties = {
@@ -156,18 +169,11 @@ const CARD_BULLETS: CSSProperties = {
 
 const CARD_BULLET: CSSProperties = { margin: '3px 0' }
 
-/** A card's note: no ready-made model released, or no saved model yet. */
-const CARD_NOTE: CSSProperties = { margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }
-
-/** The ready-made card's note while the ready-made catalogue is empty. */
-export const NO_READY_MADE_NOTE =
-  'No ready-made models have been released yet. You can still use your saved models.'
-
-/** The saved-model card's note while the user has no saved model. */
-export const NO_SAVED_NOTE = 'No saved models yet. Train one with Learn from my data first.'
+/** The one skeleton line's look (a grey bar the kit's Skeleton paints). */
+const SKELETON_LINE: CSSProperties = { width: '100%', height: 14 }
 
 /** The "Recommended to start" pill (board inline span; var(--txr-success-soft)/var(--txr-success-ink)).
- *  On exactly one card: ready-made when a model exists, otherwise "Learn from my data". */
+ *  On exactly one card: predict when a ready-made model exists, otherwise "Learn from my data". */
 const RECOMMENDED_BADGE: CSSProperties = {
   fontSize: 12.5,
   padding: '2px 10px',
@@ -192,7 +198,7 @@ const CARD_ACTIONS: CSSProperties = {
 const CARD_BUTTON_ROW: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  // Space between the card's button and "Use example"; they stay on one row.
+  // Space between the card's buttons; they stay on one row.
   gap: 10,
 }
 
@@ -233,11 +239,11 @@ const WEB_URL_NOTICE: CSSProperties = {
 }
 
 /**
- * A card's actions: the card's own button and "Use example" on one row,
- * and under that row whatever "Use example" has to say (the confirm
- * question, the progress line, the error), across the card. Inside the
- * row a long message would widen the "Use example" slot and stretch its
- * button.
+ * A card's actions: the card's own button, "Use example" and (state B of the
+ * predict card) "Open a model file" on one row, and under that row whatever
+ * "Use example" has to say (the confirm question, the progress line, the
+ * error), across the card. Inside the row a long message would widen the
+ * "Use example" slot and stretch its button.
  *
  * Demo mode (demo-mode ITEM-6): the audit's "the 'Add my data' / 'Add the
  * patients to predict' buttons read 'Use the example data'; the qa-fixes3
@@ -248,25 +254,28 @@ const WEB_URL_NOTICE: CSSProperties = {
 function CardActions({
   path,
   primary,
-  onExampleDone,
   demo = false,
+  useExamplePrimary = false,
+  openFile = null,
 }: {
   path: IntakeIntent
-  primary: ReactNode
-  onExampleDone: () => void
+  /** The card's own plain CTA (absent in demo and in the predict card's state B). */
+  primary?: ReactNode | null
   demo?: boolean
+  useExamplePrimary?: boolean
+  openFile?: ReactNode
 }) {
   return (
     <TxrUseExampleButton
       path={path}
-      onDone={onExampleDone}
       label={demo ? DEMO_START_PRIMARY : undefined}
-      style={demo ? PRIMARY_BUTTON : undefined}
+      style={useExamplePrimary || demo ? PRIMARY_BUTTON : undefined}
       layout={({ action, message }) => (
         <div data-testid={`txr-intake-start-card-${path}-actions`} style={CARD_ACTIONS}>
           <div data-testid={`txr-intake-start-card-${path}-buttons`} style={CARD_BUTTON_ROW}>
-            {demo ? null : primary}
+            {primary}
             {action}
+            {openFile}
           </div>
           {message}
         </div>
@@ -277,15 +286,12 @@ function CardActions({
 
 export function StartPage() {
   const { count } = useRunnableMethodCount()
-  // The ready-made card is the recommended way in only when a ready-made
-  // model exists; otherwise (none, loading or failed) "Learn from my data"
-  // is. null shows no "none released" note.
-  const { count: readyMadeCount } = useReadyMadeModelCount()
-  const recommended: IntakeIntent =
-    readyMadeCount !== null && readyMadeCount > 0 ? 'pretrained' : 'train'
-  // null (loading or failed) shows no "no saved models" note.
-  const { count: savedCount } = useSavedModelCount()
+  // The ONE counts source of the two cards (see the header): the lab
+  // catalogue count and the store's `run` / `imported` counts. `null` =
+  // loading or failed; `failed` is the "never show state B" flag.
+  const { lab, saved, imported, failed, settled } = usePredictModelCounts()
   const { isDemo } = useAppMode()
+  const navigate = useNavigate()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('What do you want to do?')
   // Every path that starts here goes back here from its first step (the step trail).
@@ -293,17 +299,34 @@ export function StartPage() {
     beginPath('/')
   }, [])
 
+  // The import picker of the predict card's "Open a model file" (round 1):
+  // the picker opens in place; a successful import lands on the Models page.
+  const importFile = useModelFileImport({
+    onImported: () => navigate(MODELS_ROUTE),
+  })
+
+  // The three counts' state: some model exists (state A), none anywhere and
+  // the mount's own counts settled at 0 (state B), or still loading
+  // (skeletons — a cached 0 never flashes state B before this mount's own
+  // fetches have settled, round-1 audit item 6).
+  const someModel =
+    (lab !== null && lab > 0) || (saved !== null && saved > 0) || (imported !== null && imported > 0)
+  const noModelAnywhere = !failed && settled && lab === 0 && saved === 0 && imported === 0
+  // Demo mode: both cards are state A (the demo has its recorded lab
+  // models); the counts state never shows B there (round-1 audit item 1:
+  // the Learn card used to flip to its state-B copy in demo when the
+  // counts are 0 — the same demo guard the Predict card uses).
+  const predictStateB = !isDemo && noModelAnywhere
+  const learnStateB = !isDemo && noModelAnywhere
+  const predictLoading = !isDemo && !failed && !someModel && !noModelAnywhere
+  // The badge: on the predict card when the lab catalogue has a model,
+  // otherwise on "Learn from my data" (also while loading or failed).
+  const recommended: IntakeIntent = lab !== null && lab > 0 ? 'predict' : 'train'
+
   /** The card path picker: the registered `flow.startPath` sets the intent,
-   *  then starts the flow it leads to (train → the files step, the predict paths → N). */
+   *  then starts the flow it leads to (train → the files step, predict → N). */
   const pickPath = useCallback((intent: IntakeIntent) => {
     void runAction('flow.startPath', { intent })
-  }, [])
-
-  /** The "Use example" landing (qa-fixes3 ITEM-4): one click to the file
-   *  step with the flow filled — the file screen's own flow then validates
-   *  the adopted tables (the same inspect/validate a user drop runs). */
-  const exampleDone = useCallback((intent: IntakeIntent) => {
-    void runAction('flow.startPath', { intent, startAtFiles: true })
   }, [])
 
   const webUrlUsable =
@@ -327,7 +350,11 @@ export function StartPage() {
 
               <div style={CARD_GRID}>
                 <section style={CARD} data-testid="txr-intake-start-card-train">
-                  <div style={CARD_EYEBROW}>Most flexible</div>
+                  <div style={CARD_EYEBROW}>
+                    {learnStateB
+                      ? 'Start here: train your first models'
+                      : 'Most flexible'}
+                  </div>
                   <h2 style={CARD_TITLE}>
                     Learn from my data
                     {recommended === 'train' ? (
@@ -337,9 +364,9 @@ export function StartPage() {
                     ) : null}
                   </h2>
                   <p style={CARD_BODY}>
-                    Train the methods on your own patients with known outcomes, then predict new patients.
-                    Choose what to predict — progression or death within a chosen horizon — and run the
-                    methods that fit your file.
+                    {learnStateB
+                      ? 'Train the methods on your patients with known outcomes and save them as models. Then predict new patients with them.'
+                      : 'Train the methods on your own patients with known outcomes, then predict new patients. Choose what to predict — progression or death within a chosen horizon — and run the methods that fit your file.'}
                   </p>
                   <ul style={CARD_BULLETS}>
                     <li style={CARD_BULLET}>
@@ -354,101 +381,162 @@ export function StartPage() {
                   </ul>
                   <CardActions
                     path="train"
-                    onExampleDone={() => exampleDone('train')}
                     demo={isDemo}
+                    useExamplePrimary={isDemo}
                     primary={
-                      <Button
-                        data-testid="txr-intake-start-card-train-cta"
-                        style={PRIMARY_BUTTON}
-                        onClick={() => pickPath('train')}
-                      >
-                        Add my data
-                      </Button>
+                      isDemo ? null : (
+                        <Button
+                          data-testid="txr-intake-start-card-train-cta"
+                          style={PRIMARY_BUTTON}
+                          onClick={() => pickPath('train')}
+                        >
+                          Add my data
+                        </Button>
+                      )
                     }
                   />
                 </section>
 
-                <section style={CARD} data-testid="txr-intake-start-card-pretrained">
-                  <div style={CARD_EYEBROW}>No training needed</div>
-                  <h2 style={CARD_TITLE}>
-                    Predict with a ready-made model
-                    {recommended === 'pretrained' ? (
-                      <span data-testid="txr-intake-start-card-pretrained-badge" style={RECOMMENDED_BADGE}>
-                        Recommended to start
-                      </span>
-                    ) : null}
-                  </h2>
-                  <p style={CARD_BODY}>
-                    Add the blood measurements of the patients you want predictions for. The app shows
-                    which ready-made models can run on them, and you pick as many as you like.
-                  </p>
-                  {readyMadeCount === 0 ? (
-                    <p data-testid="txr-intake-start-card-pretrained-none" style={CARD_NOTE}>
-                      {NO_READY_MADE_NOTE}
-                    </p>
-                  ) : null}
-                  <ul style={CARD_BULLETS}>
-                    <li style={CARD_BULLET}>Works with a small cohort, and with no outcomes</li>
-                    <li style={CARD_BULLET}>
-                      The app checks your file and shows which models can run
-                    </li>
-                    <li style={CARD_BULLET}>
-                      Each model shows where it was learned and how well it transferred to other cohorts
-                    </li>
-                  </ul>
-                  <CardActions
-                    path="pretrained"
-                    onExampleDone={() => exampleDone('pretrained')}
-                    demo={isDemo}
-                    primary={
-                      <Button
-                        data-testid="txr-intake-start-card-pretrained-cta"
-                        style={PRIMARY_BUTTON}
-                        onClick={() => pickPath('pretrained')}
-                      >
-                        Add the patients to predict
-                      </Button>
-                    }
-                  />
-                </section>
-
-                <section style={CARD} data-testid="txr-intake-start-card-reuse">
-                  <div style={CARD_EYEBROW}>Repeat a past analysis</div>
-                  <h2 style={CARD_TITLE}>Use a model I saved</h2>
-                  <p style={CARD_BODY}>
-                    Add the patients to predict, then pick any of the models you trained here before, one
-                    or many. No need to upload the training data again.
-                  </p>
-                  {savedCount === 0 ? (
-                    <p data-testid="txr-intake-start-card-reuse-none" style={CARD_NOTE}>
-                      {NO_SAVED_NOTE}
-                    </p>
-                  ) : null}
-                  <ul style={CARD_BULLETS}>
-                    <li style={CARD_BULLET}>
-                      Checks that the new patients have the markers the model needs
-                    </li>
-                  </ul>
-                  <CardActions
-                    path="reuse"
-                    onExampleDone={() => exampleDone('reuse')}
-                    demo={isDemo}
-                    primary={
-                      // qa-fixes ITEM-6 L3: the board labels BOTH flows "Add the
-                      // patients to predict" — the pretrained card's words — so the
-                      // saved-model path was indistinguishable at a glance; the
-                      // plain sentence names the flow this button starts.
-                      <Button
-                        data-testid="txr-intake-start-card-reuse-cta"
-                        style={PRIMARY_BUTTON}
-                        onClick={() => pickPath('reuse')}
-                      >
-                        Predict with a model I saved
-                      </Button>
-                    }
-                  />
+                <section style={CARD} data-testid="txr-intake-start-card-predict">
+                  {predictLoading && !isDemo ? (
+                    <>
+                      <div style={CARD_EYEBROW}>
+                        <Skeleton style={{ width: 140, height: 12 }} />
+                      </div>
+                      <h2 style={CARD_TITLE}>
+                        Predict new patients
+                        {recommended === 'predict' ? (
+                          <span data-testid="txr-intake-start-card-predict-badge" style={RECOMMENDED_BADGE}>
+                            Recommended to start
+                          </span>
+                        ) : null}
+                      </h2>
+                      <div style={CARD_BODY}>
+                        <Skeleton style={SKELETON_LINE} />
+                        <Skeleton style={{ ...SKELETON_LINE, marginTop: 6 }} />
+                        <Skeleton style={{ ...SKELETON_LINE, marginTop: 6 }} />
+                      </div>
+                      <ul style={CARD_BULLETS}>
+                        <li style={CARD_BULLET}><Skeleton style={SKELETON_LINE} /></li>
+                        <li style={CARD_BULLET}><Skeleton style={SKELETON_LINE} /></li>
+                        <li style={CARD_BULLET}><Skeleton style={SKELETON_LINE} /></li>
+                      </ul>
+                      <CardActions
+                        path="predict"
+                        demo={isDemo}
+                        primary={
+                          <Button
+                            data-testid="txr-intake-start-card-predict-cta"
+                            style={PRIMARY_BUTTON}
+                            onClick={() => pickPath('predict')}
+                          >
+                            Add the patients to predict
+                          </Button>
+                        }
+                      />
+                    </>
+                  ) : predictStateB ? (
+                    <>
+                      <div style={CARD_EYEBROW}>Uses a trained model</div>
+                      <h2 style={CARD_TITLE}>Predict new patients</h2>
+                      <p style={CARD_BODY}>
+                        Predicts new patients with a trained model: a ready-made one from the
+                        lab, one you saved, or one opened from a file. Models you train and save
+                        with <b>Learn from my data</b> appear here.
+                      </p>
+                      <Alert
+                        data-testid="txr-intake-start-card-predict-note"
+                        tone="info"
+                        title="Use example first trains a few example models on the example patients (usually under a minute; the first time also downloads the methods), then predicts the example's new patients with them."
+                      />
+                      <ul style={CARD_BULLETS}>
+                        <li style={CARD_BULLET}>
+                          Or open a model file someone gave you
+                        </li>
+                      </ul>
+                      <CardActions
+                        path="predict"
+                        demo={isDemo}
+                        useExamplePrimary
+                        openFile={
+                          <Button
+                            data-testid="txr-intake-start-card-predict-open-file"
+                            variant="outline"
+                            onClick={() => {
+                              // Round-1 audit item 9: a failed import's
+                              // error Alert clears on the next click.
+                              importFile.clearError()
+                              void runAction('models.openModelFile', {})
+                            }}
+                          >
+                            Open a model file
+                          </Button>
+                        }
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <div style={CARD_EYEBROW}>Uses a trained model</div>
+                      <h2 style={CARD_TITLE}>
+                        Predict new patients
+                        {recommended === 'predict' ? (
+                          <span data-testid="txr-intake-start-card-predict-badge" style={RECOMMENDED_BADGE}>
+                            Recommended to start
+                          </span>
+                        ) : null}
+                      </h2>
+                      <p style={CARD_BODY}>
+                        Add the blood measurements of the patients you want predictions for,
+                        then pick any models that can run on them: ready-made models from the
+                        lab, models you saved, or models opened from a file.
+                      </p>
+                      <ul style={CARD_BULLETS}>
+                        <li style={CARD_BULLET}>
+                          Works with a small cohort, and with no outcomes
+                        </li>
+                        <li style={CARD_BULLET}>
+                          The app checks your file and shows which models can run
+                        </li>
+                        <li style={CARD_BULLET}>
+                          Mix a lab model and your own in the same run
+                        </li>
+                      </ul>
+                      <CardActions
+                        path="predict"
+                        demo={isDemo}
+                        useExamplePrimary={isDemo}
+                        primary={
+                          isDemo ? null : (
+                            <Button
+                              data-testid="txr-intake-start-card-predict-cta"
+                              style={PRIMARY_BUTTON}
+                              onClick={() => pickPath('predict')}
+                            >
+                              Add the patients to predict
+                            </Button>
+                          )
+                        }
+                      />
+                    </>
+                  )}
                 </section>
               </div>
+
+              {/* native-control-ok: the file input is invisible; the visible affordance is <Button> */}
+              <input
+                {...importFile.inputProps}
+                style={{ display: 'none' }}
+                aria-hidden="true"
+                tabIndex={-1}
+                data-testid="txr-intake-start-open-model-file-input"
+              />
+              {importFile.error !== null ? (
+                <Alert
+                  data-testid="txr-intake-start-open-model-file-error"
+                  tone="error"
+                  title={importFile.error}
+                />
+              ) : null}
 
               <div style={BANNER}>
                 <span>

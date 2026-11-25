@@ -294,6 +294,11 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // module cycle — the runStatus precedent).
           p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
+          // predict-card-merge (its DRIFT-1): the predict path's ONE shared
+          // step vocabulary — `txrshell/lib/flowSteps.ts` (+ its test) gains
+          // the `choose-models` step of the merged model list.
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.test.ts' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
@@ -424,6 +429,10 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/server/tests/sqlite/apply_chain.rs' &&
           p !== 'src-app/server/tests/sqlite/final_layout.rs' &&
           p !== 'src-app/server/src/modules/mcp/frontend-actions.json' &&
+          // predict-card-merge (its DRIFT-1): the committed-context pin's
+          // own test — `frontend_catalog.rs` (the manifest above supplies
+          // the merged list's two actions).
+          p !== 'src-app/server/src/modules/mcp/frontend_catalog.rs' &&
           p !== 'src-app/server/src/modules/history_store/repository.rs',
       ),
     ).toEqual([])
@@ -513,6 +522,11 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // precedent).
           p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
+          // predict-card-merge (its DRIFT-1): the predict path's ONE shared
+          // step vocabulary — `txrshell/lib/flowSteps.ts` (+ its test) gains
+          // the `choose-models` step of the merged model list.
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/flowSteps.test.ts' &&
 
           p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
           // qa-fixes4 ITEM-4 (its DRIFT-1): the session bootstrap's retry/

@@ -11,8 +11,8 @@ import { expect, test, type Page } from '@playwright/test'
  *    list is the bundle's methods only, the settings locked, the run button
  *    'Run N methods (demo)') → the running page (the "Demo run" label) →
  *    the results page;
- *  · the REUSE path: the example predict card → the saved-models page →
- *    the seeded example set → a reuse run replays to the results page;
+ *  · the REUSE path: the example predict card → the merged model list
+ *    (the seeded example set) → a reuse run replays to the results page;
  *  · the PRETRAINED path: the example predict card (the running-page
  *    completion of this path is ITEM-7's — this tree's pretrained catalogue
  *    is empty, so the path's own pages end here; recorded in DRIFT-1);
@@ -89,24 +89,25 @@ test.describe('txr-demo-pages — the three paths, no upload (TEST-DM-6, ITEM-6)
     expect(pageErrors, `page errors on the train path: ${pageErrors.join('; ')}`).toEqual([])
   })
 
-  test('reuse: Start → the example predict card → the seeded example set → a replay reuse run → results', async ({ page }) => {
+  test('predict (the example set): Start → the example predict card → the merged model list (the seeded example set) → a replay reuse run → results', async ({ page }) => {
     const pageErrors: string[] = []
     page.on('pageerror', error => pageErrors.push(String(error)))
 
     await openApp(page)
-    await page.getByTestId('txr-use-example-reuse').click()
+    await page.getByTestId('txr-use-example-predict').click()
     await page.waitForURL('/predict-files', { timeout: 60_000 })
     await expect(page.getByTestId('txr-example-card-predict')).toBeVisible({ timeout: 60_000 })
     expect(await page.locator('input[type=file]').count()).toBe(0)
 
     await page.getByTestId('txr-intake-continue').click()
-    await page.waitForURL('/saved-models', { timeout: 60_000 })
+    await page.waitForURL('/choose-models', { timeout: 60_000 })
 
-    // The boot-seeded example set is the demo's saved models; its model is
-    // runnable (the demo eligibility arm answers the recorded method) and
-    // arrives TICKED — the example-set handoff (ITEM-3's `pendingExampleSet`)
-    // ticks every row of the example set, which is exactly why the reuse
-    // path needed no picking.
+    // The merged list: the boot-seeded example set is the demo's saved
+    // models; its model is runnable (the demo eligibility arm answers the
+    // recorded method) and arrives TICKED — the example-set handoff
+    // (ITEM-3's `pendingExampleSet`) ticks every row of the example set,
+    // which is exactly why the reuse path needed no picking.
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible({ timeout: 60_000 })
     const rowCheckbox = page.locator('[data-testid^="txr-list-checkbox-"]').first()
     await expect(rowCheckbox).toBeVisible({ timeout: 60_000 })
     await expect(rowCheckbox).toHaveAttribute('aria-checked', 'true', { timeout: 60_000 })
@@ -119,16 +120,18 @@ test.describe('txr-demo-pages — the three paths, no upload (TEST-DM-6, ITEM-6)
     expect(pageErrors, `page errors on the reuse path: ${pageErrors.join('; ')}`).toEqual([])
   })
 
-  test('pretrained: Start → the example predict card (the catalogue of this tree is empty — the demo arm is ITEM-7\'s, recorded in DRIFT-1 ITEM-7)', async ({ page }) => {
+  test('predict (merged card): the example predict card and the Continue to the merged model list', async ({ page }) => {
     await openApp(page)
-    await page.getByTestId('txr-use-example-pretrained').click()
+    await page.getByTestId('txr-use-example-predict').click()
     await page.waitForURL('/predict-files', { timeout: 60_000 })
     await expect(page.getByTestId('txr-example-card-predict')).toBeVisible({ timeout: 60_000 })
     expect(await page.locator('input[type=file]').count()).toBe(0)
-    // The Continue of this path leads to the pretrained-models page (ITEM-7's
-    // demo adaptation; the running-page completion lands there).
+    // The example path pinned the saved source (the example set is saved
+    // models); the flow's own Continue declares `/choose-models` (no
+    // `?source=`) and the merged list reads the store's preset on mount.
     await page.getByTestId('txr-intake-continue').click()
-    await page.waitForURL('/pretrained-models', { timeout: 60_000 })
+    await page.waitForURL('/choose-models', { timeout: 60_000 })
+    await expect(page.getByTestId('txr-models-choose')).toBeVisible({ timeout: 60_000 })
   })
 
   test('no enabled file input anywhere on the ITEM-6 pages, and the study panel notes the example setup', async ({ page }) => {

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 /**
  * TEST-AS-3 (ITEM-4) — the audit's section 4 as a repo spec
- * (`qa-data/scroll-audit.mjs` becomes this file), driven over the fourteen
+ * (`qa-data/scroll-audit.mjs` becomes this file), driven over the thirteen
  * shell-wrapped route surfaces inside the real shell.
  *
  * The audit's section-4 list, measured:
@@ -36,7 +36,7 @@ import { expect, test } from '@playwright/test'
  *    measured holding long tables; results-table-height: the tables'
  *    OWN bounded scroll boxes are the scrollports now, the page regions
  *    scroll the page around them);
- *  · at 390x844 (flow mode) on all fourteen routes: the document scrolls
+ *  · at 390x844 (flow mode) on all thirteen routes: the document scrolls
  *    normally, the header is sticky and ONE 56 px row.
  *
  * Run: npx playwright test -c playwright.gallery.config.ts
@@ -61,8 +61,7 @@ const ROUTES = [
   { slug: 'txr-shell-route-method', label: 'Method' },
   { slug: 'txr-shell-route-history', label: 'History' },
   { slug: 'txr-shell-route-models', label: 'Models' },
-  { slug: 'txr-shell-route-saved-models', label: 'Saved models' },
-  { slug: 'txr-shell-route-pretrained-models', label: 'Pretrained models' },
+  { slug: 'txr-shell-route-choose-models', label: 'Choose models' },
   { slug: 'txr-shell-route-help', label: 'Help' },
 ] as const
 

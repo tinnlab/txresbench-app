@@ -23,9 +23,9 @@
  * - `notifyModelSetsChanged` / `subscribeModelSetsChanged` — the refresh
  *   bus. `models.renameSet` (the AI/command path) has no dialog `onSaved`
  *   to refresh through, so after the wire call it publishes this event and
- *   BOTH hosts that show the data listen: the Models page (the inventory +
- *   sets hooks, subscribed in the page) and the saved-models store
- *   (`loadSaved({force:true})`, subscribed in the I page). The human path
+ *   the host that shows the data listens: the Models page (the inventory +
+ *   sets hooks, subscribed in the page — the merged list shows saved rows
+ *   but no set actions). The human path
  *   refreshes through the dialogs' own `onSaved`/`onDeleted` as before — the
  *   bus is the extra path, never a replacement, so no double refresh.
  * - `requestDeleteSet` / `subscribeDeleteSetRequest` — the pending-request
@@ -33,7 +33,7 @@
  *   module-level listener set is the simplest existing shape for an action
  *   to open a dialog (the EventBus pattern the dialog host uses, kept
  *   smaller): the action calls `requestDeleteSet(setId)`; every mounted
- *   host that can confirm the delete (ModelsPage, SavedModelsPage)
+ *   host that can confirm the delete (the Models page)
  *   subscribes and opens its own `TxrDeleteSetDialog` for that id. The
  *   actual `DELETE` still happens only in the dialog's confirm — the
  *   action never deletes, `?keep_files=false` never leaves the dialog.

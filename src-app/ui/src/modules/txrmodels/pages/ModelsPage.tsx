@@ -110,6 +110,7 @@ import { runAction } from '@/core/actions/defineAction'
 import { Alert, Button, Input } from '@txresbench/kit'
 import { useModelInventory } from '../data/useModelInventory'
 import { useModelSets } from '../data/useModelSets'
+import { useModelFileImport } from '../data/useModelFileImport'
 import { downloadModelExport, modelExportLabel, setExportLabel, SET_EXPORT_FAILED_LINE } from '../lib/export'
 import {
   SET_DELETE_FAILED_LINE,
@@ -443,31 +444,11 @@ const IMPORT_LABEL = 'Open a model file'
 /** The page's row-action failure fallback (never blank). */
 const ACTION_FAILED_LINE = 'The model could not be updated.'
 
-/** The import failure's fallback (never blank). */
-const IMPORT_FAILED_LINE = 'The model file could not be opened.'
-
-/** The import clash line (the server's 409 SET_NAME_TAKEN): the container's
- *  recorded set name is taken — the page names the remedy instead of the
- *  engine's words (rename the set, or open the file from inside that set). */
-const IMPORT_NAME_TAKEN_LINE =
-  'A set with this name already exists. Rename that set first, or open the file from inside it to add its models.'
-
 /** The response-null fallback's models: ONE frozen shared empty list. The
  *  `?? []` fallback allocates a fresh array on every render while the
  *  first read is still in flight (a new `models` identity also re-runs the
  *  rows memo); the frozen module-level constant never changes. */
 const EMPTY_MODELS = Object.freeze([] as ModelSummary[]) as ModelSummary[]
-
-/** True for the server's `SET_NAME_TAKEN` import refusal (the framework
- *  transport attaches the server's `error_code` to the thrown Error —
- *  `error_code`, the one stable machine code, never the message). */
-function isSetNameTaken(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    (error as { error_code?: unknown }).error_code === 'SET_NAME_TAKEN'
-  )
-}
 
 const ROW_ACTION_LINK: CSSProperties = { fontSize: 13.5, color: 'var(--txr-brand)' }
 const ROW_ACTION_DANGER: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
@@ -597,10 +578,8 @@ export function ModelsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   // Where the desktop app's Save dialog put an exported model file.
   const [savedPath, setSavedPath] = useState<string | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportingSet, setExportingSet] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
   // The module-level expansion store is not reactive: the tick is the
   // component's re-render lever (the store itself survives unmount).
   const [expansionTick, setExpansionTick] = useState(0)
@@ -651,11 +630,26 @@ export function ModelsPage() {
     refreshSets()
   }, [refreshInventory, refreshSets])
 
+  // The shared `.txr` import (predict-card merge round 1): the hook owns
+  // the picker, the POST and the two error lines; the success side is this
+  // page's refresh (the imported row appears, exactly as before). The
+  // import affordance is the registered `models.openModelFile` action — a
+  // human click opens the picker through the hook's host channel in place
+  // (round-1 audit item 5: no `navigator.userActivation` dependency — the
+  // action decides the demo refusal, the click opens the input) and clears
+  // a previous error (item 9's sibling rule).
+  const { error: importError, inputProps: importInputProps, clearError: clearImportError } =
+    useModelFileImport({
+      setId,
+      onImported: refresh,
+    })
+
   // The registered `models.renameSet` action's refresh: the AI/command path
   // has no dialog `onSaved`, so the action publishes the refresh bus and
   // EVERY mounted host that shows the sets data re-reads (this page's hooks
-  // here; the saved-models store in the I page). The human path refreshes
-  // through the dialogs' own callbacks — never a double refresh.
+  // here — the merged list shows saved rows but no set actions, so it does
+  // not subscribe). The human path refreshes through the dialogs' own
+  // callbacks — never a double refresh.
   useEffect(() => subscribeModelSetsChanged(refresh), [refresh])
 
   /** The set record for a set id: the SetSummary (name + the keep flag) from
@@ -677,7 +671,8 @@ export function ModelsPage() {
 
   // The registered `models.deleteSet` action only OPENS the confirm dialog
   // (it never deletes): the pending-request channel is the seam, and this
-  // page is one of the two hosts (with the saved-models page) that listen.
+  // page is the ONE host that listens (the old saved-models page is gone
+  // with round 3 — the merged list has no set actions).
   // The listener reports back whether IT opened the dialog (true only when
   // the set resolved to a real set row and the dialog was shown; false when
   // the set is unknown or the reads are still empty) — the action rejects
@@ -860,37 +855,6 @@ export function ModelsPage() {
     }
   }, [refresh, setDialog, setId, searchParams, setSearchParams])
 
-  /** Import — the picked container to `POST /api/txr/models/import`
-   *  (multipart, the `file` part — CONS-UM-9; `set_id` rides when the
-   *  set-focus view is active so a focused import lands in the focused
-   *  set), then the list refreshes. The input is cleared synchronously so
-   *  picking the same file again re-fires. */
-  const importFile = useCallback(
-    async (file: File): Promise<void> => {
-      setImportError(null)
-      const form = new FormData()
-      form.append('file', file, file.name)
-      if (setId !== null) form.append('set_id', setId)
-      try {
-        await ApiClient.Models.importModel(form)
-        refresh()
-      } catch (error) {
-        // The one clash answer (SET_NAME_TAKEN) names the remedy; every
-        // other failure is the page's steady open-failed line — never the
-        // transport's own words. brief 3b: the failure's detail is still
-        // logged (the fixed line is the user-facing copy, not the whole
-        // record).
-        if (isSetNameTaken(error)) {
-          setImportError(IMPORT_NAME_TAKEN_LINE)
-        } else {
-          console.warn('model import failed', error)
-          setImportError(IMPORT_FAILED_LINE)
-        }
-      }
-    },
-    [setId, refresh],
-  )
-
   // The pending first read is the only in-flight state the page shows as a
   // line; later re-reads keep the table (the hook keeps the last response).
   // The sets read rides the same gate: the set rows need it, so the first
@@ -942,23 +906,22 @@ export function ModelsPage() {
                     land in the shared pool). */}
                 {!isDemo ? (
                   <>
-                    <Button data-testid="txr-models-import" onClick={() => fileRef.current?.click()}>
+                    <Button
+                      data-testid="txr-models-import"
+                      onClick={() => {
+                        clearImportError()
+                        void runAction('models.openModelFile', {})
+                      }}
+                    >
                       {IMPORT_LABEL}
                     </Button>
                     {/* native-control-ok: the file input is invisible; the visible affordance is <Button> */}
                     <input
-                      ref={fileRef}
-                      type="file"
-                      accept=".txr"
+                      {...importInputProps}
                       style={{ display: 'none' }}
                       aria-hidden="true"
                       tabIndex={-1}
                       data-testid="txr-models-import-file"
-                      onChange={event => {
-                        const file = event.target.files?.[0] ?? null
-                        event.target.value = ''
-                        if (file !== null) void importFile(file)
-                      }}
                     />
                   </>
                 ) : null}
@@ -1050,7 +1013,13 @@ export function ModelsPage() {
             </p>
             <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }}>{EMPTY_NOTE}</p>
             {!isDemo ? (
-              <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
+              <Button
+                data-testid="txr-models-empty-import"
+                onClick={() => {
+                  clearImportError()
+                  void runAction('models.openModelFile', {})
+                }}
+              >
                 {IMPORT_LABEL}
               </Button>
             ) : null}
