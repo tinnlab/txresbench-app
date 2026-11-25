@@ -33,6 +33,7 @@ import { emitSaveModels, emitSaveOneModel } from '@/modules/txrresults/events'
 /** The module-level cassette's owned keys (ApiEndpoints ids, sorted). */
 const OWNED_CASSETTE_KEYS = [
   'ModelSets.deleteSet',
+  'ModelSets.exportSet',
   'ModelSets.listSets',
   'ModelSets.renameSet',
   'Models.checkEligibility',
@@ -62,15 +63,20 @@ const SIBLING_OWNED_KEYS = [
 
 /** The plan's nine slate of slugs (PROV-UI-MODELS-6's enumeration) plus
  *  the ITEM-5 J phone-width story (RES-16 — the inventory's own 390 px
- *  story, same frame as the D narrow one) plus the three app-shell
- *  ITEM-3 shell-route surfaces (the real pages inside the real shell —
- *  TEST-AS-2's part-2 half). */
+ *  story, same frame as the D narrow one), the ONE-table expanded-state
+ *  story (the one-table round), the part-2 search + sort stories (the
+ *  client-side search state and the Name A→Z state) and the three
+ *  app-shell ITEM-3 shell-route surfaces (the real pages inside the real
+ *  shell — TEST-AS-2's part-2 half). */
 const STORY_SLUGS = [
   'txr-models-d',
   'txr-models-d-narrow-390',
   'txr-models-i',
   'txr-models-j',
+  'txr-models-j-expanded',
   'txr-models-j-narrow-390',
+  'txr-models-j-search',
+  'txr-models-j-sort-name',
   'txr-shell-route-models',
   'txr-shell-route-saved-models',
   'txr-shell-route-pretrained-models',
@@ -93,7 +99,7 @@ describe('txrmodels gallery seed (TEST-MOD-16)', () => {
     }
   })
 
-  it('exports the nine unique story slugs, one per board state', () => {
+  it('exports every unique story slug, one per board state', () => {
     const slugs = (gallery.seeded ?? []).map(story => story.slug)
     expect(slugs).toEqual(STORY_SLUGS)
     expect(new Set(slugs).size).toBe(slugs.length)
@@ -114,6 +120,16 @@ describe('txrmodels gallery seed (TEST-MOD-16)', () => {
     expect(bySlug.get('txr-models-i')?.initialPath).toBe('/saved-models')
     expect(bySlug.get('txr-models-j')?.path).toBe('/models')
     expect(bySlug.get('txr-models-j')?.initialPath).toBe('/models')
+    // The ONE-table expanded-state story is the same J frame with a set
+    // already open (the module-level store the chevron writes); the part-2
+    // search/sort stories are the same J frame driven by the story's
+    // post-mount driver (the page's own component state).
+    expect(bySlug.get('txr-models-j-expanded')?.path).toBe('/models')
+    expect(bySlug.get('txr-models-j-expanded')?.initialPath).toBe('/models')
+    expect(bySlug.get('txr-models-j-search')?.path).toBe('/models')
+    expect(bySlug.get('txr-models-j-search')?.initialPath).toBe('/models')
+    expect(bySlug.get('txr-models-j-sort-name')?.path).toBe('/models')
+    expect(bySlug.get('txr-models-j-sort-name')?.initialPath).toBe('/models')
     // The ITEM-5 phone-width story is the same J frame in a narrow wrapper
     // (RES-16) — the same real route, the same board.
     expect(bySlug.get('txr-models-j-narrow-390')?.path).toBe('/models')

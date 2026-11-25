@@ -18,6 +18,7 @@ import './stepActions'
 import './wslSetupActions'
 import './dayActions'
 import './intakeActions'
+import './modelSetActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -38,6 +39,9 @@ const NEW_IDS = [
   'runSettings.setDay',
   'runSettings.setCovariates',
   'intake.setStudyAnswers',
+  'models.renameSet',
+  'models.exportSet',
+  'models.deleteSet',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
@@ -51,6 +55,7 @@ const MODULE_IMPORTS: Record<string, string[]> = {
     '@/core/actions/builtin/intakeActions',
   ],
   'src/modules/txrshell/module.tsx': ['@/core/actions/builtin/wslSetupActions'],
+  'src/modules/txrmodels/module.tsx': ['@/core/actions/builtin/modelSetActions'],
 }
 
 const SRC_ROOT = resolve(__dirname, '../../../..')

@@ -19,15 +19,26 @@ import { expect, test, type Locator } from '@playwright/test'
  *     action; with the strip clear, Run records the created-run payload
  *     + the in-frame navigation — EXAMPLE-UM-1.
  *   · TEST-MOD-18 (INV-1/2, `txr-models-i` + `txr-models-j` +
- *     `txr-models-d-narrow-390`) — the saved board's two run sections
- *     (facts lines, select-all checks the section's eligible models only,
- *     Rename/Delete actions), the Same-outcome chip narrowing to the
- *     matching endpoint/horizon, the find-a-model-or-run search, the
- *     sort flip (Newest run first → Patients covered); the J inventory
- *     table's board columns + the imported row + the footnotes, with the
- *     open-folder button ABSENT (web mode) while the path text is
- *     PRESENT; the 390 px story has no horizontal page overflow and the
- *     bottom-bar Run stays inside the viewport — EXAMPLE-UM-2/UM-3.
+ *     `txr-models-j-expanded` + `txr-models-d-narrow-390`) — the saved
+ *     board's two run sections (facts lines, select-all checks the
+ *     section's eligible models only, Rename/Delete actions), the
+ *     Same-outcome chip narrowing to the matching endpoint/horizon, the
+ *     find-a-model-or-run search, the sort flip (Newest run first →
+ *     Patients covered); the J ONE table (brief 7's folder-style: the
+ *     Name / Method / Predicts / Decision day / Trained on / Made header —
+ *     the Set and Model columns merged — folder rows with the disclosure +
+ *     the folder glyph + the "(N)" count + the set actions, closed by
+ *     default, an expanded folder, the no-set imported row as a plain
+ *     top-level row after every set, the board columns + the footnotes —
+ *     the open-folder button ABSENT in web mode while the path text is
+ *     GONE with it, qa-fixes4 ITEM-1), the part-2 sort (Name A→Z / Z→A,
+ *     Made both ways, folders on top in both directions) and the ONE
+ *     client-side search (set-name match with all its models, a model
+ *     match forced-expanding its folder with only the matches and the
+ *     "(2 of 3 models match)" Name-cell count, the honest no-match line),
+ *     plus the box-is-the-scrollport layout byte at two viewport sizes;
+ *     the 390 px story has no horizontal page overflow and the bottom-bar
+ *     Run stays inside the viewport — EXAMPLE-UM-2/UM-3.
  *   · TEST-MOD-19 (INV-1/7, `txr-models-l` + `txr-models-l2`) — the L
  *     dialog opens over the results board through the REAL EventBus
  *     event (backdrop dimmed, no navigation), the checklist + the
@@ -355,7 +366,7 @@ test.describe('txr-models-i — choose the saved models (TEST-MOD-18)', () => {
 })
 
 test.describe('txr-models-j — your models (TEST-MOD-18)', () => {
-  test('the inventory table, the imported row, the footnotes, web-mode open-folder', async ({
+  test('the ONE table: set rows with the disclosure + set actions, the no-set plain row, the expanded sets\' rows', async ({
     page,
   }) => {
     await page.goto(`${GALLERY}txr-models-j`)
@@ -363,42 +374,122 @@ test.describe('txr-models-j — your models (TEST-MOD-18)', () => {
     await expect(page.getByTestId('txr-models-j')).toBeVisible()
     await expect(page.getByTestId('txr-models-j-table')).toBeVisible()
 
-    // ── the board columns + a run-trained row's subline ──
+    // ── the ONE table's board columns (the folder-style header: ONE Name
+    //    column — the Set and Model columns merged) ──
     const header = await page.getByTestId('txr-models-j-table').locator('thead').textContent()
-    for (const column of ['Model', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made']) {
+    for (const column of ['Name', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made']) {
       expect(header, `column ${column}`).toContain(column)
     }
+
+    // ── the two folder rows (newest first — folders on top), CLOSED by
+    //    default: the folder glyph + the name + the "(N)" count + the
+    //    facts line under the name + the Made date ──
+    const setA = page.getByTestId('txr-models-set-row-set-a')
+    await expect(setA).toContainText('CRC cohort, day 60')
+    await expect(setA).toContainText('(7)')
+    await expect(setA).toContainText('7 models')
+    await expect(setA).toContainText('from the run \u201cpatients.csv\u201d')
+    await expect(setA).toContainText('29 Nov 2026')
+    await expect(page.getByTestId('txr-models-set-folder-set-a')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    )
+    const setB = page.getByTestId('txr-models-set-row-set-b')
+    await expect(setB).toContainText('Lung pilot, day 35')
+    await expect(setB).toContainText('(3)')
+    await expect(setB).toContainText('3 models')
+    await expect(setB).toContainText('from the run \u201clung-pilot.csv\u201d')
+    await expect(setB).toContainText('9 Oct 2026')
+    await expect(page.getByText('Not in a set')).toHaveCount(0)
+
+    // ── the set actions on every set row (one-table round): the three
+    //    link buttons per set, inside the set row's Actions entry ──
+    await expect(page.getByTestId('txr-models-set-rename-btn-set-a')).toHaveText('Rename set')
+    await expect(page.getByTestId('txr-models-set-export-btn-set-a')).toHaveText('Export set')
+    await expect(page.getByTestId('txr-models-set-delete-btn-set-a')).toHaveText('Delete set')
+    await expect(page.getByTestId('txr-models-set-rename-btn-set-b')).toHaveText('Rename set')
+    await expect(page.getByTestId('txr-models-set-export-btn-set-b')).toHaveText('Export set')
+    await expect(page.getByTestId('txr-models-set-delete-btn-set-b')).toHaveText('Delete set')
+
+    // ── collapsed: the folder's model rows are not listed; the no-set
+    //    imported row IS a plain top-level row (never indented, never
+    //    empty in Name) ──
+    await expect(page.getByTestId(`txr-models-row-${FM(11)}`)).toHaveCount(0)
+    const importedRow = page.getByTestId(`txr-models-row-${FM(13)}`)
+    await expect(importedRow).toBeVisible()
+    await expect(importedRow.locator('th[data-label="Name"]')).toContainText(
+      'From a colleague: colon panel',
+    )
+
+    // ── expand set-a through the REAL chevron (aria-expanded flips) ──
+    const toggleA = page.getByTestId('txr-models-set-toggle-set-a')
+    await expect(toggleA).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggleA).toHaveAttribute(
+      'aria-label',
+      'Show the models of \u201cCRC cohort, day 60\u201d',
+    )
+    await toggleA.click()
+    await expect(toggleA).toHaveAttribute('aria-expanded', 'true')
+    // F6: NO aria-controls (the chevron's own row lives in the tbody the
+    // target would name); the title carries the same text as the label.
+    await expect(toggleA).toHaveAttribute(
+      'title',
+      'Hide the models of \u201cCRC cohort, day 60\u201d',
+    )
+    await expect(toggleA).not.toHaveAttribute('aria-controls')
+
+    // ── a run-trained row's board bytes ──
     const runRow = await page.getByTestId(`txr-models-row-${FM(11)}`).textContent()
     for (const needle of ['CRC cohort, day 60', '6 markers · uses age', 'landmark-cox-current', 'progression, death by day 240', '42 patients']) {
       expect(runRow, `row fm-11 must carry ${needle!}`).toContain(needle!)
     }
 
     // ── the imported row: the board's verb (never a fabricated training) ──
-    const importedRow = await page.getByTestId(`txr-models-row-${FM(13)}`).textContent()
+    const imported = await page.getByTestId(`txr-models-row-${FM(13)}`).textContent()
     for (const needle of [
       'From a colleague: colon panel',
       'opened from colleague-panel.txr · 5 markers',
       'not recorded',
       'opened 4 Dec 2026',
     ]) {
-      expect(importedRow, `imported row must carry ${needle!}`).toContain(needle!)
+      expect(imported, `imported row must carry ${needle!}`).toContain(needle!)
     }
 
-    // ── the footnotes: the REAL models root, no open-folder in web mode ──
-    await expect(page.getByTestId('txr-models-j-models-path')).toHaveText(
-      '/home/txr-fixture/models',
-    )
-    await expect(page.getByTestId('txr-models-j')).toContainText(
-      'Deleting a model removes its file. Results already made with it are kept in History.',
-    )
-    await expect(page.getByTestId('txr-models-open-folder')).toHaveCount(0)
-
-    // ── ITEM-5 growth (RES-19/RES-17): the kind's word, never "0 markers",
-    //    and the set segment distinguishing same-named rows ──
+    // ── expand set-b: the ITEM-5 growth (RES-19/RES-17) rows ──
+    await page.getByTestId('txr-models-set-toggle-set-b').click()
     const anyRow = await page.getByTestId(`txr-models-row-${FM(16)}`).textContent()
     expect(anyRow).toContain('any marker')
     const sameNameRow = await page.getByTestId(`txr-models-row-${FM(15)}`).textContent()
     expect(sameNameRow).toContain("6 markers · uses age · from the set 'Second run, day 60'")
+
+    // ── the footnotes; no open-folder in web mode (the path fact is gone —─
+    //    the models root is an internal host fact, qa-fixes4 ITEM-1) ──
+    await expect(page.getByTestId('txr-models-j')).toContainText(
+      'Deleting a model removes its file. Results already made with it are kept in History.',
+    )
+    await expect(page.getByTestId('txr-models-j-models-path')).toHaveCount(0)
+    await expect(page.getByTestId('txr-models-open-folder')).toHaveCount(0)
+  })
+
+  test('the expanded story: one set already open (the module-level store), the no-set row stays plain', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-models-j-expanded`)
+
+    await expect(page.getByTestId('txr-models-j')).toBeVisible()
+    // Set-a is open from the first paint: its model rows are listed.
+    await expect(page.getByTestId('txr-models-set-toggle-set-a')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    await expect(page.getByTestId(`txr-models-row-${FM(11)}`)).toBeVisible()
+    // The other set stays closed; the no-set row is the plain top-level row.
+    await expect(page.getByTestId('txr-models-set-toggle-set-b')).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    await expect(page.getByTestId(`txr-models-row-${FM(12)}`)).toHaveCount(0)
+    await expect(page.getByTestId(`txr-models-row-${FM(13)}`)).toBeVisible()
   })
 
   test('the 390 px story has no horizontal page overflow and the import affordance stays inside', async ({
@@ -418,21 +509,151 @@ test.describe('txr-models-j — your models (TEST-MOD-18)', () => {
     expect(importButton).not.toBeNull()
     expect(importButton!.x + importButton!.width).toBeLessThanOrEqual(390)
 
-    // ── R2-05 (qa-fixes2): the Actions row WRAPS — the old clipped card
-    //    ended "Use Export Rename Dele" (Delete cut off, unreachable by
-    //    touch). The cell's buttons yield no horizontal overflow, and the
-    //    Delete button of the first row is fully on screen with its bytes. ──
-    const actionsCell = page.locator('.txr-models-j-table td[data-label="Actions"]').first()
-    const cellMetrics = await actionsCell.evaluate(el => ({
+    // ── the set row is a CARD on the phone layout (the actions wrapped on
+    //    the set row too — the one-table round's byte) ──
+    const setRow = page.getByTestId('txr-models-set-row-set-a')
+    await expect(setRow).toBeVisible()
+    const setRowMetrics = await setRow.evaluate(el => ({
       scrollWidth: el.scrollWidth,
       clientWidth: el.clientWidth,
     }))
-    expect(cellMetrics.scrollWidth).toBeLessThanOrEqual(cellMetrics.clientWidth)
+    expect(setRowMetrics.scrollWidth).toBeLessThanOrEqual(setRowMetrics.clientWidth + 1)
+
+    // ── R2-05 (qa-fixes2): the Actions row WRAPS — the old clipped card
+    //    ended "Use Export Rename Dele" (Delete cut off, unreachable by
+    //    touch). The entry's buttons yield no horizontal overflow, and the
+    //    Delete button of the first expanded model row is fully on screen. ──
+    await page.getByTestId('txr-models-set-toggle-set-a').click()
+    const actionsEntry = page.locator('.txr-models-j-table td[data-label="Actions"]').first()
+    const entryMetrics = await actionsEntry.evaluate(el => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }))
+    expect(entryMetrics.scrollWidth).toBeLessThanOrEqual(entryMetrics.clientWidth)
     const deleteButton = page.locator('[data-testid^="txr-models-delete-"]').first()
     await expect(deleteButton).toHaveText('Delete')
     const deleteBox = await deleteButton.boundingBox()
     expect(deleteBox).not.toBeNull()
     expect(deleteBox!.x + deleteBox!.width).toBeLessThanOrEqual(390)
+  })
+
+  test('part 2: the sortable Name / Made headers and the ONE client-side search', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-models-j`)
+
+    await expect(page.getByTestId('txr-models-j')).toBeVisible()
+    await expect(page.getByTestId('txr-models-j-table')).toBeVisible()
+
+    // ── birth sort: Made, newest first (the aria-sort truth on the th) ──
+    const madeTh = page.getByTestId('txr-models-j-table').locator('thead th').nth(5)
+    const nameTh = page.getByTestId('txr-models-j-table').locator('thead th').nth(0)
+    await expect(madeTh).toHaveAttribute('aria-sort', 'descending')
+    await expect(nameTh).not.toHaveAttribute('aria-sort')
+    await expect(page.getByTestId('txr-models-sort-made')).toContainText('Made')
+
+    // ── sort by Name A→Z: CRC before Lung, the no-set row AFTER every set ──
+    const setA = page.getByTestId('txr-models-set-row-set-a')
+    const setB = page.getByTestId('txr-models-set-row-set-b')
+    const imported = page.getByTestId(`txr-models-row-${FM(13)}`)
+    await page.getByTestId('txr-models-sort-name').click()
+    await expect(nameTh).toHaveAttribute('aria-sort', 'ascending')
+    expect(await yOf(setA)).toBeLessThan(await yOf(setB))
+    expect(await yOf(setB)).toBeLessThan(await yOf(imported))
+    // Click again → Z→A; the no-set row STAYS after every set.
+    await page.getByTestId('txr-models-sort-name').click()
+    await expect(nameTh).toHaveAttribute('aria-sort', 'descending')
+    expect(await yOf(setB)).toBeLessThan(await yOf(setA))
+    expect(await yOf(setA)).toBeLessThan(await yOf(imported))
+    // Switch back to Made → newest first again (folders on top: the set
+    // rows lead, the imported Dec row is the no-set block after them).
+    await page.getByTestId('txr-models-sort-made').click()
+    await expect(madeTh).toHaveAttribute('aria-sort', 'descending')
+    expect(await yOf(setA)).toBeLessThan(await yOf(setB))
+    expect(await yOf(setB)).toBeLessThan(await yOf(imported))
+
+    // ── the ONE search: a model match forces its folder expanded, only
+    //    the matches, and the Name cell reads the "(N of M models match)" ──
+    await page.getByTestId('txr-models-j-search').fill('cox')
+    await expect(page.getByTestId('txr-models-set-row-set-a')).toContainText(
+      '(1 of 7 models match)',
+    )
+    await expect(page.getByTestId('txr-models-set-row-set-b')).toContainText(
+      '(2 of 3 models match)',
+    )
+    await expect(page.getByTestId(`txr-models-row-${FM(11)}`)).toBeVisible()
+    await expect(page.getByTestId(`txr-models-row-${FM(14)}`)).toHaveCount(0)
+    await expect(page.getByTestId(`txr-models-row-${FM(12)}`)).toBeVisible()
+    await expect(page.getByTestId(`txr-models-row-${FM(15)}`)).toBeVisible()
+    await expect(page.getByTestId(`txr-models-row-${FM(16)}`)).toHaveCount(0)
+    await expect(page.getByTestId(`txr-models-row-${FM(13)}`)).toHaveCount(0)
+
+    // ── a SET-NAME match wins: the whole set shows (own expand state) ──
+    await page.getByTestId('txr-models-j-search').fill('day 35')
+    await expect(page.getByTestId('txr-models-set-row-set-b')).toContainText('(3)')
+    await expect(page.getByTestId(`txr-models-row-${FM(12)}`)).toHaveCount(0)
+    await page.getByTestId('txr-models-set-toggle-set-b').click()
+    await expect(page.getByTestId(`txr-models-row-${FM(12)}`)).toBeVisible()
+    await expect(page.getByTestId(`txr-models-row-${FM(16)}`)).toBeVisible()
+
+    // ── nothing matches → the honest no-match line ──
+    await page.getByTestId('txr-models-j-search').fill('zzz')
+    await expect(page.getByTestId('txr-models-j-no-match')).toBeVisible()
+    await expect(page.getByTestId('txr-models-j-no-match')).toContainText(
+      'Nothing matches here.',
+    )
+  })
+
+  test('the box is the scroll container and the page does not scroll (two viewport sizes)', async ({
+    page,
+  }) => {
+    // ONE-TABLE's layout byte against the REAL shell: the table lives in the
+    // window-filling box (the page's ScrollRegion), the rows scroll inside
+    // it, and the page itself does not scroll at a normal window size. The
+    // 390 px leg is the phone card layout inside the SAME box (below the
+    // shell's flow-mode boundary the DOCUMENT may scroll — the box byte is
+    // the container the plan's addendum names).
+    for (const size of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(size)
+      await page.goto(`${GALLERY}txr-shell-route-models`, { waitUntil: 'domcontentloaded' })
+      await expect(page.getByTestId('txr-models-j')).toBeVisible({ timeout: 120_000 })
+      // Frame the shell story to the viewport (the gallery host sits above
+      // the frame — the shell-routes spec's sizing), then expand both sets
+      // so the table's content exceeds the box at these sizes.
+      await page.evaluate(h => {
+        const frame = document.querySelector<HTMLElement>('[data-gallery-frame]')
+        if (frame === null) throw new Error('no gallery frame')
+        frame.style.height = `${h}px`
+      }, size.height)
+      await page.waitForTimeout(200)
+      await page.getByTestId('txr-models-set-toggle-set-a').click()
+      await page.getByTestId('txr-models-set-toggle-set-b').click()
+      const metrics = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>('[data-testid="txr-models-j-table-box"]')
+        const main = document.querySelector<HTMLElement>('[data-testid="txr-models-j"]')
+        if (box === null || main === null) throw new Error('the box or page root is missing')
+        return {
+          overflowY: getComputedStyle(box).overflowY,
+          boxScroll: box.scrollHeight - box.clientHeight,
+          mainScroll: main.scrollHeight - main.clientHeight,
+        }
+      })
+      expect(
+        metrics.overflowY,
+        `${size.width}x${size.height}: the box overflows both axes`,
+      ).toBe('auto')
+      expect(
+        metrics.boxScroll,
+        `${size.width}x${size.height}: the box is the scroll container`,
+      ).toBeGreaterThan(0)
+      expect(
+        metrics.mainScroll,
+        `${size.width}x${size.height}: the page itself does not scroll`,
+      ).toBeLessThanOrEqual(1)
+    }
   })
 })
 

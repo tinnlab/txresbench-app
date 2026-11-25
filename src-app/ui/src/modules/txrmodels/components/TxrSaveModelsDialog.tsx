@@ -31,11 +31,19 @@
  *   copy — the "Adds about 4 MB" example size and the
  *   Documents/TxResBench/ example path are DESIGN EXAMPLES, INV-4: the
  *   dialog renders the board's sentence without them; the real folder is
- *   the J screen's `models_dir`) and "Also save as a file";
+ *   the J screen's `models_dir`) and "Also save as a file" — the wire
+ *   always carries `also_export: false` (the server's silent export copy
+ *   is gone, brief 3); the ticked box instead saves the ONE set file
+ *   through the Save dialog AFTER a successful save (`downloadSetExport`
+ *   on the saved set), and L3 reports where it went / that it did not;
  * - Cancel / Save N models. Save is refused (disabled) while the name is
  *   empty or no model is selected; a server rejection (409 SET_NAME_TAKEN
  *   / 404 RUN_NOT_FOUND) surfaces inline with the engine's message — the
- *   dialog never closes on error.
+ *   dialog never closes on error. brief 3b: while the save/export is in
+ *   flight (`busy`) Cancel is disabled and EVERY close request is ignored
+ *   (the corner ×, Escape, the backdrop — all through
+ *   `onOpenChange(false)`) so the dialog cannot unmount between the save
+ *   and `onSaved`.
  *
  * The L2 event's `methodIds` are the finished methods' ids; the produced
  * models are the saveable set (a finished method with no model is D15's
@@ -72,6 +80,7 @@ import {
   totalSelectedBytes,
   trainingDataModelNames,
 } from '../lib/save'
+import { downloadSetExport, type TxrSaveFileOutcome } from '../lib/export'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
 
 /** The one failure line of the run-detail load (the engine's message,
@@ -184,8 +193,10 @@ export interface TxrSaveModelsDialogProps {
   methodIds: string[]
   /** The close request (Escape / backdrop / Cancel). */
   onClose: () => void
-  /** The save succeeded — the host renders L3 with the response. */
-  onSaved: (response: ModelSaveResponse) => void
+  /** The save succeeded — the host renders L3 with the response and the
+   *  "Also save as a file" outcome (the ONE set file through the Save
+   *  dialog; `none` when the box was unticked). */
+  onSaved: (response: ModelSaveResponse, file: TxrSaveFileOutcome) => void
 }
 
 export function TxrSaveModelsDialog({
@@ -296,11 +307,27 @@ export function TxrSaveModelsDialog({
       const response = await ApiClient.Models.saveModels(
         buildSaveSetRequest(runId, selectedList, name, {
           keepTrainingFiles,
-          alsoExport,
+          // brief 3: the wire is ALWAYS `also_export: false` — the server's
+          // silent export copy is gone; the ticked box drives the post-save
+          // Save dialog below instead (the one set file, the one path).
+          alsoExport: false,
           sourceLabel: run?.input_summary?.file_names?.patients ?? null,
         }),
       )
-      onSaved(response)
+      // After a SUCCESSFUL save the ticked box hands the saved set to the
+      // user as ONE file through the desktop Save dialog / browser download
+      // (`downloadSetExport` — same byte passthrough as the J page's Export
+      // set). A cancelled dialog is `saveFile`'s answer, not an error: the
+      // models stay saved and L3 reports the plain line.
+      let file: TxrSaveFileOutcome = { status: 'none' }
+      if (alsoExport) {
+        try {
+          file = await downloadSetExport({ id: response.set.id, name: response.set.name })
+        } catch {
+          file = { status: 'failed' }
+        }
+      }
+      onSaved(response, file)
     } catch (error) {
       setSaveError(errorText(error, SAVE_FAILED_LINE))
     } finally {
@@ -315,12 +342,24 @@ export function TxrSaveModelsDialog({
       description={DESCRIPTION}
       open={runId !== null}
       onOpenChange={open => {
-        if (!open) onClose()
+        // brief 3b: while the save/export is in flight the dialog ignores
+        // EVERY close request (the corner ×, Escape, the backdrop — they all
+        // arrive here as `onOpenChange(false)`) so it cannot unmount between
+        // the save and `onSaved` (the saved response is the only record of
+        // the file outcome).
+        if (!open && !busy) onClose()
       }}
       size="lg"
       footer={
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <Button variant="outline" onClick={onClose} data-testid="txr-models-save-cancel">
+          <Button
+            variant="outline"
+            onClick={onClose}
+            // brief 3b: while the save/export is in flight the dialog cannot
+            // be cancelled (it must stay mounted until `onSaved`).
+            disabled={busy}
+            data-testid="txr-models-save-cancel"
+          >
             Cancel
           </Button>
           <Button

@@ -1,7 +1,7 @@
 /**
- * TxrRenameSetDialog — the I screen's section "Rename" dialog (ITEM-7;
- * PROV-MS-4's `PATCH /api/txr/model-sets/{id}` via
- * `ApiClient.ModelSets.renameSet`).
+ * TxrRenameSetDialog — the section "Rename" dialog (ITEM-7; PROV-MS-4's
+ * `PATCH /api/txr/model-sets/{id}` through the ONE `renameSetById` call the
+ * registered `models.renameSet` action shares — `lib/setActions.ts`).
  *
  * The board's section action is a row-level action ("Rename" on
  * `Saved.dc.html`); the dialog is THIS module's host chrome — a set name
@@ -19,8 +19,8 @@
  * convention: `txr-models-set-rename-<id>` (dialog), `-input`, `-confirm`.
  */
 import { useEffect, useState, type CSSProperties } from 'react'
-import { ApiClient } from '@/api-client'
 import { Button, Dialog, Input } from '@txresbench/kit'
+import { renameSetById } from '../lib/setActions'
 
 /** The one failure line (the engine's message, else this constant). */
 const RENAME_FAILED_LINE = 'The set could not be renamed.'
@@ -77,7 +77,9 @@ export function TxrRenameSetDialog({ set, onClose, onSaved }: TxrRenameSetDialog
     setBusy(true)
     setError(null)
     try {
-      await ApiClient.ModelSets.renameSet({ id: set.id, name: trimmed })
+      // The ONE rename call: the same function the registered
+      // `models.renameSet` action uses (there is one path).
+      await renameSetById(set.id, trimmed)
       onSaved()
       onClose()
     } catch (err) {

@@ -714,7 +714,10 @@ html.txr-shell-mode-shell #root {
     padding: 10px 0 14px;
     border-bottom: 1px solid var(--txr-border-subtle);
   }
-  .txr-models-j-table > tbody > tr:last-child {
+  /* ONE-TABLE (F1): the no-border rule names the LAST ROW OF THE WHOLE
+   * table — every set / no-set row has its own tbody, so a per-tbody
+   * `tr:last-child` removed the separator under EVERY collapsed set. */
+  .txr-models-j-table > tbody:last-child > tr:last-child {
     border-bottom: none;
   }
   .txr-models-j-table > tbody > tr th,
@@ -749,6 +752,41 @@ html.txr-shell-mode-shell #root {
     font-weight: 600;
     color: var(--txr-muted);
   }
+  /* ONE-TABLE: a cell with no content carries no card — a folder row's
+   * empty Method / Predicts / Decision day / Trained on cells stay out of
+   * the stacked layout (the `:empty` true-empty cells are rendered without
+   * any child node). */
+  .txr-models-j-table > tbody > tr th:empty,
+  .txr-models-j-table > tbody > tr td:empty {
+    display: none;
+  }
+  /* ONE-TABLE: a SET row is a card — the name + count + facts line on top,
+   * the actions wrapped (the row's own header words read; never a "Set:"
+   * label), and an in-set model's desktop indent is dropped (the cards
+   * stack flat). */
+  .txr-models-j-table > tbody > tr.txr-models-j-set-row th::before,
+  .txr-models-j-table > tbody > tr.txr-models-j-set-row td::before {
+    content: none;
+  }
+  /* brief 7 — the merged Name column: the cards stack flush (the in-set
+   * model's desktop indent is dropped, as below). */
+  .txr-models-j-table > tbody > tr th[data-label='Name'] {
+    padding-left: 14px !important;
+  }
+}
+
+/* ONE-TABLE (F3): the window-filling box at the phone / flow-mode width
+ * (the shell in FLOW mode below 768x520 — the document scrolls, the shell
+ * header is a sticky 56 px row): `#txr-main` has no definite height there,
+ * so the page could not fill and the box grew to its content; the document
+ * scrolled instead of the box. This page's spine gets the window's height
+ * minus the shell header (100dvh − 56 px): the page then fits the window
+ * and the box is the scrollport, so the 390 px e2e leg measures a REAL
+ * scroll container. Scoped to this page's own main; no other page or the
+ * shell changes. Above the flow bound (SHELL mode) the inline
+ * `height: 100%` chain carries the box as always. */
+html.txr-shell-mode-flow .txr-models-j-main {
+  height: calc(100dvh - 56px) !important;
 }
 
 /* QA-fixes ITEM-6 (S3, F9, F10, P2): the intake pages at phone width. The

@@ -1,8 +1,16 @@
 /**
- * TxrDeleteSetDialog — the I screen's section "Delete the run's models"
- * confirm dialog (ITEM-7; PROV-MS-4's
- * `DELETE /api/txr/model-sets/{id}?keep_files=false` via
- * `ApiClient.ModelSets.deleteSet`).
+ * TxrDeleteSetDialog — the section "Delete" confirm dialog (ITEM-7;
+ * PROV-MS-4's `DELETE /api/txr/model-sets/{id}?keep_files=false` through the
+ * ONE `deleteSetById` call — `lib/setActions.ts`; the registered
+ * `models.deleteSet` action only OPENS this dialog, the confirm is the
+ * only delete).
+ *
+ * Two optional props arm the Models page's "Delete the set" without
+ * touching Card 3 (the saved-models page passes neither and keeps its
+ * wording): `confirmLabel` (default "Delete the run's models") and
+ * `keepsTrainingFiles` (the body adds the kept-training-files sentence when
+ * the set records `keep_training_files`). `keep_files` stays `false` on the
+ * wire for every caller (DEC-14).
  *
  * DEC-14 (owner D23): the product default deletes the files WITH the rows —
  * `keep_files: false` (the store's default: rows + tree dirs pruned + the
@@ -20,8 +28,8 @@
  * (dialog), `-confirm`.
  */
 import { useState, type CSSProperties } from 'react'
-import { ApiClient } from '@/api-client'
 import { Button, Dialog } from '@txresbench/kit'
+import { deleteSetById } from '../lib/setActions'
 
 /** The one failure line (the engine's message, else this constant). */
 const DELETE_FAILED_LINE = 'The models could not be deleted.'
@@ -30,6 +38,14 @@ const DELETE_FAILED_LINE = 'The models could not be deleted.'
  *  files go with the row; prior results stay in History). */
 const DELETE_BODY =
   'This removes the set and its models\u2019 files. Results already made with them are kept in History.'
+
+/** The extra sentence when the set keeps its training files (the Models
+ *  page's "Delete the set": the kept training copy goes too). */
+const KEEPS_TRAINING_FILES_SENTENCE =
+  ' The training files kept with this set are removed too.'
+
+/** The confirm button's default label (the saved-models page's board verb). */
+const DEFAULT_CONFIRM_LABEL = "Delete the run's models"
 
 /** The danger button's look (the board's danger red over the kit variant). */
 const DANGER_BUTTON: CSSProperties = {
@@ -57,9 +73,23 @@ export interface TxrDeleteSetDialogProps {
   onClose: () => void
   /** The confirm succeeded — the page refreshes the saved slice. */
   onDeleted: () => void
+  /** The confirm button's label. Defaults to the saved-models page's board
+   *  verb ("Delete the run's models"); the Models page passes "Delete the
+   *  set". */
+  confirmLabel?: string
+  /** True when the set keeps its training files: the body adds one extra
+   *  sentence (the kept training copy is removed too). Card 3 (the
+   *  saved-models page) passes neither prop and keeps its current wording. */
+  keepsTrainingFiles?: boolean
 }
 
-export function TxrDeleteSetDialog({ set, onClose, onDeleted }: TxrDeleteSetDialogProps) {
+export function TxrDeleteSetDialog({
+  set,
+  onClose,
+  onDeleted,
+  confirmLabel = DEFAULT_CONFIRM_LABEL,
+  keepsTrainingFiles = false,
+}: TxrDeleteSetDialogProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,8 +98,9 @@ export function TxrDeleteSetDialog({ set, onClose, onDeleted }: TxrDeleteSetDial
     setBusy(true)
     setError(null)
     try {
-      // DEC-14: files are deleted with the rows (the provider's default).
-      await ApiClient.ModelSets.deleteSet({ id: set.id, keep_files: false })
+      // DEC-14: files are deleted with the rows (the provider's default) —
+      // the ONE delete call every caller's confirm goes through.
+      await deleteSetById(set.id)
       onDeleted()
       onClose()
     } catch (err) {
@@ -98,13 +129,14 @@ export function TxrDeleteSetDialog({ set, onClose, onDeleted }: TxrDeleteSetDial
             disabled={busy}
             data-testid={`txr-models-set-delete-${set?.id}-confirm`}
           >
-            Delete the run's models
+            {confirmLabel}
           </Button>
         </div>
       }
     >
       <p data-testid={`txr-models-set-delete-${set?.id}-body`} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: 'var(--txr-text-2)' }}>
         {DELETE_BODY}
+        {keepsTrainingFiles ? KEEPS_TRAINING_FILES_SENTENCE : null}
       </p>
       {error !== null ? (
         <p data-testid={`txr-models-set-delete-${set?.id}-error`} style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-danger)' }}>

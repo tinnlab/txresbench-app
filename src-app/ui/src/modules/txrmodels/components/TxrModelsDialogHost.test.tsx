@@ -20,13 +20,31 @@
  * - `txr:save-one-model-requested` opens the L2 dialog;
  * - emitting with no mounted host is a benign no-op (the zustand bus's
  *   zero-handler path — the results-screen button never crashes);
- * - the host renders nothing when no dialog is open (no layout shift).
+ * - the host renders nothing when no dialog is open (no layout shift);
+ * - brief 3/3b: the "Also save as a file" outcome reaches L3 through the
+ *   host's own splice (the L → L3 handoff carries the export's answer —
+ *   the saved path, not just the `none` default).
  *
  * Fixture data through the module's synthetic run/predictions/methods
  * payloads; every API call mocked (the `Datasets.store.test` precedent) so
  * the assertions stay at the host/dialog seam.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// jsdom has no working PointerEvent constructor; Base UI's controls (the
+// kit Checkbox) construct one on pointer interaction, which would throw and
+// swallow the click. The MouseEvent subclass is the standard jsdom stand-in
+// (the TxrSaveModelsDialog suite's shim, copied).
+{
+  const w = window as unknown as {
+    PointerEvent?: new (type: string, init?: MouseEventInit) => MouseEvent
+  }
+  try {
+    void new (w.PointerEvent as new (type: string, init?: MouseEventInit) => MouseEvent)('probe')
+  } catch {
+    w.PointerEvent = class extends MouseEvent {}
+  }
+}
+
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { useEventBusStore } from '@txresbench/framework/events'
@@ -44,14 +62,27 @@ const api = vi.hoisted(() => ({
   listSets: vi.fn(),
   listModels: vi.fn(),
   saveModels: vi.fn(),
+  exportSet: vi.fn(),
+  saveFile: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
     Txr: { getRun: api.getRun, getPredictions: api.getPredictions },
     MethodCatalogue: { list: api.listMethods },
-    ModelSets: { listSets: api.listSets },
+    ModelSets: { listSets: api.listSets, exportSet: api.exportSet },
     Models: { listModels: api.listModels, saveModels: api.saveModels },
   },
+}))
+// The post-save "Also save as a file" flow runs the REAL `downloadSetExport`
+// against the mocked ModelSets.exportSet; `saveFile` is the outcome seam (the
+// set file's answer — saved/cancelled), the same mock the TxrSaveModelsDialog
+// suite uses.
+vi.mock('@/core/saveFile', () => ({
+  saveFile: api.saveFile,
+  saveLabel: (_app: string, web: string) => web,
+  savesWithDialog: () => true,
+  revealSavedFile: async () => undefined,
+  showSavedLabel: () => 'Show in folder',
 }))
 
 async function emitModels(runId: string, methodIds: string[]): Promise<void> {
@@ -189,6 +220,46 @@ describe('TxrModelsDialogHost (TEST-MOD-12)', () => {
     // L3 replaces L — exactly one dialog root.
     const roots = document.querySelectorAll('[data-testid="txr-models-saved"]')
     expect(roots.length).toBe(1)
+    expect(document.querySelector('[data-testid="txr-models-save"]')).toBeNull()
+  })
+
+  it('the "Also save as a file" outcome reaches L3 through the host splice', async () => {
+    renderHost()
+    api.saveModels.mockResolvedValue({
+      set: { id: 'set-save-1', name: 'My fixtures, day 60', created_at: '2026-11-30T08:11:00Z', source_run_id: 'run-c', source_label: 'patients.csv', model_count: 1, keep_training_files: false, total_size_bytes: 800_000 },
+      models: [],
+    })
+    api.exportSet.mockResolvedValue(new Blob(['txr-set-bytes']))
+    api.saveFile.mockResolvedValue({ status: 'saved', path: '/Users/me/Models/My-fixtures-day-60.txr' })
+    await emitModels('run-c', ['rm-1'])
+    await waitFor(() => expect(document.querySelector('[data-testid="txr-models-save-body"]')).not.toBeNull())
+    await act(async () => {
+      fireEvent.change(
+        document.querySelector<HTMLInputElement>('[data-testid="txr-models-save-name"]')!,
+        { target: { value: 'My fixtures, day 60' } },
+      )
+      fireEvent.click(document.querySelector('[data-testid="txr-models-save-also-export"]')!)
+    })
+    await waitFor(() => {
+      const confirm = document.querySelector<HTMLButtonElement>('[data-testid="txr-models-save-confirm"]')!
+      expect(confirm.disabled).toBe(false)
+    })
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[data-testid="txr-models-save-confirm"]')!.click()
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(api.saveModels).toHaveBeenCalledTimes(1))
+    // L3 replaces L, and the file outcome (the saved set's path) rides along
+    // the host's own splice — the export's answer is not lost to the default.
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="txr-models-saved-file"]')).not.toBeNull(),
+    )
+    expect(document.querySelector('[data-testid="txr-models-saved-file"]')?.textContent).toContain(
+      'Saved to /Users/me/Models/My-fixtures-day-60.txr',
+    )
+    expect(document.querySelector('[data-testid="txr-models-saved-summary"]')?.textContent).toContain(
+      'My fixtures, day 60',
+    )
     expect(document.querySelector('[data-testid="txr-models-save"]')).toBeNull()
   })
 })

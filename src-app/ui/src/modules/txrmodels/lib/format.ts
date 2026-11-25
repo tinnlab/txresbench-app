@@ -140,7 +140,9 @@ export function formatPredicts(
 // `formatMade` / `formatTrainedOn` — the J "Made" and "Trained on" columns
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The pinned month-day-year formatter (the boards' day-month-year spelling). */
+/** The Made-column date formatter (the boards' day-month-year spelling;
+ *  the instant renders in the viewer's local time zone, like every other
+ *  date label in the app — only the locale is pinned, never the zone). */
 const MADE_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
   month: 'short',
@@ -266,6 +268,92 @@ export function formatTrainedDateShort(value: string | null | undefined): string
   const date = parseDate(value)
   if (date === null) return null
   return TRAINED_DATE_FORMAT.format(date)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatSetFacts` — screen J's section facts line (Models.dc.html)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The screen-J set row's facts line (ONE-TABLE round — the set's name has
+ * the facts UNDER it; the count and the made date moved OUT: the Model
+ * column spells the count through `formatSetModelCount`, the Made column
+ * spells the date through `formatSetMade`):
+ *
+ * - `from the run “<source_label>”` — the set came from a training run
+ *   (`source_run_id` present) and carries a `source_label`;
+ * - `from the file “<imported_from>”` — the set is an import (no run) and
+ *   the rows carry the file they were opened from (`imported_from`);
+ * - `from “<source_label>”` — the honest fallback when the set has a
+ *   source label but it cannot be told apart as run or file (the
+ *   brief's degraded spelling);
+ * - `training files kept` — the set's `keep_training_files` fact.
+ *
+ * The caller decides run/file/ambiguous from the provider facts; this
+ * function only spells them. `""` when no part applies (a fallback group
+ * while the sets read has not answered — the page renders no facts line;
+ * the Model column still spells the count).
+ */
+export interface ModelSetFactsInput {
+  /** The set's `keep_training_files`. */
+  keepTrainingFiles: boolean
+  /** The set's `source_label` ("patients.csv"-style); null = omit. */
+  sourceLabel: string | null | undefined
+  /** True when the set came from a run (`source_run_id` present). */
+  fromRun: boolean
+  /** The rows' own `imported_from` (the file an imported set was opened
+   *  from); null = omit. */
+  importedFrom: string | null | undefined
+}
+
+export function formatSetFacts(input: ModelSetFactsInput): string {
+  const parts: string[] = []
+  const label = input.sourceLabel?.trim() ?? ''
+  const file = input.importedFrom?.trim() ?? ''
+  if (input.fromRun && label.length > 0) {
+    parts.push(`from the run \u201c${label}\u201d`)
+  } else if (!input.fromRun && file.length > 0) {
+    parts.push(`from the file \u201c${file}\u201d`)
+  } else if (!input.fromRun && label.length > 0) {
+    parts.push(`from \u201c${label}\u201d`)
+  }
+  if (input.keepTrainingFiles) parts.push('training files kept')
+  return parts.join(' \u00b7 ')
+}
+
+/**
+ * The set row's Model-column count (ONE-TABLE round — the "N models" fact
+ * the facts line used to spell): the board's singular/plural, `3 models` /
+ * `1 model`. The caller passes the set's `model_count` when the record is
+ * known, the listed count for a fallback group (the same source the old
+ * facts line used).
+ */
+export function formatSetModelCount(count: number): string {
+  return `${count} ${count === 1 ? 'model' : 'models'}`
+}
+
+/**
+ * The set row's Model-column count during a PARTIAL client-side search
+ * (part 2 — the brief's "@matchCount of @total models match"): the matches
+ * over the set's total, the SAME total the plain "3 models" entry spells,
+ * always in the one plan string "{m} of {n} models match" (never a
+ * `matches` agreement, never a singular `model` form — "1 of 7 models
+ * match", "2 of 3 models match", "1 of 1 models match").
+ */
+export function formatSetModelMatchText(matchCount: number, total: number): string {
+  return `${matchCount} of ${total} models match`
+}
+
+/**
+ * The set row's Made-column entry (ONE-TABLE round — the set's made date
+ * moved from the facts line's "made <date>" part into this column):
+ * "21 Oct 2026" through the same en-GB day-month-year formatter; a missing
+ * or unparseable instant (a fallback group while the sets read has not
+ * answered) → the `UNRECORDED` constant, never a blank entry.
+ */
+export function formatSetMade(createdAt: string | null | undefined): string {
+  const date = parseDate(createdAt)
+  return date === null ? UNRECORDED : MADE_DATE_FORMAT.format(date)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

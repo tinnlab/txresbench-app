@@ -16,6 +16,10 @@ import { getActionMeta, runAction } from '../defineAction'
 import { Permissions } from '@/api-client/permissions'
 import { registerActiveContext, unregisterActiveContext } from '../activeContext'
 import { useTxrIntakeStore } from '@/modules/txrintake/stores/TxrIntake.store'
+// At module scope (the action itself loads this store on use): the
+// beforeEach needs `reset()` without a per-hook dynamic-import cost — a
+// cold transform of the store's graph once crossed the hook timeout.
+import { useTxrModelsStore } from '@/modules/txrmodels/stores/TxrModels.store'
 import type { ValidationResponse } from '@/api-client/types'
 import {
   HELP_BACK_NO_STEP,
@@ -299,9 +303,8 @@ describe('flow.startPath', () => {
 })
 
 describe('models.useModel (Your models "Use")', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     useTxrIntakeStore.getState().reset()
-    const { useTxrModelsStore } = await import('@/modules/txrmodels/stores/TxrModels.store')
     useTxrModelsStore.getState().reset()
   })
 
@@ -319,7 +322,6 @@ describe('models.useModel (Your models "Use")', () => {
     ).resolves.toEqual({ path: '/predict-files?use=m-1&name=CRC%20cohort%2C%20day%2060' })
     expect(nav.navigate).toHaveBeenCalledWith('/predict-files?use=m-1&name=CRC%20cohort%2C%20day%2060')
     expect(useTxrIntakeStore.getState()).toMatchObject({ intent: 'reuse', mode: 'predict' })
-    const { useTxrModelsStore } = await import('@/modules/txrmodels/stores/TxrModels.store')
     expect(useTxrModelsStore.getState().pendingUseModelId).toBe('m-1')
     expect(useStepTrailStore.getState().trail).toEqual(['/models?set=set-a'])
   })

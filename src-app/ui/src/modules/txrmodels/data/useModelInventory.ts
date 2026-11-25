@@ -27,7 +27,7 @@
  * nothing over a transient error) and surfaces the error line beside the
  * Retry; a failed read with NO response at all is the error state.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import type { ModelListResponse } from '@/api-client/types'
 
@@ -51,8 +51,10 @@ function errorMessage(err: unknown): string {
 }
 
 export interface UseModelInventoryOptions {
-  /** The search-input text (the hook owns the debounce to the server `q`). */
-  query: string
+  /** The search-input text (the hook owns the debounce to the server `q`);
+   *  omitted = the unfiltered read (the J page's client-side search sends
+   *  no `q` at all — the part-2 search lives in the page). */
+  query?: string
   /** The `?set=` focus (DEC-19); null = the unfiltered inventory. */
   setId: string | null
 }
@@ -72,7 +74,7 @@ export interface UseModelInventoryResult {
 export function useModelInventory(
   options: UseModelInventoryOptions,
 ): UseModelInventoryResult {
-  const { query: rawQuery, setId } = options
+  const { query: rawQuery = '', setId } = options
 
   // The debounced query: the raw text is staged, the settled copy is the
   // wire value. Seeded with the mount value, so the first read fires
@@ -119,10 +121,16 @@ export function useModelInventory(
       })
   }, [query, setId, tick])
 
+  /** Re-issue the read for the current (query, set) view; a stable
+   *  identity (the page's refresh useCallback depends on it). */
+  const refresh = useCallback((): void => {
+    setTick(t => t + 1)
+  }, [])
+
   return {
     response,
     loading,
     error,
-    refresh: () => setTick(t => t + 1),
+    refresh,
   }
 }

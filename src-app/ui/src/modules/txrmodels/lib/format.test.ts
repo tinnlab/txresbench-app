@@ -39,6 +39,10 @@ import {
   formatModelSublines,
   formatPredicts,
   formatSavedTotals,
+  formatSetFacts,
+  formatSetMade,
+  formatSetModelCount,
+  formatSetModelMatchText,
   formatTrainingDataWarning,
   formatTrainedOn,
 } from './format'
@@ -226,6 +230,90 @@ describe('formatSavedTotals — screen I\'s totals line (ITEM-5, RES-22)', () =>
     expect(formatSavedTotals(13, 6, 2, 5)).toBe(
       '13 saved models shown \u00b7 8 can run, 5 cannot (2 of them for some patients)',
     )
+  })
+})
+
+describe('formatSetFacts — the J set row facts line (TEST-MOD-03, ONE-TABLE)', () => {
+  it('spells the run source (the count and made date live in the Model/Made columns now)', () => {
+    expect(
+      formatSetFacts({
+        keepTrainingFiles: false,
+        sourceLabel: 'Breast study',
+        fromRun: true,
+        importedFrom: null,
+      }),
+    ).toBe('from the run \u201cBreast study\u201d')
+  })
+
+  it('spells an import as the file it was opened from', () => {
+    expect(
+      formatSetFacts({
+        keepTrainingFiles: false,
+        sourceLabel: null,
+        fromRun: false,
+        importedFrom: 'lung-pilot.txr',
+      }),
+    ).toBe('from the file \u201clung-pilot.txr\u201d')
+  })
+
+  it('appends the training-files-kept segment from the keep flag', () => {
+    expect(
+      formatSetFacts({
+        keepTrainingFiles: true,
+        sourceLabel: 'patients.csv',
+        fromRun: true,
+        importedFrom: null,
+      }),
+    ).toBe('from the run \u201cpatients.csv\u201d \u00b7 training files kept')
+  })
+
+  it('renders "" (the page shows no facts line) when no set fact applies', () => {
+    // A fallback group while the sets read has not answered: no source
+    // label, no run, no import record, no keep flag — the kept version of
+    // the old bare-count line, whose count now lives in the Model column.
+    expect(
+      formatSetFacts({
+        keepTrainingFiles: false,
+        sourceLabel: null,
+        fromRun: false,
+        importedFrom: null,
+      }),
+    ).toBe('')
+  })
+
+  it('falls to the plain source label when run/file cannot be told apart', () => {
+    expect(
+      formatSetFacts({
+        keepTrainingFiles: false,
+        sourceLabel: 'patients.csv',
+        fromRun: false,
+        importedFrom: null,
+      }),
+    ).toBe('from \u201cpatients.csv\u201d')
+  })
+})
+
+describe('formatSetModelCount / formatSetMade — the J set row columns (TEST-MOD-03, ONE-TABLE)', () => {
+  it('spells the count with the board singular/plural', () => {
+    expect(formatSetModelCount(3)).toBe('3 models')
+    expect(formatSetModelCount(1)).toBe('1 model')
+    expect(formatSetModelCount(7)).toBe('7 models')
+  })
+
+  it('spells the set made date with the en-GB formatter and the unrecorded constant', () => {
+    expect(formatSetMade(localNoonIso(2026, 11, 29))).toBe('29 Nov 2026')
+    expect(formatSetMade(null)).toBe(UNRECORDED)
+    expect(formatSetMade(undefined)).toBe(UNRECORDED)
+    expect(formatSetMade('not-a-date')).toBe(UNRECORDED)
+  })
+
+  it('spells the partial-search match count as the one "{m} of {n} models match" string', () => {
+    // The brief's example: the set's Model column under a partial search —
+    // never a `matches` agreement, never a singular `model` form.
+    expect(formatSetModelMatchText(2, 3)).toBe('2 of 3 models match')
+    expect(formatSetModelMatchText(1, 7)).toBe('1 of 7 models match')
+    expect(formatSetModelMatchText(3, 3)).toBe('3 of 3 models match')
+    expect(formatSetModelMatchText(1, 1)).toBe('1 of 1 models match')
   })
 })
 

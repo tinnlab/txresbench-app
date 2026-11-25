@@ -30,6 +30,12 @@
  *   response to `onSaved`; a server rejection (409 / 404) surfaces the
  *   engine's message inline and the dialog stays open; Cancel closes
  *   without a call.
+ * - brief 3 ("Also save as a file"): the wire is ALWAYS `also_export:
+ *   false` (the server's silent export copy is gone) while the ticked box
+ *   saves the ONE set file after the successful save — the saved set's id
+ *   through `downloadSetExport`, `<sanitised set name>.txr` handed to the
+ *   Save dialog; unticked → no export; a cancelled Save dialog / a failed
+ *   export reaches L3 as the plain line (the flow host splices L → L3).
  *
  * Every payload is the module's synthetic run fixture (INV-4: seven
  * models, 42 patients, day 60 — never the boards' example numbers).
@@ -52,6 +58,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { useState } from 'react'
+import type { ModelSaveResponse } from '@/api-client/types'
+import type { TxrSaveFileOutcome } from '../lib/export'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
 import {
@@ -61,19 +70,34 @@ import {
   TXRMODELS_SAVE_RESPONSE,
 } from '../fixtures'
 import { TxrSaveModelsDialog } from './TxrSaveModelsDialog'
+import { TxrSavedDialog } from './TxrSavedDialog'
 
 const api = vi.hoisted(() => ({
   getRun: vi.fn(),
   getPredictions: vi.fn(),
   listMethods: vi.fn(),
   saveModels: vi.fn(),
+  exportSet: vi.fn(),
+  saveFile: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
     Txr: { getRun: api.getRun, getPredictions: api.getPredictions },
     MethodCatalogue: { list: api.listMethods },
     Models: { saveModels: api.saveModels },
+    ModelSets: { exportSet: api.exportSet },
   },
+}))
+// The post-save "Also save as a file" flow (brief 3) runs the REAL
+// `downloadSetExport` (the byte passthrough) against the mocked
+// ModelSets.exportSet; `saveFile` is the ONE assertion seam (the Save
+// dialog's filename + its answer — saved/cancelled).
+vi.mock('@/core/saveFile', () => ({
+  saveFile: api.saveFile,
+  saveLabel: (_app: string, web: string) => web,
+  savesWithDialog: () => true,
+  revealSavedFile: async () => undefined,
+  showSavedLabel: () => 'Show in folder',
 }))
 
 const ALL_IDS = ['rm-1', 'rm-2', 'rm-3', 'rm-4', 'rm-5', 'rm-6', 'rm-7']
@@ -102,6 +126,8 @@ beforeEach(() => {
   api.getPredictions.mockResolvedValue(TXRMODELS_PREDICTIONS)
   api.listMethods.mockResolvedValue(TXRMODELS_METHODS)
   api.saveModels.mockResolvedValue(TXRMODELS_SAVE_RESPONSE)
+  api.exportSet.mockResolvedValue(new Blob(['txr-set-bytes']))
+  api.saveFile.mockResolvedValue({ status: 'saved', path: '/Users/me/Models/My-fixtures-day-60.txr' })
   useTxrModelsStore.getState().setDraftName('')
 })
 
@@ -190,7 +216,6 @@ describe('TxrSaveModelsDialog (TEST-MOD-13)', () => {
         target: { value: 'My fixtures, day 60' },
       })
       fireEvent.click(screen.getByTestId('txr-models-save-keep-training'))
-      fireEvent.click(screen.getByTestId('txr-models-save-also-export'))
     })
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-models-save-confirm'))
@@ -201,11 +226,121 @@ describe('TxrSaveModelsDialog (TEST-MOD-13)', () => {
       method_ids: ALL_IDS,
       target: { set_name: 'My fixtures, day 60' },
       keep_training_files: true,
-      also_export: true,
+      also_export: false,
       source_label: 'patients.csv',
     })
+    expect(api.exportSet).not.toHaveBeenCalled()
     expect(onSaved).toHaveBeenCalledTimes(1)
-    expect(onSaved).toHaveBeenCalledWith(TXRMODELS_SAVE_RESPONSE)
+    expect(onSaved).toHaveBeenCalledWith(TXRMODELS_SAVE_RESPONSE, { status: 'none' })
+  })
+
+  it('ticked "Also save as a file": the wire stays also_export false, then the ONE set file goes through the Save dialog', async () => {
+    const { onSaved } = renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-name')).toBeDefined())
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-models-save-name'), {
+        target: { value: 'My fixtures, day 60' },
+      })
+      fireEvent.click(screen.getByTestId('txr-models-save-also-export'))
+      fireEvent.click(screen.getByTestId('txr-models-save-confirm'))
+    })
+    // The request NEVER carries also_export: true (the server's hidden copy
+    // is gone — the checkbox only drives the post-save export below).
+    expect(api.saveModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { set_name: 'My fixtures, day 60' },
+        also_export: false,
+      }),
+    )
+    // The saved set is exported as ONE file: the new set's id, its name as
+    // the sanitised `<name>.txr` in the Save dialog.
+    await waitFor(() => expect(api.exportSet).toHaveBeenCalledTimes(1))
+    expect(api.exportSet).toHaveBeenCalledWith({ id: 'set-save-1' })
+    expect(api.saveFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: 'My-fixtures-day-60.txr',
+        filter: { name: 'TxResBench set', extensions: ['txr'] },
+      }),
+    )
+    expect(onSaved).toHaveBeenCalledWith(TXRMODELS_SAVE_RESPONSE, {
+      status: 'saved',
+      path: '/Users/me/Models/My-fixtures-day-60.txr',
+    })
+  })
+
+  it('while the save/export is in flight a close attempt does nothing and onSaved still fires once (brief 3b)', async () => {
+    let resolveSave!: (value: ModelSaveResponse) => void
+    let resolveExport!: (value: Blob) => void
+    let resolveFile!: (value: { status: 'saved'; path: string }) => void
+    api.saveModels.mockReturnValue(
+      new Promise<ModelSaveResponse>(resolve => {
+        resolveSave = resolve
+      }),
+    )
+    api.exportSet.mockReturnValue(
+      new Promise<Blob>(resolve => {
+        resolveExport = resolve
+      }),
+    )
+    api.saveFile.mockReturnValue(
+      new Promise(resolve => {
+        resolveFile = resolve
+      }),
+    )
+    const { onClose, onSaved } = renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-name')).toBeDefined())
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-models-save-name'), {
+        target: { value: 'My fixtures, day 60' },
+      })
+      fireEvent.click(screen.getByTestId('txr-models-save-also-export'))
+      fireEvent.click(screen.getByTestId('txr-models-save-confirm'))
+    })
+    // Busy: Cancel is disabled and the dialog stays mounted.
+    expect(screen.getByTestId('txr-models-save-cancel').hasAttribute('disabled')).toBe(true)
+    expect(screen.getByTestId('txr-models-save')).toBeTruthy()
+    // A close attempt while busy does nothing: the disabled Cancel click,
+    // the Escape key and the corner × (the last two arrive as
+    // `onOpenChange(false)`).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-save-cancel'))
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('txr-models-save')).toBeTruthy()
+    // The save + export finish normally: onSaved fires ONCE with the outcome.
+    await act(async () => {
+      resolveSave(TXRMODELS_SAVE_RESPONSE)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      resolveExport(new Blob(['txr-set-bytes']))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      resolveFile({ status: 'saved', path: '/Users/me/Models/My-fixtures-day-60.txr' })
+      await Promise.resolve()
+    })
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onSaved).toHaveBeenCalledWith(TXRMODELS_SAVE_RESPONSE, {
+      status: 'saved',
+      path: '/Users/me/Models/My-fixtures-day-60.txr',
+    })
+  })
+
+  it('unticked "Also save as a file": no export call and the none outcome', async () => {
+    const { onSaved } = renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-name')).toBeDefined())
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-models-save-name'), {
+        target: { value: 'My fixtures, day 60' },
+      })
+      fireEvent.click(screen.getByTestId('txr-models-save-confirm'))
+    })
+    expect(api.exportSet).not.toHaveBeenCalled()
+    expect(api.saveFile).not.toHaveBeenCalled()
+    expect(onSaved).toHaveBeenCalledWith(TXRMODELS_SAVE_RESPONSE, { status: 'none' })
   })
 
   it('a rejected save leaves the dialog open with the engine message', async () => {
@@ -252,6 +387,76 @@ describe('TxrSaveModelsDialog (TEST-MOD-13)', () => {
     expect(row3.textContent).not.toContain('KB')
     // The total is unknown while rm-3 is selected — no size segment.
     expect(screen.getByTestId('txr-models-save-count').textContent).toBe('7 of 7 selected')
+  })
+})
+
+/** The L→L3 splice the app's host makes (one dialog at a time): L hands the
+ *  save response + the "Also save as a file" outcome to L3. */
+function FlowHost() {
+  const [saved, setSaved] = useState<{
+    response: ModelSaveResponse
+    file: TxrSaveFileOutcome
+  } | null>(null)
+  return saved === null ? (
+    <TxrSaveModelsDialog
+      runId="run-c"
+      methodIds={ALL_IDS}
+      onClose={() => undefined}
+      onSaved={(response, file) => setSaved({ response, file })}
+    />
+  ) : (
+    <TxrSavedDialog response={saved.response} file={saved.file} onClose={() => setSaved(null)} />
+  )
+}
+
+describe('TxrSaveModelsDialog — the "Also save as a file" flow (brief 3)', () => {
+  /** Name the set, tick the box and confirm (the save flow). */
+  async function saveTicked(): Promise<void> {
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-name')).toBeDefined())
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-models-save-name'), {
+        target: { value: 'My fixtures, day 60' },
+      })
+      fireEvent.click(screen.getByTestId('txr-models-save-also-export'))
+      fireEvent.click(screen.getByTestId('txr-models-save-confirm'))
+    })
+  }
+
+  it('a cancelled Save dialog keeps the models saved and L3 says so', async () => {
+    api.saveFile.mockResolvedValue({ status: 'cancelled' })
+    render(
+      <MemoryRouter>
+        <FlowHost />
+      </MemoryRouter>,
+    )
+    await saveTicked()
+    // The Save dialog was cancelled — the models stay saved and L3's one
+    // plain line says the set file was not saved.
+    await waitFor(() => expect(screen.getByTestId('txr-models-saved-file')).toBeDefined())
+    expect(screen.getByTestId('txr-models-saved-file').textContent).toBe(
+      'Your models are saved. The set file was not saved.',
+    )
+    expect(screen.getByTestId('txr-models-saved-summary').textContent).toContain(
+      'My fixtures, day 60',
+    )
+    expect(screen.getByTestId('txr-models-saved-summary').textContent).toContain('27 MB')
+  })
+
+  it('a failed export shows the failure line and keeps the models saved', async () => {
+    api.exportSet.mockRejectedValue(new Error('export down'))
+    render(
+      <MemoryRouter>
+        <FlowHost />
+      </MemoryRouter>,
+    )
+    await saveTicked()
+    await waitFor(() => expect(screen.getByTestId('txr-models-saved-file')).toBeDefined())
+    expect(screen.getByTestId('txr-models-saved-file').textContent).toBe(
+      'The set file could not be saved. Your models are saved.',
+    )
+    expect(screen.getByTestId('txr-models-saved-summary').textContent).toContain(
+      'My fixtures, day 60',
+    )
   })
 })
 
