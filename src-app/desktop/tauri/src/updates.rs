@@ -1157,14 +1157,49 @@ mod tests {
             .expect("feed serializes")
     }
 
+    /// A feed entry object (`{url, signature}`).
+    fn feed_entry(url: &str, signature: &str) -> serde_json::Value {
+        serde_json::json!({ "url": url, "signature": signature })
+    }
+
+    /// A feed platform key that is ALWAYS different from
+    /// [`current_feed_target`]'s — the "at least one OTHER platform's key"
+    /// half of every platform-keyed fixture. The old fixtures named a fixed
+    /// Linux key, so on Windows/macOS they read (or failed to read) the wrong
+    /// entry; keying by the current target + one always-foreign key keeps
+    /// each test's meaning on every OS (W5).
+    fn other_feed_key() -> &'static str {
+        match current_feed_target() {
+            "linux-x86_64" => "windows-x86_64",
+            "windows-x86_64" => "darwin-aarch64",
+            "darwin-aarch64" | "darwin-x86_64" => "linux-x86_64",
+            // The `unknown` fallback is outside the supported OS matrix; any
+            // real feed key still differs from it.
+            _ => "windows-x86_64",
+        }
+    }
+
+    /// The `platforms` object of a platform-keyed fixture: an entry for
+    /// [`current_feed_target`] plus one for [`other_feed_key`].
+    fn feed_platforms(current: serde_json::Value, foreign: serde_json::Value) -> serde_json::Value {
+        let mut platforms = serde_json::Map::new();
+        platforms.insert(current_feed_target().to_string(), current);
+        platforms.insert(other_feed_key().to_string(), foreign);
+        serde_json::Value::Object(platforms)
+    }
+
     #[test]
     fn parse_feed_reads_the_current_platform_entry() {
+        // The asserted URL is the CURRENT platform's entry (the foreign
+        // platform carries the other artifact), so the reader proves it picks
+        // `current_feed_target()`'s entry on every OS — a fixed Linux entry
+        // made this test read Windows' URL on Windows (W5).
         let body = feed_body(
             "0.2.0",
-            serde_json::json!({
-                "linux-x86_64": {"url": "https://example.invalid/app.AppImage", "signature": "sig"},
-                "windows-x86_64": {"url": "https://example.invalid/app.exe", "signature": "sig"},
-            }),
+            feed_platforms(
+                feed_entry("https://example.invalid/app.AppImage", "sig"),
+                feed_entry("https://example.invalid/app.exe", "sig"),
+            ),
         );
         let info = parse_feed(&body)
             .expect("feed parses")
@@ -1175,12 +1210,15 @@ mod tests {
 
     #[test]
     fn parse_feed_none_when_the_current_platform_has_no_entry() {
-        let body = feed_body(
-            "0.2.0",
-            serde_json::json!({
-                "windows-x86_64": {"url": "https://example.invalid/app.exe", "signature": "sig"},
-            }),
+        // ONLY another platform's entry — `current_feed_target` is absent, so
+        // the answer is None on every OS (the fixed Linux-keyed fixture read
+        // the entry on Linux and answered None, but read it on Windows W5).
+        let mut platforms = serde_json::Map::new();
+        platforms.insert(
+            other_feed_key().to_string(),
+            feed_entry("https://example.invalid/app.exe", "sig"),
         );
+        let body = feed_body("0.2.0", serde_json::Value::Object(platforms));
         assert_eq!(
             parse_feed(&body).expect("feed parses"),
             None,
@@ -1195,13 +1233,23 @@ mod tests {
             // platforms missing entirely (an empty OBJECT is valid — no
             // entry for this platform → Ok(None), asserted separately).
             serde_json::to_vec(&serde_json::json!({"version": "0.2.0"})).unwrap(),
+            // The malformed entry is keyed to the CURRENT platform (plus a
+            // valid foreign entry), so the shape check always has the
+            // current platform's entry to reject — the fixed Linux-keyed bad
+            // entry answered Ok(None) on Windows/macOS instead of Err (W5).
             feed_body(
                 "0.2.0",
-                serde_json::json!({"linux-x86_64": {"url": "https://example.invalid/x", "signature": ""}}),
+                feed_platforms(
+                    feed_entry("https://example.invalid/x", ""),
+                    feed_entry("https://example.invalid/y", "sig"),
+                ),
             ),
             feed_body(
                 "0.2.0",
-                serde_json::json!({"linux-x86_64": {"url": "", "signature": "sig"}}),
+                feed_platforms(
+                    feed_entry("", "sig"),
+                    feed_entry("https://example.invalid/y", "sig"),
+                ),
             ),
         ] {
             assert!(
