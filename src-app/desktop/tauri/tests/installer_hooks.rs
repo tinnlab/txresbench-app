@@ -23,8 +23,16 @@ const BASE_CONF: &str = include_str!("../tauri.conf.json");
 const HOOKS: &str = include_str!("../windows/installer-hooks.nsh");
 
 /// The template's names the hook uses: the function the finish page would
-/// otherwise call for the desktop shortcut, and the main binary's name.
-const TEMPLATE_NAMES: [&str; 2] = ["CreateOrUpdateDesktopShortcut", "MAINBINARYNAME"];
+/// otherwise call for the desktop shortcut, the main binary's name, and, for
+/// the uninstall hook, the "Delete app data" checkbox's state and the
+/// update flag (both set by Tauri's template: Var DeleteAppDataCheckboxState
+/// and Var UpdateMode, see installer.nsi's Section Uninstall).
+const TEMPLATE_NAMES: [&str; 4] = [
+    "CreateOrUpdateDesktopShortcut",
+    "MAINBINARYNAME",
+    "DeleteAppDataCheckboxState",
+    "UpdateMode",
+];
 
 /// The hook's lines without comments (`;` outside a string) and blank lines.
 fn code_lines(text: &str) -> Vec<String> {
@@ -108,13 +116,52 @@ fn the_windows_config_installs_the_hook_in_a_per_user_installer() {
     let base = json(BASE_CONF);
     assert_eq!(base["bundle"]["createUpdaterArtifacts"], true);
     assert!(base["bundle"].get("windows").is_none(), "the base config sets no other Windows installer mode");
+    // Nothing that builds the real installer passes -DTXR_ defines to
+    // makensis: the hook's own !ifndef defaults are the production values.
+    // Tauri's CLI builds the NSIS installer from these two config files (it
+    // passes no -D flags at all, only charset and verbosity).
+    assert!(!WINDOWS_CONF.contains("TXR_"), "tauri.windows.conf.json passes -DTXR_ defines");
+    assert!(!BASE_CONF.contains("TXR_"), "tauri.conf.json passes -DTXR_ defines");
+}
+
+/// The overridable uninstall defines have their exact production defaults,
+/// each inside its own !ifndef block: the harness can override them (it
+/// defines them before including the hook, or makensis -D passes them), but
+/// the real installer must get the values the hook's own defaults pin —
+/// WSL's Lxss key, wsl.exe through Sysnative, the app's distro name, and the
+/// 60000 ms nsExec timeout for `wsl --unregister`.
+#[test]
+fn the_overridable_defines_have_the_production_defaults() {
+    let lines = code_lines(HOOKS);
+    let expected = [
+        ("TXR_LXSS_KEY", r#""Software\Microsoft\Windows\CurrentVersion\Lxss""#),
+        ("TXR_UNREG_WSL_EXE", r#""$WINDIR\Sysnative\wsl.exe""#),
+        ("TXR_DISTRO", r#""TxResBench""#),
+        ("TXR_UNREG_TIMEOUT_MS", "60000"),
+    ];
+    for (name, value) in expected {
+        let at = lines
+            .iter()
+            .position(|l| *l == format!("!ifndef {name}"))
+            .unwrap_or_else(|| panic!("no !ifndef {name}"));
+        assert_eq!(lines[at + 1], format!("!define {name} {value}"), "{name}");
+        assert_eq!(lines[at + 2], "!endif", "{name}");
+    }
 }
 
 #[test]
-fn the_hook_runs_after_install_only_and_never_on_uninstall() {
+fn the_hooks_are_postinstall_and_postuninstall_only() {
     let lines = code_lines(HOOKS);
     let hooks: Vec<&String> = lines.iter().filter(|l| l.starts_with("!macro NSIS_HOOK_")).collect();
-    assert_eq!(hooks, ["!macro NSIS_HOOK_POSTINSTALL"]);
+    assert_eq!(hooks, ["!macro NSIS_HOOK_POSTINSTALL", "!macro NSIS_HOOK_POSTUNINSTALL"]);
+    // Only the template's macro names: PREUNINSTALL is never used, because at
+    // that point the app may still be running (CheckIfAppIsRunning comes
+    // after) while POSTUNINSTALL runs after the app is closed, the files are
+    // gone and the checkbox's state is known.
+    assert!(!HOOKS.contains("NSIS_HOOK_PREUNINSTALL"), "the hook has no pre-uninstall macro");
+    // No `un.` functions either: the uninstall hook's whole body lives in its
+    // macro, so the harness can run the very same code from its Install
+    // section (an `un.` function could not be called there).
     assert!(!lines.iter().any(|l| l.starts_with("Function un.")), "no uninstaller code");
 }
 
@@ -151,9 +198,11 @@ fn updates_and_unattended_installs_skip_the_wsl_step() {
     assert_eq!(skip[x86 + 2], r#"StrCpy $TxrWslOutcome "skipped-32-bit""#);
     assert!(skip[x86 + 3].starts_with(r#"DetailPrint "WSL check skipped: this is 32-bit Windows,"#), "{}", skip[x86 + 3]);
     assert_eq!(skip[x86 + 4], "${Else}");
-    for template_var in ["$UpdateMode", "$PassiveMode"] {
-        assert!(!HOOKS.contains(template_var), "{template_var}");
-    }
+    // The install step reads the flags itself, so only the uninstall hook
+    // reads the template's update flag (its guard, checked below); the
+    // template's passive flag is read by nobody.
+    assert!(!HOOKS.contains("$PassiveMode"), "$PassiveMode");
+    assert_eq!(code_lines(HOOKS).iter().filter(|l| l.contains("$UpdateMode")).count(), 1, "$UpdateMode");
 }
 
 /// When this installer itself runs as administrator (an elevated token,
@@ -494,7 +543,7 @@ fn the_download_questions_give_the_size() {
 }
 
 #[test]
-fn only_the_system_plug_in_is_used() {
+fn only_the_system_and_nsexec_plug_ins_are_used() {
     let plugins: BTreeSet<String> = code_lines(HOOKS)
         .iter()
         .filter_map(|l| {
@@ -503,16 +552,31 @@ fn only_the_system_plug_in_is_used() {
             Some(name.to_string())
         })
         .collect();
-    assert_eq!(plugins, BTreeSet::from(["System".to_string()]));
+    assert_eq!(plugins, BTreeSet::from(["System".to_string(), "nsExec".to_string()]));
 }
 
-/// WSL is installed or updated, never removed, and never with a Linux
-/// distribution of its own (the app imports its own distro).
+/// WSL itself is never installed without `--no-distribution` (the app imports
+/// its own distro), and the only thing ever removed is the app's own distro,
+/// by its exact name: `--unregister ${TXR_DISTRO}` is the whole argument list
+/// to wsl.exe. No other distro name or wsl.exe operation appears.
 #[test]
-fn wsl_is_never_removed_and_no_distribution_is_installed() {
-    for banned in ["--unregister", "--uninstall", "--shutdown", "--distribution ", " -d ", "Ubuntu"] {
+fn only_the_apps_own_distro_is_removed() {
+    for banned in ["--uninstall", "--shutdown", "--distribution ", " -d ", "Ubuntu"] {
         assert!(!HOOKS.contains(banned), "{banned}");
     }
+    // One wsl.exe call, with the distro's name as the whole argument list; the
+    // only other mention is the DetailPrint that reports the exit code (the
+    // log says what happened, it never claims success).
+    let unreg: Vec<String> = code_lines(HOOKS).into_iter().filter(|l| l.contains("--unregister")).collect();
+    assert_eq!(
+        unreg,
+        [
+            r#"nsExec::Exec '/TIMEOUT=${TXR_UNREG_TIMEOUT_MS}' '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'"#
+                .to_string(),
+            r#"DetailPrint "TxResBench's WSL distro: wsl --unregister exited with $TxrWslUnregExit.""#.to_string(),
+        ],
+        "one wsl.exe call, and the log line"
+    );
     let needle = "--install";
     let mut seen = 0;
     for (at, _) in HOOKS.match_indices(needle) {
@@ -520,6 +584,106 @@ fn wsl_is_never_removed_and_no_distribution_is_installed() {
         seen += 1;
     }
     assert!(seen >= 4, "the two commands and the two messages: {seen}");
+    // The distro name comes from one define whose default is exactly the
+    // app's distro (the constant `wsl -d` uses in the app).
+    let default = code_lines(HOOKS)
+        .into_iter()
+        .find_map(|l| l.strip_prefix("!define TXR_DISTRO ").map(str::to_string))
+        .unwrap()
+        .trim_matches('"')
+        .to_string();
+    assert_eq!(default, "TxResBench");
+}
+
+/// The uninstall hook removes the distro only when the "Delete app data" box
+/// was ticked and this is not an update — the same two conditions as the
+/// template's own app data deletion (installer.nsi reads
+/// `$DeleteAppDataCheckboxState` and `$UpdateMode` the same way) — and the
+/// whole removal sits inside that guard: nothing runs when the box is not
+/// ticked or the uninstaller was run with /UPDATE. The guard is also what the
+/// silent and passive runs take (their page skips leave the box's state
+/// unset).
+#[test]
+fn the_uninstall_hook_runs_only_when_the_box_is_ticked_and_outside_an_update() {
+    let hook = block("NSIS_HOOK_POSTUNINSTALL");
+    assert_eq!(hook[0], r#"${If} $DeleteAppDataCheckboxState = 1"#);
+    assert_eq!(hook[1], r#"${AndIf} $UpdateMode <> 1"#);
+    assert_eq!(hook.last().unwrap(), "${EndIf}");
+    let at = hook.iter().position(|l| l.starts_with("nsExec::Exec ")).expect("the unregister call");
+    assert!(at > 2, "the call is inside the guard");
+    // The call is reached only when a TxResBench entry was found, and the
+    // BasePath is read from that very entry.
+    assert_eq!(hook[at - 2], r#"${If} $TxrWslUnregFound != """#);
+    assert_eq!(
+        hook[at - 1],
+        r#"ReadRegStr $TxrWslUnregBasePath HKCU "${TXR_LXSS_KEY}\$TxrWslUnregFound" "BasePath""#
+    );
+    // The guard reads the template's variables here and nowhere else in the
+    // file (the install step reads its own flags from the command line).
+    let lines = code_lines(HOOKS);
+    let count = |v: &str| lines.iter().filter(|l| l.contains(v)).count();
+    assert_eq!(count("$DeleteAppDataCheckboxState"), 1);
+    assert_eq!(count("$UpdateMode"), 1);
+}
+
+/// The uninstall part never asks for administrator rights (no runas, no
+/// ShellExecuteExW, no SysWOW64), never deletes anything recursively (one
+/// RMDir without /r, on the distro's own BasePath, which removes only an
+/// empty directory), leaves the WSL registry entry to wsl.exe, and matches
+/// the distro name exactly: a case-sensitive compare (S==) against the one
+/// define, so a `txrbench` entry or another distro is never touched.
+#[test]
+fn the_uninstall_hook_never_elevates_and_removes_only_an_empty_directory() {
+    let hook = block("NSIS_HOOK_POSTUNINSTALL");
+    for banned in ["runas", "ShellExecuteExW", "ExecWait ", "$WINDIR\\SysWOW64"] {
+        assert!(!hook.iter().any(|l| l.contains(banned)), "{banned}");
+    }
+    let rmdir: Vec<&String> = hook.iter().filter(|l| l.starts_with("RMDir ")).collect();
+    assert_eq!(rmdir, [r#"RMDir "$TxrWslUnregDir""#]);
+    assert!(!hook.iter().any(|l| l.contains("/r ")), "no recursive deletion");
+    assert!(!hook.iter().any(|l| l.contains("DeleteRegKey")), "wsl.exe removes the entry itself");
+    // Exact-name match: the one compare is case-sensitive and reads the
+    // define, never a literal name.
+    assert!(hook.contains(&r#"${If} $TxrWslUnregName S== "${TXR_DISTRO}""#.to_string()));
+    assert_eq!(
+        code_lines(HOOKS).iter().filter(|l| l.contains(r#""TxResBench""#)).count(),
+        1,
+        "only the define's default names the distro"
+    );
+    // WSL stores BasePath as \\?\C:\...; the hook strips the \\?\ prefix so
+    // RMDir gets the plain drive path, and only then removes the directory.
+    let strip = hook
+        .iter()
+        .position(|l| *l == r#"StrCpy $TxrWslUnregName $TxrWslUnregDir 4"#)
+        .expect("the prefix is checked");
+    assert_eq!(hook[strip + 1], r#"${If} $TxrWslUnregName == "\\?\""#);
+    assert_eq!(hook[strip + 2], r#"StrCpy $TxrWslUnregDir $TxrWslUnregBasePath "" 4"#);
+    // The hook uses only its own variables: the template's registers
+    // ($0-$9, $R0-$R9) are left as they were.
+    for reg in (0..10).flat_map(|i| [format!("${i}"), format!("$R{i}")]) {
+        assert!(
+            !hook.iter().any(|l| l.split(|c: char| !(c.is_ascii_alphanumeric() || c == '$')).any(|w| w == reg)),
+            "the uninstall hook uses the register {reg}"
+        );
+    }
+    let rmdir_at = hook.iter().position(|l| l.starts_with("RMDir ")).unwrap();
+    assert!(strip < rmdir_at, "the strip happens before RMDir");
+}
+
+/// The harness points the hook's overridable paths at its own key and its own
+/// wsl.exe stand-in, and runs the production uninstall macro; the real WSL
+/// Lxss key and the real wsl.exe are nowhere in it.
+#[test]
+fn the_harness_never_touches_the_real_wsl_or_lxss_key() {
+    const HARNESS: &str = include_str!("../windows/hook-harness.nsi");
+    assert!(HARNESS.contains(r#"!define TXR_LXSS_KEY "Software\TxResBenchHarness\Lxss""#));
+    assert!(HARNESS.contains(r#"!define TXR_UNREG_WSL_EXE "$Work\${TXR_HARNESS_WSL}""#));
+    // The harness's own short timeout: the wsl-hangs case's stand-in is silent
+    // for 10 s, so nsExec must time it out (instead of the production 60000).
+    assert!(HARNESS.contains("!define TXR_UNREG_TIMEOUT_MS 3000"));
+    assert!(!HARNESS.contains(r#"CurrentVersion\Lxss"#), "the real WSL Lxss key");
+    assert!(!HARNESS.contains(r"Sysnative\wsl.exe"), "the real wsl.exe");
+    assert!(HARNESS.contains("!insertmacro NSIS_HOOK_POSTUNINSTALL"), "the scenario runs the production macro");
 }
 
 /// The hook's `TXR_WSL_*` codes are the app's `WslStatus` codes, both ways.
@@ -596,7 +760,7 @@ fn the_hook_relies_on_the_template_only_for_the_listed_names() {
     let nsis_vars = ["INSTDIR", "WINDIR", "HWNDPARENT", "R0", "R1", "R2", "R3", "R4", "R5"];
     let header_defines = [
         "If", "IfNot", "ElseIf", "ElseIfNot", "Else", "EndIf", "OrIf", "AndIf", "Errors", "Silent", "RunningX64",
-        "GetOptions", "GetParameters",
+        "GetOptions", "GetParameters", "Do", "Loop", "Break", "FileExists",
     ];
     let template: BTreeSet<&str> = TEMPLATE_NAMES.into_iter().collect();
     let mut used_template = BTreeSet::new();
@@ -619,10 +783,14 @@ fn the_hook_relies_on_the_template_only_for_the_listed_names() {
             } else {
                 let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
                 if !name.is_empty() {
-                    assert!(
-                        own_vars.contains(&name) || nsis_vars.contains(&name.as_str()),
-                        "unknown variable ${name} in: {line}"
-                    );
+                    if template.contains(name.as_str()) {
+                        used_template.insert(name);
+                    } else {
+                        assert!(
+                            own_vars.contains(&name) || nsis_vars.contains(&name.as_str()),
+                            "unknown variable ${name} in: {line}"
+                        );
+                    }
                 }
             }
         }

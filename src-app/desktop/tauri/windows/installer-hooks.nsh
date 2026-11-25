@@ -2,7 +2,7 @@
 ; bundle.windows.nsis.installerHooks). Tauri includes this file near the top of
 ; its installer.nsi, before its pages, and inserts NSIS_HOOK_POSTINSTALL at the
 ; end of its Install section, after the app's files, registry keys and
-; shortcuts.
+; shortcuts, and NSIS_HOOK_POSTUNINSTALL at the end of its Uninstall section.
 ;
 ; Methods run in the app's own WSL 2 distro, which the app imports by itself
 ; without admin rights; what the PC must have is WSL itself. After the app is
@@ -22,8 +22,11 @@
 ;      Machine Platform on;
 ;   4. offers a restart on the finish page when Windows needs one.
 ; The app is installed whatever happens here; the app's own check says what is
-; missing when it starts. Uninstalling the app never touches WSL: this file has
-; no uninstall hook.
+; missing when it starts. When the uninstaller's "Delete app data" box is
+; ticked and this is not an update, this hook also unregisters the app's own
+; WSL distro (TxResBench) and removes its then-empty directory; with the box
+; not ticked nothing about uninstalling changes: WSL itself and every other
+; distro are never touched, and the distro stays as today.
 ;
 ; The installer is a 32-bit program, and wsl.exe exists only in the 64-bit
 ; System32. So what runs as administrator is the 32-bit cmd.exe (SysWOW64),
@@ -35,7 +38,9 @@
 ; nothing, nor when Windows does not say what the token is. With UAC turned off
 ; (TokenElevationTypeDefault) no prompt separates the user from administrator
 ; rights, and the hook runs as usual.
-; Only the System plug-in, which Tauri ships and signs, is used.
+; Two plug-ins are used: System, which Tauri ships and signs (the elevation
+; type), and nsExec, a standard NSIS plug-in (part of the NSIS Tauri bundles),
+; to run wsl.exe hidden in the uninstaller.
 
 ; The restart texts below are read by the first finish page inserted after
 ; them. MUI2 defines this name when it inserts a finish page that can offer a
@@ -49,6 +54,36 @@
 !include LogicLib.nsh
 !include FileFunc.nsh
 !include x64.nsh
+
+; What the uninstall hook removes, and with what. The defaults are the
+; production values; the test harness overrides them (it defines them before
+; including this file, or with makensis -D), so it never runs the real wsl.exe
+; or reads WSL's real Lxss key.
+; - TXR_LXSS_KEY: where WSL keeps this user's distro entries
+;   (HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss, each subkey a
+;   {guid} with DistributionName and BasePath), the same data the app uses
+;   (`wsl_run.rs`).
+; - TXR_UNREG_WSL_EXE: wsl.exe, reached through the Sysnative alias: this installer
+;   and uninstaller are 32-bit, and wsl.exe lives in the 64-bit System32 (the
+;   install hook starts it the same way).
+; - TXR_DISTRO: the app's own distro, the constant used for `wsl -d` in the
+;   app (WSL_DISTRO in wsl_run.rs); only that exact name is matched.
+; - TXR_UNREG_TIMEOUT_MS: how long the uninstaller waits for wsl.exe before
+;   nsExec stops it (nsExec's /TIMEOUT); an idle timeout, the milliseconds
+;   without output from wsl.exe. nsExec returns "timeout" then, not an exit
+;   code, and the uninstall goes on.
+!ifndef TXR_LXSS_KEY
+  !define TXR_LXSS_KEY "Software\Microsoft\Windows\CurrentVersion\Lxss"
+!endif
+!ifndef TXR_UNREG_WSL_EXE
+  !define TXR_UNREG_WSL_EXE "$WINDIR\Sysnative\wsl.exe"
+!endif
+!ifndef TXR_DISTRO
+  !define TXR_DISTRO "TxResBench"
+!endif
+!ifndef TXR_UNREG_TIMEOUT_MS
+  !define TXR_UNREG_TIMEOUT_MS 60000
+!endif
 
 ; The exit codes of `txresbench-desktop.exe --wsl-status`
 ; (WslStatus in wsl_status.rs; tests/installer_hooks.rs checks both lists).
@@ -100,6 +135,16 @@ Var TxrElevStarted        ; 1: it ran
 Var TxrElevError          ; the Windows error when it did not start (1223: the user said No)
 Var TxrElevExit           ; its exit code when it ran, "" if not known
 
+; The uninstall hook. Tauri's template declares the two variables it reads
+; ($DeleteAppDataCheckboxState, $UpdateMode); these are this file's own.
+Var TxrWslUnregFound      ; the Lxss subkey whose DistributionName is the app's distro; "" when none
+Var TxrWslUnregSubkey     ; the Lxss subkey being looked at
+Var TxrWslUnregName       ; its DistributionName value
+Var TxrWslUnregBasePath   ; its BasePath value (the distro's directory)
+Var TxrWslUnregDir        ; the directory RMDir gets (BasePath without a \\?\ prefix)
+Var TxrWslUnregIndex      ; the EnumRegKey index
+Var TxrWslUnregExit       ; what nsExec returned: the exit code of `wsl --unregister`, "error" when it could not run, "timeout" when it was stopped
+
 !macro NSIS_HOOK_POSTINSTALL
   ; Tauri's template defines it; without it the check could not find the app.
   !ifndef MAINBINARYNAME
@@ -118,6 +163,95 @@ Var TxrElevExit           ; its exit code when it ran, "" if not known
     StrCpy $TxrWslInstallParams '/d /s /c ""$WINDIR\Sysnative\wsl.exe" --install --no-distribution"'
     StrCpy $TxrWslUpdateParams '/d /s /c ""$WINDIR\Sysnative\wsl.exe" --update && "$WINDIR\Sysnative\wsl.exe" --install --no-distribution"'
     Call TxrWslSetup
+  ${EndIf}
+!macroend
+
+; The uninstaller's counterpart of the install hook, run by Tauri's template
+; at the end of its Section Uninstall (NSIS_HOOK_POSTUNINSTALL, after the
+; template checked that the app is closed, deleted the app files and made the
+; "Delete app data" page's removals — the two variables it reads are set there
+; and are reliable here and only here; these facts were checked against the
+; generated installer.nsi of tauri-bundler 2.10.5):
+;   $DeleteAppDataCheckboxState is set on the Confirm page's leave callback
+;   (un.ConfirmLeave sends BM_GETCHECK); when that page is skipped — a silent
+;   (/S), passive (/P) or update (/UPDATE) run — it is never set, so it also
+;   guards those;
+;   $UpdateMode is set by un.onInit from /UPDATE, exactly as the template's
+;   own "Delete app data" block reads it: the updater runs this installer and
+;   the old uninstaller with /UPDATE (and /P or /S) and an update must never
+;   remove the user's WSL distro.
+; With the box ticked and outside an update, the app's own WSL distro is
+; unregistered (`wsl --unregister TxResBench` deletes the distro and its disk,
+; ext4.vhdx), as the current user: a user's distro is unregistered by that
+; user, so this never asks for administrator rights — nsExec runs hidden, in
+; this process's token. The distro is found by its exact name, so another
+; distro is never touched, and WSL itself (the program) is never touched. The
+; then-empty distro directory is removed with RMDir, never RMDir /r, so a
+; directory with anything else in it stays. Whatever wsl.exe says, the
+; uninstall continues: a failure is logged, never shown or re-run.
+; The app installs per user (tauri.windows.conf.json installMode currentUser),
+; so the uninstaller runs as that user. If someone runs it elevated as a
+; DIFFERENT administrator, HKCU is that administrator's: the user's distro is
+; left alone, and that administrator's own TxResBench distro, if any, is the
+; one found.
+; The whole body lives here, not in an `un.` function, because the harness
+; (hook-harness.nsi) reuses exactly this macro from its own Install section.
+!macro NSIS_HOOK_POSTUNINSTALL
+  ${If} $DeleteAppDataCheckboxState = 1
+  ${AndIf} $UpdateMode <> 1
+    ; Find the Lxss subkey whose DistributionName is exactly the app's distro
+    ; (EnumRegKey + ReadRegStr, no reg.exe). Only when one exists is anything
+    ; done: the app's distro is the one a TxResBench entry names.
+    ; HKCU\Software is not redirected for a 32-bit process (Registry Keys Affected by WOW64), so this 32-bit uninstaller reads the same Lxss key WSL writes.
+    StrCpy $TxrWslUnregFound ""
+    StrCpy $TxrWslUnregIndex 0
+    ${Do}
+      ClearErrors
+      EnumRegKey $TxrWslUnregSubkey HKCU "${TXR_LXSS_KEY}" $TxrWslUnregIndex
+      ${If} ${Errors}
+        StrCpy $TxrWslUnregSubkey ""
+      ${EndIf}
+      ${If} $TxrWslUnregSubkey == ""
+        ${Break}
+      ${EndIf}
+      IntOp $TxrWslUnregIndex $TxrWslUnregIndex + 1
+      ReadRegStr $TxrWslUnregName HKCU "${TXR_LXSS_KEY}\$TxrWslUnregSubkey" "DistributionName"
+      ; S== is the case-sensitive compare: only the exact name is the app's distro.
+      ${If} $TxrWslUnregName S== "${TXR_DISTRO}"
+        StrCpy $TxrWslUnregFound $TxrWslUnregSubkey
+        ${Break}
+      ${EndIf}
+    ${Loop}
+    ${If} $TxrWslUnregFound != ""
+      ReadRegStr $TxrWslUnregBasePath HKCU "${TXR_LXSS_KEY}\$TxrWslUnregFound" "BasePath"
+      ; wsl.exe is started (hidden) and stopped by nsExec after
+      ; TXR_UNREG_TIMEOUT_MS without output: a wedged WSL service can never
+      ; hang the uninstaller. nsExec returns "timeout" then (it terminates the
+      ; process it started — wsl.exe itself, because this 32-bit uninstaller
+      ; runs under WOW64 on 64-bit Windows and nsExec starts wsl.exe directly
+      ; there; on a real 32-bit Windows there is no Sysnative wsl.exe to start
+      ; anyway), "error" when wsl.exe cannot be started, or the exit code.
+      ; Whatever it says, the uninstall goes on below.
+      nsExec::Exec '/TIMEOUT=${TXR_UNREG_TIMEOUT_MS}' '"${TXR_UNREG_WSL_EXE}" --unregister ${TXR_DISTRO}'
+      Pop $TxrWslUnregExit
+      ; wsl.exe removed the distro and its disk; the BasePath directory is
+      ; empty then. RMDir takes only an empty directory, so anything still in
+      ; it (or an unregister that failed or was timed out) leaves it as is.
+      ; WSL stores BasePath with a \\?\ prefix (\\?\C:\...). RMDir gets the
+      ; plain drive path: the prefix is stripped first.
+      ; ($TxrWslUnregName, no longer needed here, holds the prefix: the
+      ; hook leaves the template's registers alone.)
+      StrCpy $TxrWslUnregDir $TxrWslUnregBasePath
+      StrCpy $TxrWslUnregName $TxrWslUnregDir 4
+      ${If} $TxrWslUnregName == "\\?\"
+        StrCpy $TxrWslUnregDir $TxrWslUnregBasePath "" 4
+      ${EndIf}
+      ${If} $TxrWslUnregDir != ""
+        ClearErrors
+        RMDir "$TxrWslUnregDir"
+      ${EndIf}
+      DetailPrint "TxResBench's WSL distro: wsl --unregister exited with $TxrWslUnregExit."
+    ${EndIf}
   ${EndIf}
 !macroend
 

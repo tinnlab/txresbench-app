@@ -8,6 +8,10 @@
 #       [-Makensis <makensis.exe> -Nsi <hook-harness.nsi> -Hooks <installer-hooks.nsh>]
 #
 # With -Makensis it also checks that the hook's compile-time guards stop a build.
+# The -Hooks path is passed straight into makensis' -DTXR_HOOKS=, so give an
+# absolute path (or one relative to hook-harness.nsi's directory): makensis
+# resolves !include relative to the .nsi's own directory, and from PowerShell
+# the -D... argument must be quoted.
 # Exit 0 when every case passes.
 param(
   [Parameter(Mandatory = $true)][string]$Harness,
@@ -57,6 +61,11 @@ function Run-Case([string]$Name, [string[]]$Codes, [string[]]$Flags, [hashtable]
 # that index wrap the call in @()).
 function Status-Calls($dir) {
   $f = Join-Path $dir 'status-calls.txt'
+  if (Test-Path $f) { return @(Get-Content $f) } else { return @() }
+}
+# The wsl.exe stand-in's command lines (the same shape as Status-Calls).
+function Wsl-Calls($dir) {
+  $f = Join-Path $dir 'wsl-calls.txt'
   if (Test-Path $f) { return @(Get-Content $f) } else { return @() }
 }
 
@@ -251,7 +260,76 @@ foreach ($c in @(
 # 7. The token's elevation type, as the hook reads it, is the one Windows reports.
 Run-Case 'elevation' @() @('/SCENARIO=elevation', '/S') @{ elevation = $elevation; outcome = '' } $calls
 
-# 8. The compile-time guards: a template without MAINBINARYNAME, one that
+# 8. The uninstall scenario: with the "Delete app data" box ticked and outside
+#    an update, the app's own distro is unregistered through the stand-in
+#    wsl.exe — one call, `--unregister TxResBench`; not ticked, an update
+#    (/UPDATE, as the real updater passes it), no TxResBench entry, or only
+#    another distro's entry make no call. Every case must leave the harness's
+#    own key gone.
+$unregKeyGone = { param($case, $dir, $r)
+  Check $case 'harness key removed' (-not (Test-Path 'HKCU:\Software\TxResBenchHarness')) 'HKCU\Software\TxResBenchHarness is still there'
+}
+$unregCalled = { param($case, $dir, $r)
+  $lines = @(Wsl-Calls $dir)
+  Check $case 'wsl called once' ($lines.Count -eq 1) "$($lines.Count) calls"
+  if ($lines.Count -eq 1) { $got = $lines[0] } else { $got = '' }
+  Check $case 'wsl --unregister TxResBench' $got.EndsWith('--unregister TxResBench') "got '$got'"
+  & $unregKeyGone $case $dir $r
+}
+$unregQuiet = { param($case, $dir, $r)
+  $lines = @(Wsl-Calls $dir)
+  Check $case 'no wsl call' ($lines.Count -eq 0) "$($lines.Count) calls"
+  & $unregKeyGone $case $dir $r
+}
+# wsl-hangs: the stand-in is silent for 10 s, the harness's /TIMEOUT is 3000 ms,
+# so nsExec stops it and reports "timeout" (not an exit code); the uninstall
+# keeps going, the distro's disk and directory stay, and nothing of the
+# stand-in may survive the case — nsExec ends the process on timeout, but a
+# harness run on 32-bit Windows goes through nsExec's helper copy, which is
+# what gets terminated, so stop the stand-in by name as well.
+$unregHangs = { param($case, $dir, $r)
+  $lines = @(Wsl-Calls $dir)
+  Check $case 'wsl called once' ($lines.Count -eq 1) "$($lines.Count) calls"
+  if ($lines.Count -eq 1) { $got = $lines[0] } else { $got = '' }
+  Check $case 'wsl --unregister TxResBench' $got.EndsWith('--unregister TxResBench') "got '$got'"
+  Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like '*txr-harness-wsl*' } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 200
+  Check $case 'stand-in ended' (-not (Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like '*txr-harness-wsl*' })) 'txr-harness-wsl still running'
+  # The timed-out command never finished: its disk is still there, so the
+  # directory stayed too (checked as base_path_after above).
+  Check $case 'disk stays' (Test-Path (Join-Path $dir 'wsl-data\TxResBench\ext4.vhdx')) 'ext4.vhdx removed'
+  & $unregKeyGone $case $dir $r
+}
+# long-path: BasePath is stored with WSL's \\?\ prefix; the hook strips it
+# before RMDir, so the directory is removed exactly like the registered case.
+$unregLongPath = { param($case, $dir, $r)
+  & $unregCalled $case $dir $r
+  Check $case 'BasePath kept the \\?\ prefix' ($r['unreg_base_path'].StartsWith('\\?\')) "got '$($r['unreg_base_path'])', no \\?\ prefix"
+}
+$unregBasePath = @{ 'registered' = 'no'; 'extra-file' = 'yes'; 'wsl-fails' = 'yes'; 'no-tick' = 'yes'; 'update' = 'yes'; 'absent' = 'no'; 'other-distro' = 'no'; 'wsl-hangs' = 'yes'; 'long-path' = 'no' }
+foreach ($c in @(
+    @{ n = 'unreg-registered';   c = 'registered';   x = $unregCalled; exitK = '0' },
+    @{ n = 'unreg-extra-file';   c = 'extra-file';   x = $unregCalled; exitK = '0' },
+    @{ n = 'unreg-wsl-fails';    c = 'wsl-fails';    x = $unregCalled; exitK = '1' },
+    @{ n = 'unreg-wsl-hangs';    c = 'wsl-hangs';    x = $unregHangs;  exitK = 'timeout' },
+    @{ n = 'unreg-long-path';    c = 'long-path';    x = $unregLongPath; exitK = '0' },
+    @{ n = 'unreg-no-tick';      c = 'no-tick';      x = $unregQuiet },
+    @{ n = 'unreg-update';       c = 'update';       x = $unregQuiet; update = $true },
+    @{ n = 'unreg-absent';       c = 'absent';       x = $unregQuiet },
+    @{ n = 'unreg-other-distro'; c = 'other-distro'; x = $unregQuiet })) {
+  $flags = @('/SCENARIO=uninstall', '/S', "/CASE=$($c.c)")
+  if ($c.update) { $flags += '/UPDATE' }
+  $tick = '1'
+  if ($c.c -eq 'no-tick') { $tick = '0' }
+  $mode = '0'
+  if ($c.update) { $mode = '1' }
+  $e = @{ 'case' = $c.c; 'delete_app_data' = $tick; 'update_mode' = $mode; 'base_path_after' = $unregBasePath[$c.c] }
+  if ($c.exitK) { $e['unreg_exit'] = $c.exitK }
+  Run-Case $c.n @() $flags $e $c.x
+}
+
+# 9. The compile-time guards: a template without MAINBINARYNAME, one that
 #    includes the hook after its finish page, one whose finish page cannot offer
 #    a restart, and one without a finish page do not build; the harness as it is
 #    builds, with no warning.
