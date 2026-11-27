@@ -116,13 +116,18 @@ conversions, in the TxResBench package's
 one map per need its training scores cover — every learned outcome without a
 native probability, at the run's look-ahead — fitted on those scores
 (out-of-fold for a `fitted` method; no extra call), and the shown outcome's map
-makes its column; a reuse run records the one map it applied. The model store
-copies a train run's file into a saved model (the package's `save()` keeps the
-conversions with the model) and hands it back on the reuse asset
-(`TxrModelAsset.conversions`). A reuse run applies, in order: the method's own
-probability (`native`); a refit on the run's own patients when the run carries
-their outcomes (`recalibrated`); otherwise the saved model's conversion for the
-run's (outcome, horizon) (`converted` — the package's `predict()`). Without a
+makes its column; a data-carrying reuse run records the FULL conversion
+re-fitted on its own cohort's scores — the refit is cross-fitted per fold
+(fold `k`'s conversion is fitted on the other folds' scores and outcomes, so a
+cohort patient's shown chance never used its own score; the full conversion
+is the recorded one). The model store copies a train run's file into a saved
+model (the package's `save()` keeps the conversions with the model) and hands
+it back on the reuse asset (`TxrModelAsset.conversions`). A reuse run applies,
+in order: the method's own probability (`native`); a refit on the run's own
+patients when the run carries their outcomes (`recalibrated` — re-fitted on
+that cohort and cross-fitted per fold, with the full conversion recorded);
+otherwise the saved model's conversion for the run's (outcome, horizon)
+(`converted` — the package's `predict()`). Without a
 matching saved conversion the column has no chances (`none`) and each note
 says why (a model saved before conversions were kept, or a conversion for
 another outcome/day). The predictions surface reports `flat_conversion` when
@@ -202,7 +207,11 @@ applied map recorded as `conversions.json`), the live
   the four module-owned tables the consumers bind (`txr_runs`,
   `txr_run_methods`, `txr_run_logs`, `txr_app_config`) + the additive `0005`
   produced-model columns of `txr_run_methods` + the additive `0006` run
-  estimate column of `txr_runs`.
+  estimate column of `txr_runs`;
+  `migrations/202610260011_txr_timing_samples.sql` + the additive
+  `202611260001_txr_timing_samples_crosschecked.sql` (after
+  `202611240001_txr_run_methods_markers_used.sql`) — the estimate
+  calibration's `txr_timing_samples` table + its `crosschecked` marker column.
 
 ## Data hygiene rules
 

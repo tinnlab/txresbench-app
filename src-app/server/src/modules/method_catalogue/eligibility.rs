@@ -1440,14 +1440,24 @@ fn inventory_method(
         // run will use (Auto = the host's detected CPUs — CM-7's one source;
         // the estimate endpoint's omission path resolves the same count) and
         // the app's measured-time calibration (R2-3 — a method the app has
-        // already run estimates with its own measured per-fold seconds).
-        estimated_seconds: calibration::calibrated_estimate_seconds_for(
+        // already run estimates with its own measured per-fold seconds). The
+        // request's `mode` is threaded through too (crosschecked-chances):
+        // a learning run's row for a method that learns carries the
+        // cross-check time factor, so the "Fast only" preset and the row's
+        // time read ONE number — the estimate engine never duplicates the
+        // multiplication in the UI.
+        estimated_seconds: calibration::calibrated_estimate_seconds_for_mode(
             m,
             inv.patients,
             host_cpus(),
             calibration,
+            inv.mode,
         ),
-        estimate_quality: calibration::calibrated_estimate_quality_for(m, calibration),
+        estimate_quality: calibration::calibrated_estimate_quality_for_mode(
+            m,
+            calibration,
+            inv.mode,
+        ),
     }
 }
 
@@ -2570,6 +2580,7 @@ mod tests {
             covariates,
             outcomes: None,
             filters: None,
+            mode: None,
         }
     }
 
@@ -3532,6 +3543,51 @@ mod tests {
         assert_eq!(estimate_seconds_for(mm, 300, 0), 60.0 * 2.0 * 1.0); // 0 -> default
         assert_eq!(estimate_seconds_for(mm, 150, 4), 60.0);
         assert_eq!(estimate_quality_for(mm), TimingQuality::Measured);
+    }
+
+    /// crosschecked-chances: the row's `estimated_seconds` is the ONE number
+    /// the "Fast only" preset reads, and it carries the cross-check factor in
+    /// train mode — a learner at a 30 s base becomes 120 s (over the 60 s
+    /// ceiling, so it drops out of Fast on a learning run), a fixed-rule
+    /// method stays 30 s, and an absent mode is today's number. The factor is
+    /// applied HERE (server-side), never in the UI.
+    #[test]
+    fn inventory_rows_carry_the_crosscheck_factor_in_train_mode() {
+        let learner = method_json("fx-learner", &[
+            ("fitted", serde_json::json!(true)),
+            ("timing", serde_json::json!({
+                "base_seconds_per_fold": 30.0, "benchmarked_units": 1, "quality": "measured"})),
+        ]);
+        let fixed = method_json("fx-rule", &[
+            ("timing", serde_json::json!({
+                "base_seconds_per_fold": 30.0, "benchmarked_units": 1, "quality": "measured"})),
+        ]);
+        let cat = catalogue_with(serde_json::json!([learner, fixed]), serde_json::json!([]));
+        let entries = vec![pat("p0", 1, 1)];
+        let markers = vec![inv_marker("M1", "percent", vec![sid("HGNC", "M1")], Some(entries))];
+        let base = inventory_req(1, markers, vec![]);
+
+        // Absent mode (old callers): the DEC-7 numbers, factor-free.
+        let v = verdict_of(&cat, &base, "fx-learner");
+        assert_eq!(
+            v.estimated_seconds,
+            30.0 * (1.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
+        );
+        // Train mode: the learner's row is x4 (and 120 s > the 60 s Fast
+        // ceiling — the preset membership changes exactly here).
+        let mut train = base.clone();
+        train.mode = Some(crate::modules::method_catalogue::types::EstimateMode::Train);
+        let v = verdict_of(&cat, &train, "fx-learner");
+        assert_eq!(
+            v.estimated_seconds,
+            120.0 * (1.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
+        );
+        // A fixed-rule method stays at 30 s even in train mode.
+        let v = verdict_of(&cat, &train, "fx-rule");
+        assert_eq!(
+            v.estimated_seconds,
+            30.0 * (1.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
+        );
     }
 
     // ---- QA-fixes ITEM-2: the runtime-env stage + the 0-eligible verdict ----

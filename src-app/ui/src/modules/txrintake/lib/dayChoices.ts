@@ -197,6 +197,36 @@ export function knownOutcomeLine(
 }
 
 /**
+ * The methods-step notice when the file is too small for the engine's
+ * cross-check at the chosen look-ahead day, or null: the counting is the
+ * SAME known-label labelling the day line uses ([`knownOutcomes`] — the
+ * engine's own: a follow-up past the decision day, an event at or before
+ * the look-ahead day counts as "had the outcome", a follow-up beyond it as
+ * "did not"). The limits are the run's proven cohort-level counterparts of
+ * the per-fold cross-check ([`facts.limits.crosscheck_min_patients`] /
+ * [`crosscheck_min_per_class`]): below them some fold's training part would
+ * not meet the per-fold minimum, and the engine refuses the method with
+ * `BUNDLE_CROSSCHECK_TOO_SMALL`. The cohort membership (baseline +
+ * on-treatment + `min_draws`) and the per-fold minima are NOT checked here
+ * — the engine's own run is still the verdict.
+ */
+export function crosscheckSizeWarning(
+  facts: FileTimeline,
+  decisionDay: number,
+  lookAhead: number,
+  endpoint: DayEndpoint,
+): string | null {
+  if (facts.outcomes.length === 0) return null
+  const { known, events } = knownOutcomes(facts, decisionDay, lookAhead, endpoint)
+  const minPatients = facts.limits.crosscheck_min_patients
+  const minPerClass = facts.limits.crosscheck_min_per_class
+  if (known >= minPatients && events >= minPerClass && known - events >= minPerClass) {
+    return null
+  }
+  return `This file has too few patients to check the chances: it needs at least ${minPatients} patients, with at least ${minPerClass} who had the outcome and ${minPerClass} who did not. Methods that learn from the outcomes, or that need a conversion to a chance, will not run on it; methods that return their own chance with a fixed rule still do.`
+}
+
+/**
  * The furthest whole day after the decision day (and at most the maximum)
  * where at least `share` of the patients have a known outcome, or null.
  * The count only falls as the day grows (a patient whose follow-up ends

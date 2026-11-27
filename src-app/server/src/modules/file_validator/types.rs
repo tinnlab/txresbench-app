@@ -702,6 +702,12 @@ pub struct TimelineLimits {
     pub look_ahead_day_max: f64,
     /// The fewest patients an outcome is learned from.
     pub min_training_patients: u32,
+    /// The smallest whole training cohort on which the run's K=3 stratified
+    /// cross-fit can work (the engine's `CROSSCHECK_MIN_PATIENTS`).
+    pub crosscheck_min_patients: u32,
+    /// The smallest per-class count of that cohort (the engine's
+    /// `CROSSCHECK_MIN_PER_CLASS`).
+    pub crosscheck_min_per_class: u32,
 }
 
 /// The day facts of a validate call: per patient of the measurements table,

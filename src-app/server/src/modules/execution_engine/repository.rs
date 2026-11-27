@@ -846,7 +846,10 @@ impl TxrRepository {
     /// Record one measured method run (qa-fixes2 ITEM-6, R2-3) — the
     /// estimate engine's calibration memory: a finished train-mode method's
     /// `duration_ms` + the run's own facts (`patients`, `cpus`), normalized
-    /// into the DEC-7 reference shape by the calibration module.
+    /// into the DEC-7 reference shape by the calibration module. The
+    /// `crosschecked` flag (crosschecked-chances) marks whether the measured
+    /// run included the cross-check folds — the train-mode calibration
+    /// selector reads it (see `calibration`).
     pub async fn record_timing_sample(
         &self,
         sample: &crate::modules::method_catalogue::calibration::TimingSample,
@@ -856,13 +859,14 @@ impl TxrRepository {
         let patients = sample.patients as i64;
         let cpus = sample.cpus as i64;
         sqlx::query!(
-            r#"INSERT INTO txr_timing_samples (method_id, run_id, measured_ms, patients, cpus)
-               VALUES ($1, $2, $3, $4, $5)"#,
+            r#"INSERT INTO txr_timing_samples (method_id, run_id, measured_ms, patients, cpus, crosschecked)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
             sample.method_id,
             run_id,
             measured_ms,
             patients,
             cpus,
+            sample.crosschecked,
         )
         .execute(&self.pool)
         .await
@@ -876,10 +880,12 @@ impl TxrRepository {
     pub async fn timing_samples(
         &self,
     ) -> Result<Vec<crate::modules::method_catalogue::calibration::TimingSample>, AppError> {
-        let rows = sqlx::query!("SELECT method_id, measured_ms, patients, cpus FROM txr_timing_samples")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(AppError::database_error)?;
+        let rows = sqlx::query!(
+            "SELECT method_id, measured_ms, patients, cpus, crosschecked FROM txr_timing_samples"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
         Ok(rows
             .into_iter()
             .map(|r| crate::modules::method_catalogue::calibration::TimingSample {
@@ -887,6 +893,7 @@ impl TxrRepository {
                 measured_ms: r.measured_ms as u64,
                 patients: r.patients as u32,
                 cpus: r.cpus as u32,
+                crosschecked: r.crosschecked != 0,
             })
             .collect())
     }

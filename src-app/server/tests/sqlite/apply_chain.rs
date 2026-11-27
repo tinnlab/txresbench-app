@@ -24,10 +24,10 @@
 //! `dataset`, `drafts`, `extensions`, `project`, `provenance` and `workstore`
 //! modules and their migrations, plus ITEM-3's ownership files
 //! (202608040013/…014) — the kept chain is the SDK 7 files plus the kept
-//! modules' 32 files: `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1),
-//! `file` (1), `account` (6), `execution_engine` (7), `model_store` (4 — the
-//! 4th is the saved models' conversions column), `history_store` (2) — 39
-//! files total, pinned below.
+//! modules' 39 files: `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1),
+//! `file` (1), `account` (6), `execution_engine` (11), `model_store` (5 — the
+//! 5th is the saved models' conversions column), `history_store` (2), `demo`
+//! (2) — 46 files total, pinned below.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,7 +49,7 @@ const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("features", 1),
     ("file", 1),
     ("account", 6),
-    ("execution_engine", 10),
+    ("execution_engine", 11),
     ("model_store", 5),
     ("history_store", 2),
     // demo-mode ITEM-1 + ITEM-4: the anonymous-visitor session rows + the
@@ -122,10 +122,10 @@ const SDK_CHAIN_FILES: &[&str] = &[
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
-/// Every file the ported chain ships (SDK 7 + the kept modules' 38: jobs 6,
-/// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 10,
+/// Every file the ported chain ships (SDK 7 + the kept modules' 39: jobs 6,
+/// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 11,
 /// model_store 5, history_store 2, demo 2), in the version-sorted order the
-/// merged chain applies them — the complete 45-file SQLite chain.
+/// merged chain applies them — the complete 46-file SQLite chain.
 pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
@@ -172,6 +172,7 @@ pub(crate) const CHAIN_FILES: &[&str] = &[
     "202611170002_txr_models_env_image.sql",
     "202611180001_txr_runs_method_list.sql",
     "202611240001_txr_run_methods_markers_used.sql",
+    "202611260001_txr_timing_samples_crosschecked.sql",
 ];
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
@@ -291,7 +292,7 @@ async fn ported_chain_applies_from_scratch_and_reapplies_as_noop() {
     let scratch = Scratch::new("full-chain");
     let merged = compose_sqlite_chain(scratch.path());
 
-    // The composed set is exactly the thirty-nine ported files — the FULL
+    // The composed set is exactly the forty-six ported files — the FULL
     // stripped SQLite chain.
     assert_eq!(merged_sql_files(&merged), CHAIN_FILES);
 

@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import type { FileTimeline, TimelinePatient } from '@/api-client/types'
 import {
   checkLookAhead,
+  crosscheckSizeWarning,
   drawCoverage,
   drawCoverageLine,
   drawDayError,
@@ -27,7 +28,7 @@ import {
   suggestDrawDays,
 } from './dayChoices'
 
-const LIMITS = { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 }
+const LIMITS = { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10, crosscheck_min_patients: 15, crosscheck_min_per_class: 3 }
 
 const EXAMPLES = resolve(__dirname, '../../../../../../data/file-validator/examples')
 
@@ -198,7 +199,7 @@ describe('the draw coverage line and limits', () => {
     const f: FileTimeline = {
       draw_days: Array.from({ length: 12 }, () => [8]),
       outcomes: [],
-      limits: { baseline_max_day: 7, look_ahead_day_max: 730, min_training_patients: 10 },
+      limits: { baseline_max_day: 7, look_ahead_day_max: 730, min_training_patients: 10, crosscheck_min_patients: 15, crosscheck_min_per_class: 3 },
     }
     expect(drawCoverageLine(f, 7)).toBe(
       'Day 7: 0 of 12 patients have a draw during treatment by this day',
@@ -313,5 +314,57 @@ describe('the look-ahead day', () => {
   it('shows the months beside the days', () => {
     expect(monthsText(238)).toBe('238 days ≈ 7.8 months')
     expect(monthsText(730)).toBe('730 days ≈ 24.0 months')
+  })
+})
+
+describe('the cross-check size warning (the methods-step notice)', () => {
+  /** Patients `events` of them with the event at day 120, the rest followed
+   *  to day 500 without it: `events` / `known - events` at day 200. */
+  const cohort = (known: number, events: number): FileTimeline => {
+    const outcomes: TimelinePatient[] = [
+      ...Array.from({ length: events }, () => ({ pfs: { days: 120, event: 1 } })),
+      ...Array.from({ length: known - events }, () => ({ pfs: { days: 500, event: 0 } })),
+    ]
+    return facts(Array.from({ length: known }, () => [28]), outcomes)
+  }
+  const EXACT =
+    'This file has too few patients to check the chances: it needs at least 15 patients, with at least 3 who had the outcome and 3 who did not. Methods that learn from the outcomes, or that need a conversion to a chance, will not run on it; methods that return their own chance with a fixed rule still do.'
+
+  it('warns below the patient minimum: 14 known patients (7/7) are too few', () => {
+    const warning = crosscheckSizeWarning(cohort(14, 7), 56, 200, 'pfs')
+    expect(warning).toBe(EXACT)
+    // The numbers are the facts' own limits (never a constant in the UI).
+    for (const n of [LIMITS.crosscheck_min_patients, LIMITS.crosscheck_min_per_class]) {
+      expect(warning).toContain(`at least ${n}`)
+    }
+  })
+
+  it('warns when either class is below its minimum: 30 known patients with 2 events', () => {
+    expect(crosscheckSizeWarning(cohort(30, 2), 56, 200, 'pfs')).toBe(EXACT)
+    expect(crosscheckSizeWarning(cohort(30, 28), 56, 200, 'pfs')).toBe(EXACT)
+  })
+
+  it('stays quiet at 15 patients with 8/7 and with 3/12 (both classes hold)', () => {
+    expect(crosscheckSizeWarning(cohort(15, 8), 56, 200, 'pfs')).toBeNull()
+    expect(crosscheckSizeWarning(cohort(15, 3), 56, 200, 'pfs')).toBeNull()
+  })
+
+  it('is one line only', () => {
+    const warning = crosscheckSizeWarning(cohort(14, 7), 56, 200, 'pfs')
+    expect(warning).not.toBeNull()
+    expect((warning as string).split('\n')).toHaveLength(1)
+  })
+
+  it('builds the numbers from the facts\u2019 own limits (never a constant)', () => {
+    const f = cohort(30, 1)
+    f.limits = { ...f.limits, crosscheck_min_patients: 20, crosscheck_min_per_class: 4 }
+    const warning = crosscheckSizeWarning(f, 56, 200, 'pfs')
+    expect(warning).toBe(
+      'This file has too few patients to check the chances: it needs at least 20 patients, with at least 4 who had the outcome and 4 who did not. Methods that learn from the outcomes, or that need a conversion to a chance, will not run on it; methods that return their own chance with a fixed rule still do.',
+    )
+  })
+
+  it('returns null when the file has no outcomes (no cross-check is possible anyway)', () => {
+    expect(crosscheckSizeWarning(facts([[28]], []), 56, 200, 'pfs')).toBeNull()
   })
 })

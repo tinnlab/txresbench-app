@@ -798,6 +798,12 @@ pub struct InventoryEligibilityRequest {
     /// verdicts (the count rule over the file's markers).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marker_plan: Option<crate::modules::execution_engine::marker_rank::PlanBlock>,
+    /// The run kind the rows' `estimated_seconds` are for (see
+    /// [`EstimateRequest::mode`]): `train` on the method-chosen screen (a
+    /// learning run — a row for a method that learns carries the cross-check
+    /// time factor), `reuse` or absent = today's numbers exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<EstimateMode>,
 }
 
 /// The eligibility request body — a tagged union carrying exactly one of the two
@@ -1068,6 +1074,23 @@ pub struct EligibilityResponse {
 // PROV-MC-6 — POST /api/methods/estimate
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The run kind an estimate concerns — the only input the cross-check time
+/// factor depends on. `train` is a learning run (the method is fitted on the
+/// uploaded cohort and the shown chances are cross-checked); `reuse` is a
+/// saved-model predict (no fit, no cross-check).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EstimateMode {
+    /// A learning run: a method that learns from the cohort runs its fit four
+    /// times — once on all patients and three more times on a fold's training
+    /// part — to check its chances, so its estimate carries
+    /// [`calibration::CROSSCHECK_TIME_FACTOR`] when the app has not measured it.
+    Train,
+    /// A saved-model reuse run: the model predicts with no fit — the
+    /// estimate is the pre-cross-check numbers, exactly as before.
+    Reuse,
+}
+
 /// The estimate request: which methods, on how many patients, on how many
 /// CPUs, running `at_a_time` lanes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1084,6 +1107,14 @@ pub struct EstimateRequest {
     /// Defaults to [`DEFAULT_ESTIMATE_AT_A_TIME`] when omitted.
     #[serde(default = "default_estimate_at_a_time")]
     pub at_a_time: u32,
+    /// The run kind the numbers are estimated for: `train` (a learning run —
+    /// a method that learns is cross-fitted, see
+    /// [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model
+    /// predict). Absent (or `null`) is exactly today's estimate — no
+    /// cross-check factor and the full calibration snapshot — so existing
+    /// callers keep their numbers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<EstimateMode>,
 }
 
 fn default_estimate_at_a_time() -> u32 {
@@ -1133,6 +1164,7 @@ mod tests {
         let _ = schemars::schema_for!(MethodFilters);
         let _ = schemars::schema_for!(EligibilityRequest);
         let _ = schemars::schema_for!(EligibilityResponse);
+        let _ = schemars::schema_for!(EstimateRequest);
         let _ = schemars::schema_for!(EstimateResponse);
         let _ = schemars::schema_for!(ReasonCode);
     }
@@ -1214,6 +1246,45 @@ mod tests {
         }
     }
 
+    /// The estimate request's `mode` is OPTIONAL on the wire (absent = today's
+    /// numbers exactly — old callers do not change) and spells `train`/`reuse`.
+    #[test]
+    fn estimate_mode_is_optional_and_wire_spelled() {
+        let req = EstimateRequest {
+            method_ids: vec!["m".to_string()],
+            patients: 1,
+            cpus: None,
+            at_a_time: 3,
+            mode: None,
+        };
+        let json = serde_json::to_value(&req).expect("serialize");
+        assert!(json.get("mode").is_none(), "absent mode is OMITTED, never null");
+        let back: EstimateRequest = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back.mode, None);
+
+        let req = EstimateRequest {
+            mode: Some(EstimateMode::Train),
+            ..req
+        };
+        let json = serde_json::to_value(&req).expect("serialize");
+        assert_eq!(json["mode"], "train");
+        let back: EstimateRequest = serde_json::from_value(json.clone()).expect("deserialize");
+        assert_eq!(back.mode, Some(EstimateMode::Train));
+        // A posted reuse stays reuse; an old client without the field still
+        // parses (serde default).
+        let json = serde_json::from_value::<EstimateRequest>(serde_json::json!({
+            "method_ids": ["m"], "patients": 1
+        }))
+        .expect("an old body parses");
+        assert_eq!(json.mode, None);
+        let req = EstimateRequest {
+            mode: Some(EstimateMode::Reuse),
+            ..req
+        };
+        let json = serde_json::to_value(&req).expect("serialize");
+        assert_eq!(json["mode"], "reuse");
+    }
+
     /// The preview carries the method filters as THREE TOP-LEVEL fields (the
     /// flattening of [`MethodFilters`]); absent answers are skipped and parse
     /// back to `None`.
@@ -1272,6 +1343,7 @@ mod tests {
                 ..Default::default()
             }),
             marker_plan: None,
+            mode: None,
         };
         let json = serde_json::to_value(&inv).expect("serialize");
         assert_eq!(json["filters"]["disease_group"], "lung cancer");

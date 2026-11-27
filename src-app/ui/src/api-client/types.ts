@@ -648,8 +648,7 @@ export interface EnvRef {
    *  another), so the reference no longer names the env; the caller does,
    *  and the download manager keys its ledger by it. A tag, when present,
    *  must start with `<env_id>-` (the published tag shapes
-   *  `<env_id>-<version>-<arch>-<sha12>` and
-   *  `<base_id>-<contract>-<arch>-<sha12>`).
+   *  `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).
    */
   env_id: string
   /**
@@ -668,6 +667,14 @@ export interface EnvRef {
 }
 
 /**
+ * The run kind an estimate concerns — the only input the cross-check time
+ *  factor depends on. `train` is a learning run (the method is fitted on the
+ *  uploaded cohort and the shown chances are cross-checked); `reuse` is a
+ *  saved-model predict (no fit, no cross-check).
+ */
+export type EstimateMode = 'train' | 'reuse'
+
+/**
  * The estimate request: which methods, on how many patients, on how many
  *  CPUs, running `at_a_time` lanes.
  */
@@ -683,6 +690,15 @@ export interface EstimateRequest {
    */
   cpus?: number
   method_ids: string[]
+  /**
+   * The run kind the numbers are estimated for: `train` (a learning run —
+   *  a method that learns is cross-fitted, see
+   *  [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model
+   *  predict). Absent (or `null`) is exactly today's estimate — no
+   *  cross-check factor and the full calibration snapshot — so existing
+   *  callers keep their numbers.
+   */
+  mode?: EstimateMode
   patients: number
 }
 
@@ -1085,6 +1101,13 @@ export interface InventoryEligibilityRequest {
    */
   marker_plan?: PlanBlock
   markers: InventoryMarker[]
+  /**
+   * The run kind the rows' `estimated_seconds` are for (see
+   *  [`EstimateRequest::mode`]): `train` on the method-chosen screen (a
+   *  learning run — a row for a method that learns carries the cross-check
+   *  time factor), `reuse` or absent = today's numbers exactly.
+   */
+  mode?: EstimateMode
   /**
    * The outcome-column facts of the file, when the consumer knows them
    *  (absence skips the outcome-availability checks — a request without them
@@ -3394,6 +3417,16 @@ export interface TextRectsResponse {
 export interface TimelineLimits {
   /** A draw on a later day is a draw during treatment. */
   baseline_max_day: number
+  /**
+   * The smallest whole training cohort on which the run's K=3 stratified
+   *  cross-fit can work (the engine's `CROSSCHECK_MIN_PATIENTS`).
+   */
+  crosscheck_min_patients: number
+  /**
+   * The smallest per-class count of that cohort (the engine's
+   *  `CROSSCHECK_MIN_PER_CLASS`).
+   */
+  crosscheck_min_per_class: number
   /** The latest look-ahead day a run accepts. */
   look_ahead_day_max: number
   /** The fewest patients an outcome is learned from. */

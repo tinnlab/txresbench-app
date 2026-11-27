@@ -106,6 +106,21 @@ describe('presets (presetSelection / presetOf)', () => {
     expect(presetSelection('none', RUNNABLE)).toEqual([])
   })
 
+  it('the Fast-only membership follows the estimate the server sent: a 30 s learner drops out at 120 s on a learning run', () => {
+    // crosschecked-chances: the row's `estimated_seconds` is the ONE number
+    // the filter reads, and a learning run's row already carries the x4
+    // factor (the engine applies it — the UI never multiplies). A method at
+    // 30 s (absent mode / un-factored) IS fast; the same method at 120 s
+    // (the train-mode number, over the 60 s ceiling) is NOT.
+    const learner = card({ id: 'learner', estimate: { seconds: 30, quality: 'measured' } })
+    expect(fastSelection([learner])).toEqual(['learner'])
+    const learnerTrainMode = card({ id: 'learner', estimate: { seconds: 120, quality: 'measured' } })
+    expect(fastSelection([learnerTrainMode])).toEqual([])
+    // A fixed-rule method at 30 s stays fast on a learning run (unchanged).
+    const fixed = card({ id: 'fixed', estimate: { seconds: 30, quality: 'measured' } })
+    expect(fastSelection([fixed])).toEqual(['fixed'])
+  })
+
   it('presetOf recognises the presets and reports custom for a manual tick', () => {
     // A catalogue that exceeds the recommendation caps (9 methods, 4th
     // dynamic-risk): the recommended set is NOT the all set, so 'all' is

@@ -8920,7 +8920,7 @@
             "type": "string"
           },
           "env_id": {
-            "description": "The env this artifact is: the method's env id for a layer, `base-py` /\n `base-r` for a base. Every layer shares ONE package (and both bases\n another), so the reference no longer names the env; the caller does,\n and the download manager keys its ledger by it. A tag, when present,\n must start with `<env_id>-` (the published tag shapes\n `<env_id>-<version>-<arch>-<sha12>` and\n `<base_id>-<contract>-<arch>-<sha12>`).",
+            "description": "The env this artifact is: the method's env id for a layer, `base-py` /\n `base-r` for a base. Every layer shares ONE package (and both bases\n another), so the reference no longer names the env; the caller does,\n and the download manager keys its ledger by it. A tag, when present,\n must start with `<env_id>-` (the published tag shapes\n `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).",
             "type": "string"
           },
           "oci_ref": {
@@ -8940,6 +8940,21 @@
           "env_id",
           "oci_ref",
           "digest"
+        ]
+      },
+      "EstimateMode": {
+        "description": "The run kind an estimate concerns — the only input the cross-check time\n factor depends on. `train` is a learning run (the method is fitted on the\n uploaded cohort and the shown chances are cross-checked); `reuse` is a\n saved-model predict (no fit, no cross-check).",
+        "oneOf": [
+          {
+            "description": "A learning run: a method that learns from the cohort runs its fit four\n times — once on all patients and three more times on a fold's training\n part — to check its chances, so its estimate carries\n [`calibration::CROSSCHECK_TIME_FACTOR`] when the app has not measured it.",
+            "type": "string",
+            "const": "train"
+          },
+          {
+            "description": "A saved-model reuse run: the model predicts with no fit — the\n estimate is the pre-cross-check numbers, exactly as before.",
+            "type": "string",
+            "const": "reuse"
+          }
         ]
       },
       "EstimateRequest": {
@@ -8968,6 +8983,17 @@
             "items": {
               "type": "string"
             }
+          },
+          "mode": {
+            "description": "The run kind the numbers are estimated for: `train` (a learning run —\n a method that learns is cross-fitted, see\n [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model\n predict). Absent (or `null`) is exactly today's estimate — no\n cross-check factor and the full calibration snapshot — so existing\n callers keep their numbers.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EstimateMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "patients": {
             "type": "integer",
@@ -9823,6 +9849,17 @@
             "items": {
               "$ref": "#/components/schemas/InventoryMarker"
             }
+          },
+          "mode": {
+            "description": "The run kind the rows' `estimated_seconds` are for (see\n [`EstimateRequest::mode`]): `train` on the method-chosen screen (a\n learning run — a row for a method that learns carries the cross-check\n time factor), `reuse` or absent = today's numbers exactly.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EstimateMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "outcomes": {
             "description": "The outcome-column facts of the file, when the consumer knows them\n (absence skips the outcome-availability checks — a request without them\n is not misclassified by the engine).",
@@ -15323,6 +15360,18 @@
             "type": "number",
             "format": "double"
           },
+          "crosscheck_min_patients": {
+            "description": "The smallest whole training cohort on which the run's K=3 stratified\n cross-fit can work (the engine's `CROSSCHECK_MIN_PATIENTS`).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "crosscheck_min_per_class": {
+            "description": "The smallest per-class count of that cohort (the engine's\n `CROSSCHECK_MIN_PER_CLASS`).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
           "look_ahead_day_max": {
             "description": "The latest look-ahead day a run accepts.",
             "type": "number",
@@ -15338,7 +15387,9 @@
         "required": [
           "baseline_max_day",
           "look_ahead_day_max",
-          "min_training_patients"
+          "min_training_patients",
+          "crosscheck_min_patients",
+          "crosscheck_min_per_class"
         ]
       },
       "TimelineOutcome": {

@@ -1124,6 +1124,7 @@ mod tests {
             covariates: vec![],
             outcomes: None,
             filters: None,
+            mode: None,
         };
         let eligibility_req =
             |model_ids: Vec<String>| ModelEligibilityRequest {

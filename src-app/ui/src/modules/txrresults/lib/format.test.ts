@@ -304,7 +304,7 @@ describe('the compare-card copy constants and sentence builders (DEC-7)', () => 
 describe('the learning-run note (learn-run-results-note)', () => {
   it('pins the learning-run copy constant verbatim', () => {
     expect(LEARN_RUN_CHANCES_NOTE).toBe(
-      'Some of these chances are worked out from the same patients the methods learned from, so they can look better than they will on new patients. To predict new patients, save a model and use it on the predict path.',
+      'Each chance here was worked out without that patient: the method and its conversion to a chance were fitted on the other patients. So the numbers show how the methods would do on new patients. To predict new patients, save a model and use it on the predict path.',
     )
   })
 })

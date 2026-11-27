@@ -435,6 +435,7 @@ mod tests {
                 covariates: vec![],
                 outcomes: None,
                 filters: None,
+                mode: None,
             },
         };
         let resp = methods_eligibility(&bundle, &body);
@@ -465,6 +466,7 @@ mod tests {
             patients: 94,
             cpus: Some(4),
             at_a_time: 2,
+            mode: None,
         };
         let resp = methods_estimate(&bundle, &req).expect("recorded method estimates");
         assert_eq!(resp.methods.len(), 1);

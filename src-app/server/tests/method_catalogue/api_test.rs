@@ -1120,6 +1120,7 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
         outcomes: None,
         filters: None,
         marker_plan: None,
+        mode: None,
     };
     let req = EligibilityRequest::Inventory { inventory: inv };
 
@@ -1148,6 +1149,7 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
         patients: 2,
         cpus: None,
         at_a_time: 3,
+        mode: None,
     };
     let in_process = estimate(txresbench::modules::method_list::builtin(), &est_req).expect("engine estimate");
     let resp = server

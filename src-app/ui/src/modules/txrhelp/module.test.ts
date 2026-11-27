@@ -349,7 +349,22 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           // skipped rows come from the execution_engine run record
           // (execution_engine/repository.rs — the RunRow counts pick).
           p !== 'src-app/server/src/modules/history_store/repository.rs' &&
-          p !== 'src-app/server/src/modules/execution_engine/repository.rs',
+          p !== 'src-app/server/src/modules/execution_engine/repository.rs' &&
+          // crosschecked-chances (its own DRIFT-1): the estimate's cross-check
+          // time factor — the calibration module carries the factor + the
+          // sample tag (`calibration.rs`), the estimate/eligibility engines
+          // thread the request's mode, the timing-sample store grows the
+          // `crosschecked` column (the execution_engine migration + the
+          // sqlite chain pin), the two eligibility mirrors (model_store /
+          // pretrained_catalogue) take the mode field on the shared inventory
+          // type, and the demo eligibility tests carry the new field.
+          p !== 'src-app/server/src/modules/method_catalogue/calibration.rs' &&
+          p !== 'src-app/server/src/modules/demo/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/model_store/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/pretrained_catalogue/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/migrations/202611260001_txr_timing_samples_crosschecked.sql' &&
+          p !== 'src-app/server/tests/sqlite/apply_chain.rs' &&
+          p !== 'src-app/server/tests/sqlite/final_layout.rs',
       ),
     ).toEqual([])
     // app-shell ITEM-1 (its DRIFT-1): the desktop window's minimum size — the one

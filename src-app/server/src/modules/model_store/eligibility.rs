@@ -969,6 +969,7 @@ mod tests {
                 has_survival_day: true,
             }),
             filters: None,
+            mode: None,
         }
     }
 

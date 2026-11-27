@@ -88,6 +88,7 @@ import { predictFilesPath, runningPath } from '../routes'
 import { previousLearnRoute } from '@/modules/txrshell/lib/flowSteps'
 import {
   checkLookAhead,
+  crosscheckSizeWarning,
   drawDayError,
   lookAheadSuggestions,
   plainLookAheadDefault,
@@ -748,6 +749,26 @@ export function ChooseMethodsPage() {
     : checkLookAhead(dayFacts, settings.decision_day, settings.look_ahead_day, settings.endpoint, lookAheadMax)
         .error
 
+  // The ONE cross-check notice above the method list: the file is too small
+  // for the engine's K=3 stratified cross-check at the shown look-ahead day
+  // (the same known-label counts the day line shows, compared with the
+  // engine's own limits from the validate facts — no constant here). It is
+  // a notice only: it changes no tick and no eligibility verdict; the run
+  // still refuses per method with BUNDLE_CROSSCHECK_TOO_SMALL and its own
+  // per-method failure text.
+  const crosscheckNotice = useMemo(
+    () =>
+      dayFacts === null
+        ? null
+        : crosscheckSizeWarning(
+            dayFacts,
+            settings.decision_day,
+            settings.look_ahead_day,
+            settings.endpoint,
+          ),
+    [dayFacts, settings.decision_day, settings.look_ahead_day, settings.endpoint],
+  )
+
   // The load transition (the engine's sticky fields land after an edit): the
   // write-through body is once more the screen's truth. Keyed on the hook's
   // LOAD count, never on `engine`: each save replaces `engine` too, so an
@@ -859,6 +880,10 @@ export function ChooseMethodsPage() {
             // match the run; omitted while the ranking is still loading (a
             // stale plan for the OLD endpoint/day is never used).
             ...(markerPlan !== undefined ? { marker_plan: markerPlan } : {}),
+            // The rows' times and the "Fast only" preset are for the LEARNING
+            // run this screen builds (the create path posts mode 'train') —
+            // the server applies the cross-check factor once, here.
+            mode: 'train' as const,
           },
     [inventory, settings.decision_day, covariates, settings.covariates, methodFilters, markerPlan],
   )
@@ -952,6 +977,11 @@ export function ChooseMethodsPage() {
     patients: inventory?.patients ?? 0,
     cpus: settings.cpus ?? undefined,
     atATime: settings.at_a_time,
+    // This screen only builds LEARNING runs (the create path below posts
+    // mode 'train'): the estimate carries the cross-check time factor for
+    // methods that learn, so the bar, the row times and the "Fast only"
+    // preset agree with what the run will actually spend.
+    mode: 'train',
   })
 
   const createRun = useCallback(
@@ -1197,6 +1227,13 @@ export function ChooseMethodsPage() {
                     </>
                   ) : null}
                 </p>
+              ) : null}
+              {crosscheckNotice !== null ? (
+                <Alert
+                  tone="warning"
+                  data-testid="txr-run-crosscheck-notice"
+                  title={crosscheckNotice}
+                />
               ) : null}
               {settingsInventory === null ? (
                 <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>

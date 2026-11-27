@@ -28,7 +28,7 @@ import type { FileTimeline } from '@/api-client/types'
 const FACTS: FileTimeline = {
   draw_days: [[21, 42]],
   outcomes: [],
-  limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+  limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10, crosscheck_min_patients: 15, crosscheck_min_per_class: 3 },
 }
 
 function onStudyStep(): void {

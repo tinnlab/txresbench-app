@@ -10,11 +10,12 @@
  *
  * Hook semantics:
  *
- * - Keyed on the SELECTED SET (sorted ids + patients/cpus/at_atime — the
- *   estimate is a function of all four): a re-render with the same set does
- *   not re-issue the request, and re-selecting a set whose estimate is
- *   cached restores it with no request at all (the "estimate cache" the
- *   selection contract names — NOT cleared by an empty selection).
+ * - Keyed on the SELECTED SET (sorted ids + patients/cpus/at_atime/mode —
+ *   the estimate is a function of all of them): a re-render with the same
+ *   set does not re-issue the request, and re-selecting a set whose
+ *   estimate is cached restores it with no request at all (the "estimate
+ *   cache" the selection contract names — NOT cleared by an empty
+ *   selection).
  * - `setTimeout` 250 ms per key change; the pending timer is cleared when
  *   the key changes again or the host unmounts, so a burst of selection
  *   changes costs one request.
@@ -38,6 +39,14 @@ export interface UseListEstimateOptions {
   cpus?: number
   /** The run-N-at-a-time lanes the schedule is packed onto. */
   atATime: number
+  /** The run kind the estimate is for: `'train'` (a learning run — the
+   *  server applies the cross-check time factor to methods that learn),
+   *  `'reuse'` (a saved-model predict — today's numbers), or absent (today's
+   *  numbers exactly). The screen that builds learning runs passes `'train'`;
+   *  the hook never multiplies anything itself — the factor is the engine's,
+   *  ONE source of truth (the bottom bar, the row times and the "Fast only"
+   *  preset all read the same server number). */
+  mode?: 'train' | 'reuse'
 }
 
 export interface UseListEstimateResult {
@@ -61,9 +70,17 @@ function selectionKey(ids: string[]): string {
   return [...ids].sort().join('\u0000')
 }
 
-/** The cache key: the selection set + the estimate's own arguments. */
-function cacheKey(ids: string[], patients: number, cpus: number | undefined, atATime: number): string {
-  return `${selectionKey(ids)}\u0000${patients}\u0000${cpus ?? 'auto'}\u0000${atATime}`
+/** The cache key: the selection set + the estimate's own arguments (the
+ *  run kind included — a train-mode and an absent-mode estimate are
+ *  different numbers, never one cache entry). */
+function cacheKey(
+  ids: string[],
+  patients: number,
+  cpus: number | undefined,
+  atATime: number,
+  mode: 'train' | 'reuse' | undefined,
+): string {
+  return `${selectionKey(ids)}\u0000${patients}\u0000${cpus ?? 'auto'}\u0000${atATime}\u0000${mode ?? 'none'}`
 }
 
 function errorMessage(err: unknown): string {
@@ -74,7 +91,7 @@ export function useListEstimate(
   ids: string[],
   options: UseListEstimateOptions,
 ): UseListEstimateResult {
-  const { patients, cpus, atATime } = options
+  const { patients, cpus, atATime, mode } = options
   const key = selectionKey(ids)
   const [state, setState] = useState<UseListEstimateResult>({
     totalSeconds: null,
@@ -95,7 +112,7 @@ export function useListEstimate(
       return
     }
 
-    const keyForArgs = cacheKey(ids, patients, cpus, atATime)
+    const keyForArgs = cacheKey(ids, patients, cpus, atATime, mode)
     const cached = cache.current.get(keyForArgs)
     if (cached !== undefined) {
       epoch.current += 1
@@ -111,6 +128,7 @@ export function useListEstimate(
         patients,
         cpus,
         at_a_time: atATime,
+        mode,
       })
         .then((response: EstimateResponse) => {
           if (epoch.current !== requestEpoch) return
@@ -138,7 +156,7 @@ export function useListEstimate(
     return () => {
       clearTimeout(timer)
     }
-  }, [key, patients, cpus, atATime])
+  }, [key, patients, cpus, atATime, mode])
 
   return state
 }

@@ -175,6 +175,7 @@ impl ExampleRunInputs {
             &self.train,
             self.predict.as_deref(),
             method,
+            self.config.endpoint,
             &settings,
             method.min_draws,
         )
@@ -1068,6 +1069,7 @@ mod tests {
                 &inputs.train,
                 inputs.predict.as_deref(),
                 method,
+                inputs.config.endpoint,
                 &settings,
                 method.min_draws,
             )
@@ -1241,6 +1243,7 @@ mod tests {
                     &inputs.train,
                     inputs.predict.as_deref(),
                     method,
+                    inputs.config.endpoint,
                     &settings,
                     method.min_draws,
                 ),
@@ -1314,6 +1317,7 @@ mod tests {
                 &inputs.train,
                 inputs.predict.as_deref(),
                 &method,
+                inputs.config.endpoint,
                 &settings,
                 method.min_draws,
             ),
@@ -1337,12 +1341,68 @@ mod tests {
                 &no_covariates,
                 inputs.predict.as_deref(),
                 method,
+                inputs.config.endpoint,
                 &covariate_settings,
                 method.min_draws,
             ),
             Err(BundleError::CovariatesWithoutColumns),
             "{id} with covariates on and no covariate column"
         );
+    }
+
+    /// The example cohort clears the cross-check thresholds — the new
+    /// small-cohort refusal ([`BundleError::CrossCheckTooSmall`]) must NOT
+    /// silently shrink the example set: every fitted method's bundle refusal
+    /// comes from ANOTHER leg, never from the cross-check (a generator change
+    /// that shrinks the example fails here instead of silently dropping a
+    /// method from the pick).
+    #[test]
+    fn example_cohort_clears_the_crosscheck_minimum() {
+        let inputs = inputs();
+        // The strata of the run's displayed outcome (the displayed survival
+        // outcome at the run's look-ahead day) over the canonical train side
+        // the pick judges: the cohort-level form of the per-fold rule.
+        let h = inputs.config.look_ahead_day;
+        let (event, beyond) =
+            inputs
+                .train
+                .patients
+                .iter()
+                .fold((0usize, 0usize), |(e, b), p| {
+                    match (p.pfs_days, p.pfs_event) {
+                        (Some(t), Some(ev)) if ev == 1 && t <= h => (e + 1, b),
+                        (Some(t), Some(_)) if t > h => (e, b + 1),
+                        _ => (e, b),
+                    }
+                });
+        let known = event + beyond;
+        assert!(
+            known >= bundle::CROSSCHECK_MIN_PATIENTS,
+            "the example keeps only {known} known labels — below \
+             CROSSCHECK_MIN_PATIENTS = {}",
+            bundle::CROSSCHECK_MIN_PATIENTS
+        );
+        assert!(
+            event >= bundle::CROSSCHECK_MIN_PER_CLASS && beyond >= bundle::CROSSCHECK_MIN_PER_CLASS,
+            "the example's classes are {event}/{beyond} — each must be >= \
+             CROSSCHECK_MIN_PER_CLASS = {}",
+            bundle::CROSSCHECK_MIN_PER_CLASS
+        );
+        // And, exactly: no fitted method's bundle preflight on the example is
+        // refused by the cross-check (a different leg — the marker rule, say —
+        // may still refuse it).
+        for method in &catalogue().methods {
+            if method.fitted {
+                if let Err(e) = inputs.preflight(method) {
+                    assert_ne!(
+                        e.code(),
+                        "BUNDLE_CROSSCHECK_TOO_SMALL",
+                        "{}: the cross-check must not refuse an example method",
+                        method.id
+                    );
+                }
+            }
+        }
     }
 
     /// Bug 2's example half: the pick applies the run's per-method covariates
@@ -1421,6 +1481,7 @@ mod tests {
                 &bare_inputs.train,
                 bare_inputs.predict.as_deref(),
                 none,
+                bare_inputs.config.endpoint,
                 &run_wide,
                 none.min_draws,
             ),
@@ -1790,49 +1851,47 @@ mod tests {
         }
     }
 
-    /// A picked method that a cross-fit fold would refuse once it is
-    /// `fitted`: for each cohort size (ascending, stopping at the first that
-    /// gives the case), the unmodified amd64 pick on the cut rows — from ONE
-    /// eligibility run, since the cut leaves the inventory unchanged — and,
-    /// for each picked method that is not fitted, a copy of just that method
-    /// marked `fitted` whose marker set and first train/test bundles build
-    /// but whose call is refused `BUNDLE_NO_LEARNABLE_OUTCOME` at a
-    /// cross-fit fold's rest set. Returns the cut inputs and the modified
-    /// method.
+    /// A REAL catalogue method the bundle stage refuses on a cut cohort
+    /// (brief 3: the cross-check now also covers a fixed-rule method WITH a
+    /// conversion need, so no synthetic `fitted` mark is needed): for each
+    /// cohort size (ascending, stopping at the first that gives the case), a
+    /// fast candidate that is picked on the FULL example — one eligibility
+    /// run, since the cut leaves the inventory unchanged — whose marker set
+    /// and first train/test bundles build on the cut but whose bundle
+    /// preflight is refused [`BundleError::CrossCheckTooSmall`] (the cohort
+    /// is below [`CROSSCHECK_MIN_PATIENTS`], so some fold's training part
+    /// cannot support the stratified fit — the refusal the user's rule puts
+    /// before the first call). Returns the cut inputs and the method.
     fn crossfit_refused_case(full: &ExampleRunInputs) -> Option<(ExampleRunInputs, Method)> {
-        let refused = Err(BundleError::NoLearnableOutcome {
-            min: bundle::MIN_TRAINING_PATIENTS,
+        let refused = Err(BundleError::CrossCheckTooSmall {
+            needed_patients: bundle::MIN_TRAINING_PATIENTS,
+            needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
         });
         let runnable = runnable_methods(catalogue(), full, amd64_env);
-        (bundle::MIN_TRAINING_PATIENTS..full.train.patients.len()).find_map(|n| {
+        let picked_full = pick_fast_methods_with(full, amd64_env);
+        (bundle::MIN_TRAINING_PATIENTS..bundle::CROSSCHECK_MIN_PATIENTS).find_map(|n| {
             let cut = cut_inputs(full, n);
-            let picked = first_passing(rank_fast(&runnable, cut.patients()), |m| {
-                cut.preflight(m).is_ok()
-            });
-            let fitted = picked
-                .iter()
-                .map(|id| catalogue().method(id).expect("a picked method"))
-                .filter(|m| !m.fitted)
-                .find_map(|m| {
-                    let mut fitted = m.clone();
-                    fitted.fitted = true;
+            let target = rank_fast(&runnable, cut.patients())
+                .into_iter()
+                .filter(|(_, m)| picked_full.contains(&m.id))
+                .find_map(|(_, m)| {
                     let settings = orchestrator::train_call_bundle_settings(
                         &cut.config,
                         cut.cpus,
-                        &fitted,
+                        m,
                         &cut.train,
                         cut.predict.as_deref(),
                     );
                     let first_bundles = orchestrator::method_bundles(
                         &cut.train,
                         cut.predict.as_deref(),
-                        &fitted,
+                        m,
                         &settings,
-                        fitted.min_draws,
+                        m.min_draws,
                     );
-                    (first_bundles.is_ok() && cut.preflight(&fitted) == refused).then_some(fitted)
+                    (first_bundles.is_ok() && cut.preflight(m) == refused).then_some(m)
                 })?;
-            Some((cut, fitted))
+            Some((cut, target.clone()))
         })
     }
 
@@ -1841,27 +1900,23 @@ mod tests {
     /// bundles ([`orchestrator::method_bundles`]). On the real catalogue and
     /// the real example no method is refused past the marker rule, so the
     /// case is built and searched for ([`crossfit_refused_case`]): the rows
-    /// are cut so the full-cohort train bundle learns but a cross-fit fold's
-    /// rest set does not, and a picked method is marked `fitted` in a copy
-    /// of the catalogue, so its call would build the cross-fit bundles and be
-    /// refused between its calls. That method leaves the pick (it was picked
-    /// unmodified on the same rows); the rest of the pick stays.
+    /// are cut to a cohort the full-cohort train bundle learns from but that
+    /// is too small to cross-check, and a picked method whose shown chances
+    /// need the cross-check gets `BUNDLE_CROSSCHECK_TOO_SMALL` before its
+    /// first container call (brief 3: that now includes a fixed-rule method
+    /// WITH a conversion need — the pick skips it as it skips a fitted one).
+    /// The method leaves the pick on the cut rows while staying picked on
+    /// the full example rows.
     #[test]
     fn a_method_the_bundle_stage_refuses_is_not_picked() {
         let full = inputs();
-        let (cut, modified) = crossfit_refused_case(&full)
-            .expect("a picked method that a cross-fit fold refuses once fitted");
-        let target = modified.id.clone();
-        let mut cat = catalogue().clone();
-        *cat.methods
-            .iter_mut()
-            .find(|m| m.id == target)
-            .expect("the picked method is in the catalogue") = modified;
-        let fitted = cat.method(&target).expect("the modified method");
+        let (cut, method) = crossfit_refused_case(&full)
+            .expect("a picked method the cross-check refuses on the cut");
+        let target = method.id.clone();
 
         // Every other filter keeps it.
         let verdicts = eligibility_ignoring_filters(
-            &cat,
+            catalogue(),
             &EligibilityRequest::Inventory {
                 inventory: cut.validation.inventory.clone(),
             },
@@ -1872,17 +1927,17 @@ mod tests {
             .find(|m| m.id == target)
             .expect("a verdict for the method");
         assert_eq!(verdict.status, EligibilityStatus::CanRun, "{target}");
-        assert!(amd64_env(&target) && fitted.saves_model, "{target}");
+        assert!(amd64_env(&target) && method.saves_model, "{target}");
         assert!(
-            estimate_seconds_for(fitted, cut.patients(), REFERENCE_CPUS)
+            estimate_seconds_for(&method, cut.patients(), REFERENCE_CPUS)
                 < EXAMPLE_METHOD_SECONDS_MAX,
             "{target} stays under the time budget"
         );
         assert!(
             bundle::method_marker_set(
                 &cut.train,
-                &fitted.markers,
-                fitted.required_markers.as_ref()
+                &method.markers,
+                method.required_markers.as_ref()
             )
             .is_ok(),
             "{target}: the marker rule accepts it"
@@ -1890,25 +1945,22 @@ mod tests {
 
         // The bundle stage refuses it, so the pick leaves it out.
         assert_eq!(
-            cut.preflight(fitted),
-            Err(BundleError::NoLearnableOutcome {
-                min: bundle::MIN_TRAINING_PATIENTS
+            cut.preflight(&method),
+            Err(BundleError::CrossCheckTooSmall {
+                needed_patients: bundle::MIN_TRAINING_PATIENTS,
+                needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
             }),
-            "{target}: a cross-fit fold's rest set learns no outcome"
+            "{target}: the cut cohort is too small to cross-check"
         );
-        let unmodified = pick_from(catalogue(), &cut, amd64_env);
         assert!(
-            unmodified.contains(&target),
-            "{target} is picked unmodified"
+            pick_fast_methods_with(&full, amd64_env).contains(&target),
+            "{target} is picked on the full example rows"
         );
-        let picked = pick_from(&cat, &cut, amd64_env);
+        let picked = pick_from(catalogue(), &cut, amd64_env);
         assert!(
             !picked.contains(&target),
             "{target} is refused, not picked: {picked:?}"
         );
-        for id in unmodified.iter().filter(|id| **id != target) {
-            assert!(picked.contains(id), "{id} is still picked: {picked:?}");
-        }
     }
 
     /// Round 2 (review fix 1's example half): the example's DEFAULT config

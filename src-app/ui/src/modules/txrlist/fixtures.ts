@@ -138,6 +138,9 @@ export const TXRLIST_INVENTORY: InventoryEligibilityRequest = {
     has_response_day: true,
     has_survival_day: true,
   },
+  // The story is the learning-run screen (the real page always creates a
+  // train run), so the verdicts' estimates carry the cross-check factor.
+  mode: 'train',
 }
 
 // ── the screen-E catalogue × verdicts (ONE spec table → both wire shapes) ──

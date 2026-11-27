@@ -336,6 +336,8 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'src-app/server/src/modules/execution_engine/repository.rs' &&
           p !==
             'src-app/server/src/modules/execution_engine/migrations/202610260011_txr_timing_samples.sql' &&
+          // crosschecked-chances: the timing-sample `crosschecked` column (migration + sqlite chain pins) and the calibration sample tag.
+          p !== 'src-app/server/src/modules/execution_engine/migrations/202611260001_txr_timing_samples_crosschecked.sql' &&
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           // fix/wsl-methods-cannot-run (its DRIFT-1): sandbox/config.rs gains

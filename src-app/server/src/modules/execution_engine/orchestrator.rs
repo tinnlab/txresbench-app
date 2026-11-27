@@ -60,7 +60,7 @@ use super::runtime::RunRuntime;
 use super::types::{
     CreateRunRequest, EngineReasonCode, RunConfig, TxrCoverage, TxrLimits, TxrLogStream,
     TxrMethodState, TxrPhase, TxrProbSource, TxrRequestError, TxrRunCounts, TxrRunEstimate,
-    TxrRunInputSummary, TxrRunReason, TxrRunStatus, TxrRunSummary, TxrTask,
+    TxrRunInputSummary, TxrRunMode, TxrRunReason, TxrRunStatus, TxrRunSummary, TxrTask,
 };
 use crate::modules::file_validator::types::{
     CanonicalBundle, CanonicalPatient, JoinOffer, MarkerMapping, ParsedTable, ValidationMode,
@@ -950,6 +950,39 @@ impl StackMethodExecutor {
         };
         let outcome_spec = run_task(facts, ctx.config.endpoint, settings.look_ahead_day);
 
+        // The too-small-cohort refusal (the user's "refuse the dataset if
+        // there is too few patients") comes BEFORE any container call: EVERY
+        // method the cross-check concerns ([`needs_crosscheck`]) — a
+        // `fitted` method, also when it returns its own probability and
+        // would otherwise run no folds at all, AND a fixed-rule method whose
+        // shown chances need a conversion band — is refused, with no silent
+        // in-sample fallback, when the 3 stratified folds cannot work.
+        // [`cohort_folds`] both checks and builds the folds (the one
+        // construction the preflight shares), so the cross-fit loop below
+        // reuses them; it stratifies on the run's DISPLAYED outcome (fix 1).
+        let needs = needs_list(facts, &train_bundle.outcomes, settings);
+        let crossfit_folds = if needs_crosscheck(facts, &needs) {
+            match cohort_folds(&train_bundle, &needs, &outcome_spec, settings) {
+                Ok(folds) => Some(folds),
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            }
+        } else {
+            None
+        };
+        // The cohort patient's fold (needed to pick the fold's own
+        // cross-checked conversion) in the ONE order the folds were built.
+        let fold_of: std::collections::BTreeMap<String, usize> = crossfit_folds
+            .as_deref()
+            .map(|folds| {
+                train_bundle
+                    .patient_ids
+                    .iter()
+                    .zip(folds)
+                    .map(|(id, k)| (id.clone(), *k))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let bundle_dir = ctx.run_dir.join("bundles").join(&method_id);
         let outputs_dir = ctx.run_dir.join("output").join(&method_id);
         let model_dir = ctx.run_dir.join("models").join(&method_id);
@@ -998,120 +1031,102 @@ impl StackMethodExecutor {
             }
         }
 
-        // ── the training scores (the conversion band's input) ───────────────
-        let needs = needs_list(facts, &train_bundle.outcomes, settings);
+        // ── the training scores (the conversion band's input AND the
+        //    cross-checked rows of the cohort patients) ──────────────────────
         let mut score_tables: Vec<bundle::CsvTable> = Vec::new();
-        if !needs.is_empty() {
-            if facts.fitted {
-                // The inner 3-fold cross-fit (engine.cpp): the per-fold method
-                // runs are the item's v1 calls — fit on the rest, predict the
-                // fold, so the map is fitted on out-of-fold risks.
-                let folds = super::predictions::crossfit_folds(
-                    train_bundle.patient_ids.len(),
-                    TxrLimits::SEED as u64,
-                    super::predictions::CROSS_FIT_FOLDS,
-                );
-                for k in 0..super::predictions::CROSS_FIT_FOLDS {
-                    let (sub_bundle, fold_test) = match crossfit_fold_bundles(
-                        &train,
-                        &train_bundle.patient_ids,
-                        &folds,
-                        k,
-                        settings,
-                        ctx.min_draws,
-                        &selection,
-                    ) {
-                        Ok(b) => b,
-                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                    };
-                    ctx.sink.progress(
-                        TxrPhase::Fit,
-                        None,
-                        Some(format!(
-                            "cross-fit {} of {} for the probability conversion",
-                            k + 1,
-                            super::predictions::CROSS_FIT_FOLDS
-                        )),
-                    );
-                    // The fold's own /model tree (engine.cpp: each fold fits
-                    // into its OWN work dir — the produced model tree is never
-                    // overwritten, so the final predict's digest still
-                    // verifies against the main fit's tree).
-                    let fold_model_dir = outputs_dir.join(".crossfit").join(k.to_string());
-                    let fold_digest = if facts.saves_model {
-                        if let Err(e) = write_call_input(&bundle_dir, Some(&sub_bundle), None) {
-                            return Ok(failed_outcome(io_failure(&e)));
+        // Each fold's FULL `MethodPredictions` (not only `score.table`): the
+        // OOF rows + the raw table (the call column) the stitched assembly
+        // reads. A fitted method with a need (kind A) already ran these for
+        // the conversion; a fitted method with no need (kind B) now runs the
+        // SAME per-fold calls — one block, never copied — so its SHOWN native
+        // probability and call are out-of-fold too; a fixed-rule method with
+        // a need (kind C) keeps the one cohort predict below.
+        let mut fold_scores: Vec<super::predictions::MethodPredictions> = Vec::new();
+        let mut checked_by_patient: std::collections::BTreeMap<
+            String,
+            super::predictions::PredictionRow,
+        > = std::collections::BTreeMap::new();
+        if facts.fitted {
+            // The inner 3-fold cross-fit (engine.cpp): the per-fold method
+            // runs are the item's v1 calls — fit on the rest, predict the
+            // fold, so the SHOWN value is out-of-fold and the map is fitted
+            // on out-of-fold risks. The folds come from [`cohort_folds`] —
+            // the same construction the preflight checks, one function so
+            // the two paths cannot differ — and are STRATIFIED by the
+            // displayed outcome, unlike the package's plain inner folds.
+            let folds = crossfit_folds
+                .as_deref()
+                .expect("a fitted method carries its checked folds");
+            for k in 0..super::predictions::CROSS_FIT_FOLDS {
+                let (sub_bundle, fold_test) = match crossfit_fold_bundles(
+                    &train,
+                    &train_bundle.patient_ids,
+                    &folds,
+                    k,
+                    settings,
+                    ctx.min_draws,
+                    &selection,
+                ) {
+                    Ok(b) => b,
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                };
+                ctx.sink.progress(
+                    TxrPhase::Fit,
+                    None,
+                    Some(format!(
+                        "cross-fit {} of {} {}",
+                        k + 1,
+                        super::predictions::CROSS_FIT_FOLDS,
+                        if needs.is_empty() {
+                            "to check the chances"
+                        } else {
+                            "for the probability conversion"
                         }
-                        let req = MethodRunRequest {
-                            base: ctx.env.base.clone(),
-                            layer: ctx.env.layer.clone(),
-                            mode: MethodRunMode::FitOnly,
-                            bundle_dir: bundle_dir.clone(),
-                            outputs_dir: outputs_dir.clone(),
-                            model: None,
-                            model_out_dir: Some(fold_model_dir.clone()),
-                            n_cpu: settings.threads,
-                            timeout_secs: Some(timeout_secs),
-                        };
-                        match self.run_one(ctx, &req, &mut duration_ms).await? {
-                            CallOutcome::Aborted => return Ok(aborted_outcome()),
-                            CallOutcome::Ran(r) => {
-                                if let Some(reason) = call_failure(&method_id, "fit", &r) {
-                                    return Ok(failed_outcome(reason));
-                                }
-                                match r.model_out_digest {
-                                    Some(d) => d,
-                                    None => {
-                                        return Ok(failed_outcome(TxrRunReason::from_engine(
+                    )),
+                );
+                // The fold's own /model tree (engine.cpp: each fold fits
+                // into its OWN work dir — the produced model tree is never
+                // overwritten, so the final predict's digest still
+                // verifies against the main fit's tree).
+                let fold_model_dir = outputs_dir.join(".crossfit").join(k.to_string());
+                let fold_digest = if facts.saves_model {
+                    if let Err(e) = write_call_input(&bundle_dir, Some(&sub_bundle), None) {
+                        return Ok(failed_outcome(io_failure(&e)));
+                    }
+                    let req = MethodRunRequest {
+                        base: ctx.env.base.clone(),
+                        layer: ctx.env.layer.clone(),
+                        mode: MethodRunMode::FitOnly,
+                        bundle_dir: bundle_dir.clone(),
+                        outputs_dir: outputs_dir.clone(),
+                        model: None,
+                        model_out_dir: Some(fold_model_dir.clone()),
+                        n_cpu: settings.threads,
+                        timeout_secs: Some(timeout_secs),
+                    };
+                    match self.run_one(ctx, &req, &mut duration_ms).await? {
+                        CallOutcome::Aborted => return Ok(aborted_outcome()),
+                        CallOutcome::Ran(r) => {
+                            if let Some(reason) = call_failure(&method_id, "fit", &r) {
+                                return Ok(failed_outcome(reason));
+                            }
+                            match r.model_out_digest {
+                                Some(d) => d,
+                                None => {
+                                    return Ok(failed_outcome(TxrRunReason::from_engine(
                                             EngineReasonCode::ModelVerifyFailed,
                                             format!(
                                                 "method '{method_id}' wrote no /model during cross-fit fold {}",
                                                 k + 1
                                             ),
                                         )));
-                                    }
                                 }
                             }
                         }
-                    } else {
-                        String::new()
-                    };
-                    let score = self
-                        .predict_call(
-                            ctx,
-                            facts,
-                            settings,
-                            timeout_secs,
-                            &method_id,
-                            spec,
-                            &outcome_spec,
-                            &train_bundle.outcomes,
-                            &sub_bundle.params,
-                            (!facts.saves_model).then_some(&sub_bundle),
-                            &fold_test,
-                            facts
-                                .saves_model
-                                .then_some((fold_digest.as_str(), fold_model_dir.as_path())),
-                            (!facts.saves_model).then_some(fold_model_dir.as_path()),
-                            &bundle_dir,
-                            &outputs_dir,
-                            &mut duration_ms,
-                        )
-                        .await?;
-                    let Some(score) = score else {
-                        return Ok(aborted_outcome());
-                    };
-                    score_tables.push(score.table);
-                }
-            } else {
-                // One call over the training cohort (engine.cpp's
-                // `test_from_train`): the model's scores of the patients it
-                // was trained on — the conversion band's training side.
-                let cohort_test =
-                    match cohort_test_bundle(&train, settings, ctx.min_draws, &selection) {
-                        Ok(b) => b,
-                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                    };
+                    }
+                } else {
+                    String::new()
+                };
                 let score = self
                     .predict_call(
                         ctx,
@@ -1122,11 +1137,13 @@ impl StackMethodExecutor {
                         spec,
                         &outcome_spec,
                         &train_bundle.outcomes,
-                        &train_bundle.params,
-                        (!facts.saves_model).then_some(&train_bundle),
-                        &cohort_test,
-                        model_digest.as_deref().map(|d| (d, model_dir.as_path())),
-                        (!facts.saves_model).then_some(model_dir.as_path()),
+                        &sub_bundle.params,
+                        (!facts.saves_model).then_some(&sub_bundle),
+                        &fold_test,
+                        facts
+                            .saves_model
+                            .then_some((fold_digest.as_str(), fold_model_dir.as_path())),
+                        (!facts.saves_model).then_some(fold_model_dir.as_path()),
                         &bundle_dir,
                         &outputs_dir,
                         &mut duration_ms,
@@ -1135,8 +1152,56 @@ impl StackMethodExecutor {
                 let Some(score) = score else {
                     return Ok(aborted_outcome());
                 };
+                // Keep the fold's full assembly: its OOF rows become the
+                // cohort patients' shown rows (kind B: native; kind A:
+                // the conversion's input), its raw table the stitched
+                // call column.
+                for row in &score.rows {
+                    checked_by_patient.insert(row.patient_id.clone(), row.clone());
+                }
+                fold_scores.push(score.clone());
                 score_tables.push(score.table);
             }
+        } else if !needs.is_empty() {
+            // One call over the training cohort (engine.cpp's
+            // `test_from_train`): the model's scores of the patients it
+            // was trained on — the conversion band's training side. A
+            // fixed-rule method's shown value IS this score (nothing was
+            // learned from it), so the cohort rows are the cross-checked
+            // rows, converted by the fold's own conversion.
+            let cohort_test = match cohort_test_bundle(&train, settings, ctx.min_draws, &selection)
+            {
+                Ok(b) => b,
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            };
+            let score = self
+                .predict_call(
+                    ctx,
+                    facts,
+                    settings,
+                    timeout_secs,
+                    &method_id,
+                    spec,
+                    &outcome_spec,
+                    &train_bundle.outcomes,
+                    &train_bundle.params,
+                    (!facts.saves_model).then_some(&train_bundle),
+                    &cohort_test,
+                    model_digest.as_deref().map(|d| (d, model_dir.as_path())),
+                    (!facts.saves_model).then_some(model_dir.as_path()),
+                    &bundle_dir,
+                    &outputs_dir,
+                    &mut duration_ms,
+                )
+                .await?;
+            let Some(score) = score else {
+                return Ok(aborted_outcome());
+            };
+            for row in &score.rows {
+                checked_by_patient.insert(row.patient_id.clone(), row.clone());
+            }
+            fold_scores.push(score.clone());
+            score_tables.push(score.table);
         }
 
         // ── the conversion (ITEM-6's band; one map for the displayed
@@ -1200,6 +1265,53 @@ impl StackMethodExecutor {
             }
         }
 
+        // The shown column's PER-FOLD conversions (the user's cross-checked
+        // chances): fold k's patients' chances come from a conversion fitted
+        // WITHOUT fold k — on the other folds' cross-checked scores (kind A)
+        // or the other folds' cohort scores (kind C, no extra method runs) —
+        // so a patient's shown chance never used its own score. The FULL
+        // conversion above stays the run's record (conversions.json, the
+        // saved model's map) exactly as today.
+        let fold_conversions: Vec<super::predictions::Conversion> = if conversion.is_some() {
+            let all_scores = score_map_for(&score_tables, spec, outcome_spec.outcome);
+            let mut per_fold = Vec::new();
+            for k in 0..super::predictions::CROSS_FIT_FOLDS {
+                // Fold k's calibration sees the OTHER folds' outcomes ONLY:
+                // its IPCW weights' censoring estimate must never include the
+                // held-out fold's labels (F4 — a change to fold k's follow-up
+                // times moves the full conversion's weights, never
+                // conversion_k's).
+                let other_ids: std::collections::BTreeSet<String> = fold_of
+                    .iter()
+                    .filter(|(_, kk)| **kk != k)
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                let fold_outcomes =
+                    super::predictions::outcomes_for_patients(&outcomes_csv, &other_ids);
+                let other_folds: std::collections::BTreeMap<String, Option<f64>> = all_scores
+                    .iter()
+                    .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                    .map(|(id, risk)| (id.clone(), *risk))
+                    .collect();
+                match super::predictions::fit_recalibration(
+                    spec,
+                    &fold_outcomes,
+                    &other_folds,
+                    outcome_spec.outcome,
+                    outcome_spec.horizon,
+                ) {
+                    Ok(c) => per_fold.push(c),
+                    Err(e) => {
+                        let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
+                        return Ok(failed_outcome(reason));
+                    }
+                }
+            }
+            per_fold
+        } else {
+            Vec::new()
+        };
+
         // ── the final predict call over the predict surface ─────────────────
         let score = self
             .predict_call(
@@ -1235,15 +1347,77 @@ impl StackMethodExecutor {
             return Ok(failed_outcome(io_failure(&e)));
         }
 
-        // The method's own results (its score + yes/no call) from the same
-        // final call, taken before the rows move into the chance column.
-        let native = super::predictions::native_column(&score);
-        let (prob_source, rows) = match &conversion {
-            Some(c) => (
-                TxrProbSource::Recalibrated,
-                super::predictions::converted_rows(c, &score.rows),
-            ),
-            None => (TxrProbSource::Native, score.rows),
+        // The method's own results (its score + yes/no call) — the SHOWN
+        // values of a cross-checked method, taken before the rows move into
+        // the chance column: the stitched assembly gives the OOF score and
+        // call for training-cohort patients (their own fold's row/table) and
+        // the full-fit values for predict-surface patients who were never
+        // trained on; a method the cross-check does not concern keeps the
+        // final call's assembly (kind D).
+        let native = if needs_crosscheck(facts, &needs) {
+            let checked_tables: Vec<&bundle::CsvTable> =
+                fold_scores.iter().map(|s| &s.table).collect();
+            let stitched = super::predictions::stitched_predictions(
+                &score,
+                &checked_by_patient,
+                &checked_tables,
+            );
+            super::predictions::native_column(&stitched)
+        } else {
+            super::predictions::native_column(&score)
+        };
+        // The own-data AUC of the run from the SAME stitched numbers: per
+        // patient the cross-checked score (the OOF risk, or the OOF native
+        // probability when the method gave no risk) — a learning method's
+        // own-probability column now has one too (kind B). The map is built
+        // from the CHECKED rows FIRST, then the final predict's rows are
+        // added only for patients the cross-check never saw: with a separate
+        // predict file the cohort is not in `score.rows` at all, so walking
+        // the final rows would lose the OOF numbers (F1).
+        let auc_scores: std::collections::BTreeMap<String, Option<f64>> =
+            if needs_crosscheck(facts, &needs) {
+                let mut map: std::collections::BTreeMap<String, Option<f64>> = checked_by_patient
+                    .iter()
+                    .map(|(id, row)| (id.clone(), row.risk.or(row.probability)))
+                    .collect();
+                for row in &score.rows {
+                    if !map.contains_key(&row.patient_id) {
+                        map.insert(row.patient_id.clone(), row.risk.or(row.probability));
+                    }
+                }
+                map
+            } else {
+                std::collections::BTreeMap::new()
+            };
+        // The shown rows: the final predict's patient order, with the
+        // cohort patients at their cross-checked values (OOF for a learning
+        // method, the cohort row for a fixed rule) and the outsiders at the
+        // full-fit row — converted by the patient's own fold's conversion
+        // (fitted without that fold), or by the full conversion for a
+        // patient who was never trained on. A method the cross-check does
+        // not concern keeps today's rows exactly (kind D).
+        let (prob_source, rows) = if needs_crosscheck(facts, &needs) {
+            let stitched = super::predictions::stitch_rows(&score.rows, &checked_by_patient);
+            match &conversion {
+                Some(c) => (
+                    TxrProbSource::Recalibrated,
+                    super::predictions::crosschecked_rows(
+                        &stitched,
+                        &fold_of,
+                        &fold_conversions,
+                        c,
+                    ),
+                ),
+                None => (TxrProbSource::Native, stitched),
+            }
+        } else {
+            match &conversion {
+                Some(c) => (
+                    TxrProbSource::Recalibrated,
+                    super::predictions::converted_rows(c, &score.rows),
+                ),
+                None => (TxrProbSource::Native, score.rows),
+            }
         };
         let coverage = super::predictions::coverage(&rows);
 
@@ -1282,13 +1456,21 @@ impl StackMethodExecutor {
                 dir: model_dir.display().to_string(),
                 trained_on_patients: train_bundle.patient_ids.len() as u32,
                 size_bytes: dir_size(&model_dir),
-                own_auc: own_auc(
-                    &score_tables,
-                    spec,
-                    &train_bundle,
-                    &outcome_spec.outcome,
-                    outcome_spec.horizon,
-                ),
+                // Only a method the cross-check concerns gets an own_auc (the
+                // honesty rule: the score it is measured against is the
+                // cross-checked one). Kind D (own probability, fixed rule,
+                // nothing learned) keeps `None` — nothing was cross-checked,
+                // so no shown number is measured (F5).
+                own_auc: if needs_crosscheck(facts, &needs) {
+                    own_auc(
+                        &auc_scores,
+                        &train_bundle,
+                        outcome_spec.outcome,
+                        outcome_spec.horizon,
+                    )
+                } else {
+                    None
+                },
             })
         } else {
             None
@@ -1385,6 +1567,70 @@ impl StackMethodExecutor {
         };
         let params = params_value(settings, &reuse_outcomes, &selection.mains());
 
+        // The data-carrying reuse's cohort side — the run's own patients as
+        // a train call's FIRST bundles with no predict file
+        // ([`method_bundles`]) — and its cross-check, built HERE, BEFORE any
+        // container call. The order chosen (brief 4): the whole cohort stage
+        // is bundle-stage, so a data-carrying reuse that cannot cross-check
+        // its conversion is refused with ZERO calls — the predict-surface
+        // call below is skipped too (a refusal ends the method either way,
+        // and a bundle refusal never reaches the sandbox: the train path's
+        // rule). The cost of moving the check first is only that the main
+        // call may not have run when the cohort refuses; nothing it would
+        // have produced is shown either way.
+        //
+        // Two refusals share this point: the cohort's own bundle refusal
+        // ([`method_bundles`], e.g. a test patient with no covariate row)
+        // and the too-small-cohort one ([`cohort_folds`], the train path's
+        // rule: some fold's training part has fewer than
+        // [`bundle::MIN_TRAINING_PATIENTS`] known labels or fewer than 2 of
+        // either class). A native-probability model is never refused by this
+        // (its shown column is its own — there is no conversion to
+        // cross-check), and a predict-only reuse has no cohort at all (the
+        // saved-conversion path below).
+        let cohort_crosscheck: Option<(MethodBundles, Vec<usize>)> = match (
+            &reuse_train,
+            super::predictions::own_probability(
+                &facts.own_outputs,
+                outcome_spec.outcome,
+                outcome_spec.horizon,
+            ),
+        ) {
+            (Some(train), false) => {
+                // The cohort's marker set, train bundle and test bundle over
+                // the cohort itself are exactly a train call's first bundles
+                // with no predict file ([`method_bundles`]) — and exactly the
+                // selection the conversion's cohort refit uses (audit fix 3):
+                // the recorded-features selection applies ONLY when the model
+                // HAS recorded features and has no fixed list; otherwise this
+                // is [`method_bundles`] exactly as before (the count rule over
+                // the run's training side), never the predict side's selection.
+                let bundles = if recorded_selection {
+                    match method_bundles_with_selection(
+                        train,
+                        None,
+                        settings,
+                        ctx.min_draws,
+                        &selection,
+                    ) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    }
+                } else {
+                    match method_bundles(train, None, facts, settings, ctx.min_draws) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    }
+                };
+                let needs = needs_list(facts, &bundles.train.outcomes, settings);
+                match cohort_folds(&bundles.train, &needs, &outcome_spec, settings) {
+                    Ok(folds) => Some((bundles, folds)),
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                }
+            }
+            _ => None,
+        };
+
         let bundle_dir = ctx.run_dir.join("bundles").join(&method_id);
         let outputs_dir = ctx.run_dir.join("output").join(&method_id);
         let mut duration_ms: u64 = 0;
@@ -1465,37 +1711,24 @@ impl StackMethodExecutor {
         //    matching map the column has no chances and each note says why.
         let (prob_source, rows, applied) = if score.native_column.is_some() {
             (TxrProbSource::Native, score.rows, None)
-        } else if let Some(train) = reuse_train {
+        } else if reuse_train.is_some() {
             // A data-carrying reuse run: the conversion is re-fitted from the
             // model's scores over the run's own cohort (the honest
             // training-side band). The cohort's marker set, train bundle and
             // test bundle over the cohort itself are exactly a train call's
-            // first bundles with no predict file ([`method_bundles`]). Audit
-            // fix 3: the recorded-features selection applies ONLY when the
-            // model HAS recorded features and no fixed list; otherwise this
-            // is [`method_bundles`] exactly as before (the count rule over
-            // the run's training side), never the predict side's selection.
+            // first bundles with no predict file ([`method_bundles`]) — they
+            // were built BEFORE the first call, by the cohort cross-check
+            // above (the check that gates this branch: a non-native shown
+            // column is exactly what it checked).
+            let crosscheck = cohort_crosscheck
+                .as_ref()
+                .expect("the data-carrying conversion branch always built the cohort cross-check");
             let MethodBundles {
                 train: train_bundle,
                 test: cohort_test,
                 ..
-            } = if recorded_selection {
-                match method_bundles_with_selection(
-                    &train,
-                    None,
-                    settings,
-                    ctx.min_draws,
-                    &selection,
-                ) {
-                    Ok(b) => b,
-                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                }
-            } else {
-                match method_bundles(&train, None, facts, settings, ctx.min_draws) {
-                    Ok(b) => b,
-                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                }
-            };
+            } = &crosscheck.0;
+            let folds = &crosscheck.1;
             let cohort_score = self
                 .predict_call(
                     ctx,
@@ -1507,8 +1740,8 @@ impl StackMethodExecutor {
                     &outcome_spec,
                     &train_bundle.outcomes,
                     &train_bundle.params,
-                    (!facts.saves_model).then_some(&train_bundle),
-                    &cohort_test,
+                    (!facts.saves_model).then_some(train_bundle),
+                    cohort_test,
                     Some((&asset.tree_sha256, Path::new(&asset.host_dir))),
                     None,
                     &bundle_dir,
@@ -1524,6 +1757,26 @@ impl StackMethodExecutor {
             // predict-surface rows (`score` above — the patients the board
             // scored); the cohort table was only the map's training side.
             let predict_rows = score.rows;
+            // The cohort patient's row is its OWN cohort-predict value (the
+            // model's score over the cohort — the number the conversion band
+            // was fitted on), stitched over the predict-surface row so the
+            // shown chance is conversion_k applied to the score the band
+            // actually saw; a patient the cohort never saw keeps the
+            // predict-surface row and the full conversion.
+            let checked_by_patient: std::collections::BTreeMap<
+                String,
+                super::predictions::PredictionRow,
+            > = cohort_score
+                .rows
+                .iter()
+                .map(|row| (row.patient_id.clone(), row.clone()))
+                .collect();
+            let fold_of: std::collections::BTreeMap<String, usize> = train_bundle
+                .patient_ids
+                .iter()
+                .zip(folds)
+                .map(|(id, k)| (id.clone(), *k))
+                .collect();
             let outcomes_csv = bundle::parse_csv(
                 &train_bundle
                     .files
@@ -1540,17 +1793,62 @@ impl StackMethodExecutor {
                 outcome_spec.outcome,
                 outcome_spec.horizon,
             ) {
-                Ok(c) => (
-                    TxrProbSource::Recalibrated,
-                    super::predictions::converted_rows(&c, &predict_rows),
-                    Some((
-                        super::predictions::conversion_key(
+                Ok(c) => {
+                    // The shown column's PER-FOLD conversions (brief 3's
+                    // fixed-rule cross-fit, no extra method runs): fold k's
+                    // conversion is fitted on the OTHER folds' cohort scores
+                    // and outcomes ONLY — a cohort patient's shown chance
+                    // never used its own score, and a change to fold k's
+                    // follow-up times never moves its weights (F4). The FULL
+                    // conversion above stays the run's record
+                    // (conversions.json) exactly as today.
+                    let mut fold_conversions: Vec<super::predictions::Conversion> = Vec::new();
+                    for k in 0..super::predictions::CROSS_FIT_FOLDS {
+                        let other_ids: std::collections::BTreeSet<String> = fold_of
+                            .iter()
+                            .filter(|(_, kk)| **kk != k)
+                            .map(|(id, _)| id.clone())
+                            .collect();
+                        let fold_outcomes =
+                            super::predictions::outcomes_for_patients(&outcomes_csv, &other_ids);
+                        let other_folds: std::collections::BTreeMap<String, Option<f64>> = map
+                            .iter()
+                            .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                            .map(|(id, risk)| (id.clone(), *risk))
+                            .collect();
+                        match super::predictions::fit_recalibration(
+                            spec,
+                            &fold_outcomes,
+                            &other_folds,
                             outcome_spec.outcome,
                             outcome_spec.horizon,
+                        ) {
+                            Ok(cc) => fold_conversions.push(cc),
+                            Err(e) => {
+                                let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
+                                return Ok(failed_outcome(reason));
+                            }
+                        }
+                    }
+                    let stitched =
+                        super::predictions::stitch_rows(&predict_rows, &checked_by_patient);
+                    (
+                        TxrProbSource::Recalibrated,
+                        super::predictions::crosschecked_rows(
+                            &stitched,
+                            &fold_of,
+                            &fold_conversions,
+                            &c,
                         ),
-                        c,
-                    )),
-                ),
+                        Some((
+                            super::predictions::conversion_key(
+                                outcome_spec.outcome,
+                                outcome_spec.horizon,
+                            ),
+                            c,
+                        )),
+                    )
+                }
                 Err(e) => {
                     let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
                     return Ok(failed_outcome(reason));
@@ -1817,6 +2115,7 @@ pub fn call_bundle_preflight(
         train,
         ctx.predict.as_deref(),
         facts,
+        ctx.config.endpoint,
         &settings,
         ctx.min_draws,
     ))
@@ -1915,16 +2214,130 @@ fn cohort_test_bundle(
     bundle::test_bundle_with_markers(Some(&train.patients), train, settings, min_draws, selection)
 }
 
+/// The ONE cross-fit fold construction of the train path — [`execute_train`]
+/// and [`train_bundle_preflight`] both take their folds from here, so the two
+/// paths cannot differ. The strata come from the outcome the cross-check
+/// stratifies on (the run's DISPLAYED outcome when the method learns it,
+/// else the first need, else the first trained outcome — the user's fix 1:
+/// a fitted method with no need used to stratify on `outcomes[0]`, normally
+/// progression, even when the run shows death or a response), the labels are
+/// the written `train/outcomes.csv` rows (the sorted cohort — the same
+/// order `patient_ids` carries, so `folds[i]` is fold of `patient_ids[i]`),
+/// and the folds are [`predictions::crossfit_folds_stratified`] at the run's
+/// seed and `K`.
+///
+/// The user's "refuse the dataset if there is too few patients" rule is
+/// enforced HERE: after the strata and the folds are built, every fold's
+/// training part is checked — its known-label count against
+/// [`bundle::MIN_TRAINING_PATIENTS`] and its per-class counts against
+/// [`bundle::CROSSCHECK_FOLD_MIN_PER_CLASS`], in ONE pass — and the first
+/// fold that cannot support the stratified fit refuses the method with
+/// [`bundle::BundleError::CrossCheckTooSmall`]. A missing or unparsable
+/// `outcomes.csv` means no label is known at all: that is the same refusal
+/// (never empty folds, never a silent unfit run).
+fn cohort_folds(
+    train: &bundle::TrainBundle,
+    needs: &[(String, Option<f64>)],
+    displayed: &TxrRunOutcomeSpec,
+    settings: &bundle::BundleSettings,
+) -> Result<Vec<usize>, bundle::BundleError> {
+    // The strata outcome: the DISPLAYED outcome when the method learns it
+    // (the fold strata must match the shown column — a death run never
+    // stratifies on progression), else the first need, else the first
+    // trained outcome. The horizon is irrelevant here: [`fold_strata`] reads
+    // the run's `look_ahead_day` itself (a response outcome needs none).
+    let strata_outcome = if train.outcomes.iter().any(|o| o == displayed.outcome) {
+        displayed.outcome.to_string()
+    } else if let Some((outcome, _)) = needs.first() {
+        outcome.clone()
+    } else if let Some(outcome) = train.outcomes.first() {
+        outcome.clone()
+    } else {
+        return Err(crosscheck_too_small());
+    };
+    let outcomes_csv = train
+        .files
+        .iter()
+        .find(|f| f.name == "outcomes.csv")
+        .map(|f| f.csv.clone())
+        .unwrap_or_default();
+    // The bundle wrote this table itself, so the parse always succeeds; the
+    // empty-table fallback follows the executor's own reading of the file.
+    let table = bundle::parse_csv(&outcomes_csv).unwrap_or_else(|_| bundle::CsvTable::empty());
+    let labels = super::predictions::training_labels(&table);
+    let strata = super::predictions::fold_strata(&labels, &strata_outcome, settings.look_ahead_day);
+    if strata.len() != train.patient_ids.len() {
+        // The outcome file is absent or does not parse (its label table is
+        // then empty — or otherwise not the sorted cohort, so the strata
+        // cannot index the patients). No label is known, so no fold's
+        // training part meets the cross-check minimum: refuse (never empty
+        // folds — a refusal is what the caller acts on now).
+        return Err(crosscheck_too_small());
+    }
+    debug_assert_eq!(
+        strata.len(),
+        train.patient_ids.len(),
+        "the strata index the cohort one-to-one"
+    );
+    let folds = super::predictions::crossfit_folds_stratified(
+        &strata,
+        TxrLimits::SEED as u64,
+        super::predictions::CROSS_FIT_FOLDS,
+    );
+    for k in 0..super::predictions::CROSS_FIT_FOLDS {
+        // ONE pass over the training part: the known-label count and both
+        // class counts (the same labels [`crossfit_fold_problem`] reports,
+        // counted together with the known total).
+        let (mut known, mut stratum1, mut stratum2) = (0usize, 0usize, 0usize);
+        for (s, f) in strata.iter().zip(&folds) {
+            if *f == k {
+                continue;
+            }
+            match *s {
+                1 => {
+                    known += 1;
+                    stratum1 += 1;
+                }
+                2 => {
+                    known += 1;
+                    stratum2 += 1;
+                }
+                _ => {}
+            }
+        }
+        if known < bundle::MIN_TRAINING_PATIENTS
+            || stratum1 < bundle::CROSSCHECK_FOLD_MIN_PER_CLASS
+            || stratum2 < bundle::CROSSCHECK_FOLD_MIN_PER_CLASS
+        {
+            return Err(crosscheck_too_small());
+        }
+    }
+    Ok(folds)
+}
+
+/// The too-small-cohort refusal with the engine's own thresholds (one
+/// construction for the check and its detail).
+fn crosscheck_too_small() -> bundle::BundleError {
+    bundle::BundleError::CrossCheckTooSmall {
+        needed_patients: bundle::MIN_TRAINING_PATIENTS,
+        needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+    }
+}
+
 /// Every bundle a train-mode call builds, built without running anything —
 /// [`method_bundles`], then (when the conversion band needs scores) the
 /// cross-fit folds' bundles for a fitted method or the cohort test bundle
 /// otherwise, through the same helpers `execute_train` calls. `Ok` means the
 /// call cannot be refused with a `BUNDLE_*` code on these inputs; the method
-/// itself can still fail when it runs.
+/// itself can still fail when it runs. `endpoint` is the run's endpoint —
+/// the one input [`run_task`] needs — so the cross-check stratifies on the
+/// SAME displayed outcome the executor will (the preflight and the execution
+/// cannot disagree, fix 1).
 pub(crate) fn train_bundle_preflight(
     train: &CanonicalBundle,
     predict: Option<&CanonicalBundle>,
     facts: &Method,
+    endpoint: super::types::TxrEndpoint,
     settings: &bundle::BundleSettings,
     min_draws: u32,
 ) -> Result<(), bundle::BundleError> {
@@ -1944,30 +2357,70 @@ pub(crate) fn train_bundle_preflight(
         return Err(bundle::BundleError::CovariatesSwitchedOff);
     }
     let bundles = method_bundles(train, predict, facts, settings, min_draws)?;
-    if needs_list(facts, &bundles.train.outcomes, settings).is_empty() {
+    let needs = needs_list(facts, &bundles.train.outcomes, settings);
+    let outcome_spec = run_task(facts, endpoint, settings.look_ahead_day);
+    // The small-cohort refusal is part of the bundle stage for EVERY method
+    // the cross-check concerns ([`needs_crosscheck`]): a `fitted` method
+    // (also when `needs` is empty — it returns its own probability and would
+    // otherwise run no folds at all), AND a fixed-rule method with a
+    // conversion need (its shown chances are cross-checked too, so a
+    // conversion fitted on a few patients is refused before any call).
+    // [`cohort_folds`] checks and returns the folds in one pass, so the
+    // per-fold loop below shares the checked construction ([`execute_train`]
+    // does the same).
+    let folds = if needs_crosscheck(facts, &needs) {
+        Some(cohort_folds(
+            &bundles.train,
+            &needs,
+            &outcome_spec,
+            settings,
+        )?)
+    } else {
+        None
+    };
+    // Kind D (no cross-check at all) is done; every method the cross-check
+    // concerns keeps going — INCLUDING kind B (fitted, no needs): the
+    // executor runs the SAME per-fold calls for a native learner, so the
+    // preflight must check the fold bundles for it too, or a fold-level
+    // bundle error would hit the executor between calls but never the pick
+    // (F3).
+    if needs.is_empty() && !facts.fitted {
         return Ok(());
     }
-    if facts.fitted {
-        let folds = super::predictions::crossfit_folds(
-            bundles.train.patient_ids.len(),
-            TxrLimits::SEED as u64,
-            super::predictions::CROSS_FIT_FOLDS,
-        );
-        for k in 0..super::predictions::CROSS_FIT_FOLDS {
-            crossfit_fold_bundles(
-                train,
-                &bundles.train.patient_ids,
-                &folds,
-                k,
-                settings,
-                min_draws,
-                &bundles.selection,
-            )?;
+    // The bundles the executor itself builds, in its own branch: the
+    // per-fold bundles for a `fitted` method (kinds A and B — the
+    // cross-check's calls) and the one cohort test bundle for a fixed-rule
+    // method with a conversion need (kind C). The two paths MUST mirror
+    // [`execute_train`]'s, so preflight and executor agree.
+    if let Some(folds) = folds {
+        if facts.fitted {
+            for k in 0..super::predictions::CROSS_FIT_FOLDS {
+                crossfit_fold_bundles(
+                    train,
+                    &bundles.train.patient_ids,
+                    &folds,
+                    k,
+                    settings,
+                    min_draws,
+                    &bundles.selection,
+                )?;
+            }
+        } else {
+            cohort_test_bundle(train, settings, min_draws, &bundles.selection)?;
         }
-    } else {
-        cohort_test_bundle(train, settings, min_draws, &bundles.selection)?;
     }
     Ok(())
+}
+
+/// Whether the method's SHOWN numbers need the cross-check (the user's
+/// decision, brief 3): every learning method (`facts.fitted` — it learned
+/// from the cohort, so a shown chance that included its own training is
+/// optimistic), and every method whose displayed column needs a conversion
+/// at all (`!needs.is_empty()` — a fixed-rule method with a conversion band;
+/// a conversion fitted on a few patients is not honest either). A fixed-rule
+/// method that returns its own probability (no needs) is never refused.
+fn needs_crosscheck(facts: &Method, needs: &[(String, Option<f64>)]) -> bool {
+    facts.fitted || !needs.is_empty()
 }
 
 /// The `needs` list (engine.cpp): every learned (outcome, horizon) the method
@@ -2131,22 +2584,23 @@ fn score_map_for(
 }
 
 /// The own-data AUC (Mann–Whitney with half-counted ties) of the method's
-/// score vs the training outcome: the training-score call's risk against the
+/// SHOWN score vs the training outcome: `scores` is the per-patient
+/// cross-checked score of the run (per patient: the out-of-fold risk — or
+/// the out-of-fold native probability when the method gave no risk — else
+/// the full-fit value for a patient outside the training cohort), against the
 /// horizon label (event by h = 1; follow-up beyond h = 0; censored before h =
 /// dropped) for survival, the plain label for response. Null when no scores
 /// or no usable pair (GAP-C's "null when the outcome/the data does not allow
-/// it").
+/// it"; the `< 2 pairs -> None` rule).
 fn own_auc(
-    tables: &[bundle::CsvTable],
-    spec: &super::predictions::PredictionSpec<'_>,
+    scores: &std::collections::BTreeMap<String, Option<f64>>,
     train_bundle: &bundle::TrainBundle,
     outcome: &str,
     horizon: Option<f64>,
 ) -> Option<f64> {
-    if tables.is_empty() {
+    if scores.is_empty() {
         return None;
     }
-    let map = score_map_for(tables, spec, outcome);
     let outcomes_csv = train_bundle
         .files
         .iter()
@@ -2156,7 +2610,7 @@ fn own_auc(
     let labels = super::predictions::training_labels(&table);
     let mut pairs: Vec<(f64, f64)> = Vec::new();
     for lbl in &labels {
-        let Some(risk) = map.get(&lbl.patient_id).copied().flatten() else {
+        let Some(risk) = scores.get(&lbl.patient_id).copied().flatten() else {
             continue;
         };
         let (time, event) = match outcome {
@@ -3335,11 +3789,27 @@ async fn recompute_run_estimate(
         return;
     }
     let calibration = load_timing_calibration(repo).await;
+    // The estimate follows the run's own mode (crosschecked-chances): a train
+    // run's numbers carry the cross-check factor for methods that learn; a
+    // reuse run is today's numbers. A run whose mode row cannot be read
+    // keeps the pre-mode estimate (a display fact — never a run error).
+    let estimate_mode = row
+        .mode()
+        .ok()
+        .map(|m| match m {
+            super::types::TxrRunMode::Train => {
+                crate::modules::method_catalogue::types::EstimateMode::Train
+            }
+            super::types::TxrRunMode::Reuse => {
+                crate::modules::method_catalogue::types::EstimateMode::Reuse
+            }
+        });
     let req = EstimateRequest {
         method_ids,
         patients,
         cpus: Some(cpus),
         at_a_time: at_a_time.max(1),
+        mode: estimate_mode,
     };
     // The run's own list while its drive is live (the same list its plans
     // came from); the current list for a run whose drive is gone.
@@ -3666,6 +4136,13 @@ fn compute_estimate(
         super::types::TxrRunMode::Reuse => prepared.predict.as_ref()?.patients.len() as u32,
     };
     let at_a_time = req.config.at_a_time.max(1);
+    // The estimate's mode follows the run's own mode (crosschecked-chances):
+    // a train run's numbers carry the cross-check factor for methods that
+    // learn; a reuse mode is today's numbers.
+    let estimate_mode = match req.mode {
+        super::types::TxrRunMode::Train => Some(crate::modules::method_catalogue::types::EstimateMode::Train),
+        super::types::TxrRunMode::Reuse => Some(crate::modules::method_catalogue::types::EstimateMode::Reuse),
+    };
     let resp = match estimate::estimate_for_runtime_calibrated(
         &list.catalogue,
         &list.images,
@@ -3674,6 +4151,7 @@ fn compute_estimate(
             patients,
             cpus: Some(cpus),
             at_a_time,
+            mode: estimate_mode,
         },
         calibration,
     ) {
@@ -3788,6 +4266,11 @@ pub(crate) struct CanonicalRun {
 /// The prepared facts of a run: the canonical sides + the classified plans +
 /// the validator's marker count.
 pub struct PreparedRun {
+    /// The run's own mode (the create request's — crosschecked-chances: the
+    /// sample record and the estimate both branch on it; a reuse run carries
+    /// the cohort in [`PreparedRun::train`] too, so the mode, never the
+    /// presence of the train side, is what "a train run" means).
+    pub mode: TxrRunMode,
     pub train: Option<Arc<CanonicalBundle>>,
     pub predict: Option<Arc<CanonicalBundle>>,
     pub predict_patients: Option<Arc<[CanonicalPatient]>>,
@@ -3914,6 +4397,7 @@ fn prepare_run_with(
         envmanifest::EnvArch::host(),
     )?;
     Ok(PreparedRun {
+        mode: run_mode,
         markers: canonical.validated.markers.len(),
         train: canonical.train,
         predict: canonical.predict,
@@ -4993,16 +5477,32 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
             // qa-fixes2 ITEM-6 (R2-3): a finished TRAIN-mode method records
             // its measured seconds for the estimate calibration — the next
             // run's per-method estimate uses this app's own median. A reuse
-            // run measures the predict half alone (no fit) and is excluded;
-            // a record write failure is a warn, never a method failure (the
-            // calibration is a display fact).
-            if outcome.state == TxrMethodState::Finished && prepared.train.is_some() {
+            // run is excluded (its seconds are the predict half alone, and a
+            // Files-mode reuse with a cohort carries that cohort in
+            // `prepared.train` — the guard is the run's MODE, never the
+            // presence of the train side); a record write failure is a warn,
+            // never a method failure (the calibration is a display fact).
+            //
+            // crosschecked-chances: the flag marks whether this run's
+            // measured seconds INCLUDE the cross-check folds — yes for a
+            // train-mode "fitted" method (the executor cross-fits every
+            // learning method), no for a fixed-rule method (its run cost did
+            // not change). The estimate's train-mode median for a method
+            // that learns reads this flag, so a pre-cross-check sample (flag
+            // 0, written before it existed) never mixes into it.
+            if outcome.state == TxrMethodState::Finished && prepared.mode == TxrRunMode::Train {
                 if let Some(ms) = outcome.duration_ms {
+                    let crosschecked = drive
+                        .list
+                        .catalogue
+                        .method(&method_id)
+                        .is_some_and(|m| m.fitted);
                     let sample = crate::modules::method_catalogue::calibration::TimingSample {
                         method_id: method_id.clone(),
                         measured_ms: ms,
                         patients: prepared.train.as_ref().map(|t| t.patients.len() as u32).unwrap_or(0),
                         cpus: drive.cpus,
+                        crosschecked,
                     };
                     if let Err(e) = drive.repo.record_timing_sample(&sample, drive.run_id).await {
                         tracing::warn!(%method_id, error = %e, "execution engine: timing sample record failed");
@@ -5506,13 +6006,14 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
     use crate::modules::execution_engine::predictions;
     use crate::modules::execution_engine::repository::TxrRepository;
     use crate::modules::execution_engine::types::{
-        self, CreateRunRequest, RunConfig, TxrMethodEnv, TxrRunFileNames, TxrRunInput,
+        self, CreateRunRequest, RunConfig, TxrEndpoint, TxrMethodEnv, TxrRunFileNames, TxrRunInput,
         TxrRunInputSummary, TxrRunMode, TxrTask,
     };
     use crate::modules::file_validator::types::{ParsedTable, ParsedTableSource, TableFormat};
@@ -6739,24 +7240,62 @@ mod tests {
         // finished train-mode method's duration + the run's patient count and
         // CPU count land in `txr_timing_samples` (a reuse run never records:
         // it predicts alone and would skew the per-fold base).
+        //
+        // crosschecked-chances: the sample also carries the flag — a
+        // LEARNING method (`fitted`) measured a run whose seconds include the
+        // cross-check folds, a fixed-rule method measured the unchanged
+        // one-call cost.
         let _g = rootfs::scoped_data_root(test_data_dir("timing-sample"));
         let pool = merged_pool().await;
         let runtime = Arc::new(RunRuntime::new());
-        let env = Arc::new(FakeEnv::new(Duration::from_secs(5)));
+        // Two methods at one lane: a per-method 5 s env "download" would
+        // total ~10 s — over `wait_terminal`'s 10 s budget. The test is
+        // about the RECORD, not the download delay.
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(20)));
         let executor = Arc::new(FakeExecutor::new(Duration::from_millis(30)));
-        let req = cohort_run_request(&["landmark-cox-current"], 1, true);
+        let req = cohort_run_request(&["landmark-cox-current", "ctdna-tf-four-group"], 1, true);
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
             .await
             .expect("create");
         let repo = TxrRepository::new(pool.clone());
         let _ = wait_terminal(&repo, summary.id).await;
         let samples = repo.timing_samples().await.expect("samples read");
-        assert_eq!(samples.len(), 1, "one finished method = one sample: {samples:?}");
-        let s = &samples[0];
-        assert_eq!(s.method_id, "landmark-cox-current");
-        assert!(s.measured_ms > 0, "the run was measured: {}", s.measured_ms);
-        assert!(s.patients > 0);
-        assert!(s.cpus >= 1);
+        assert_eq!(samples.len(), 2, "one sample per finished method: {samples:?}");
+        let learnt = samples.iter().find(|s| s.method_id == "landmark-cox-current").expect("learner");
+        assert!(learnt.measured_ms > 0, "the run was measured: {}", learnt.measured_ms);
+        assert!(learnt.patients > 0);
+        assert!(learnt.cpus >= 1);
+        assert!(learnt.crosschecked, "a fitted method's run included the folds");
+        let fixed = samples.iter().find(|s| s.method_id == "ctdna-tf-four-group").expect("fixed-rule");
+        assert!(!fixed.crosschecked, "a fixed-rule method's cost never changed");
+    }
+
+    #[tokio::test]
+    async fn a_reuse_run_with_a_cohort_records_no_timing_sample() {
+        // crosschecked-chances (audit 7): a Files-mode REUSE run carries the
+        // cohort in `prepared.train`, so the record guard must be the run's
+        // MODE — a reuse run never records (its seconds are the predict half,
+        // never the train-mode cost; a tagged sample would feed the
+        // train-mode median for a `fitted` method wrongly).
+        let _g = rootfs::scoped_data_root(test_data_dir("timing-sample-reuse"));
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(20)));
+        let executor = Arc::new(FakeExecutor::new(Duration::from_millis(30)));
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        let req = cohort_reuse_request(&asset_dir, &digest, "landmark-cox-current");
+        let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
+            .await
+            .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let row = wait_terminal(&repo, summary.id).await;
+        assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished, "the reuse method ran");
+        let samples = repo.timing_samples().await.expect("samples read");
+        assert!(
+            samples.is_empty(),
+            "a reuse run records NO sample, even with a cohort: {samples:?}"
+        );
     }
 
     #[tokio::test]
@@ -7511,6 +8050,15 @@ mod tests {
         let seam = FakeStackRunSeam::new();
         let exec = StackMethodExecutor::with_seam(pool, seam.clone());
         let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("facts");
+        let train = Arc::clone(
+            prepared
+                .train
+                .as_ref()
+                .expect("the cohort fixture's train side"),
+        );
         let run_dir = rootfs::data_root();
         let bundles = run_dir.join("bundles").join("ctdna-tf-four-group");
         let outputs = run_dir.join("output").join("ctdna-tf-four-group");
@@ -7582,8 +8130,8 @@ mod tests {
         // The fitted conversions are recorded beside the column (the save
         // flow keeps them with the model): one map per need the training
         // scores cover — the cohort learns progression and death, the method
-        // has no native probability — and the SHOWN key's map is the one
-        // that made `chance.csv` from the final call's risks.
+        // has no native probability — and the SHOWN key's map is the FULL
+        // conversion on all cohort scores (the record, exactly as today).
         let recorded = predictions::read_conversions(&run_dir, "ctdna-tf-four-group")
             .expect("the recorded conversions read");
         assert_eq!(
@@ -7593,23 +8141,93 @@ mod tests {
         );
         assert!(recorded.values().all(|c| c.n > 0), "each map learned from patients");
         assert_ne!(recorded["death@238"], recorded["progression@238"]);
-        let c = &recorded["progression@238"];
+        // The SHOWN chance (brief 3): each patient's score is the cohort
+        // predict's (its own fixed-rule value), converted by the patient's
+        // OWN fold's conversion — fitted on the OTHER folds' patients, so
+        // the recorded full map is NOT what made the column.
+        let (folds, train_bundle, _, _) = fixture_crosscheck(&train, facts);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let cohort_scored = calls[1].scored.clone();
+        drop(calls);
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let spec = predictions::PredictionSpec::new(facts);
+        let cohort_map: BTreeMap<String, Option<f64>> = cohort_scored
+            .iter()
+            .map(|id| (id.clone(), seam_risk(&cohort_scored, id)))
+            .collect();
+        let full_conversion = predictions::fit_recalibration(
+            &spec,
+            &outcomes_csv,
+            &cohort_map,
+            "progression",
+            Some(238.0),
+        )
+        .expect("the full conversion fits");
+        assert_eq!(
+            recorded["progression@238"], full_conversion,
+            "conversions.json stays the full conversion on all cohort scores"
+        );
+        let fold_conversions: Vec<_> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                let others: BTreeMap<String, Option<f64>> = cohort_map
+                    .iter()
+                    .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                    .map(|(id, r)| (id.clone(), *r))
+                    .collect();
+                predictions::fit_recalibration(
+                    &spec,
+                    &fold_calibration_outcomes(&outcomes_csv, &fold_of, k),
+                    &others,
+                    "progression",
+                    Some(238.0),
+                )
+                .expect("the fold conversion fits")
+            })
+            .collect();
         let raw = std::fs::read_to_string(outputs.join("predictions.csv")).unwrap();
         let raw = bundle::parse_csv(&raw).unwrap();
         let chance = std::fs::read_to_string(outputs.join("chance.csv")).unwrap();
         let chance = bundle::parse_csv(&chance).unwrap();
-        let risks = raw.col("risk").unwrap();
+        let raw_ids = raw.col("patient_id").unwrap();
         let probs = chance.col("probability").unwrap();
-        assert_eq!(risks.len(), probs.len());
-        for (r, p) in risks.iter().zip(probs) {
-            let want = c.apply(bundle::parse_number(r)).expect("a scored risk");
-            assert_eq!(p, &format!("{want:.6}"), "chance.csv = the recorded map(risk)");
+        let mut differs = false;
+        for (i, id) in raw_ids.iter().enumerate() {
+            let k = *fold_of.get(id.as_str()).expect("a cohort patient's fold");
+            let risk = seam_risk(&cohort_scored, id).expect("a cohort score");
+            let want = fold_conversions[k]
+                .apply(Some(risk))
+                .expect("a scored risk");
+            assert_eq!(
+                probs[i],
+                format!("{want:.6}"),
+                "chance.csv = the fold's own conversion(score)"
+            );
+            let full_want = full_conversion.apply(Some(risk)).expect("a scored risk");
+            if (full_want - want).abs() > 1e-9 {
+                differs = true;
+            }
         }
-        // The method's own results are recorded beside the chance column from
-        // the SAME final call: its score is the file's risk, unconverted.
+        assert!(
+            differs,
+            "the fold conversions differ from the full one on this cohort: the test must see it"
+        );
+        // The method's own results are recorded beside the chance column: its
+        // score is the shown (cross-checked) risk — for this fixed-rule
+        // method the cohort predict's own value, which on the cohort-as-
+        // surface run equals the final call's file value per patient.
         let native = predictions::read_native_column(&run_dir, "ctdna-tf-four-group")
             .expect("native.csv recorded for a finished train method");
         let raw_ids = raw.col("patient_id").unwrap();
+        let risks = raw.col("risk").unwrap();
         assert_eq!(native.rows.len(), raw_ids.len());
         for (i, id) in raw_ids.iter().enumerate() {
             let row = native.rows.iter().find(|n| &n.patient_id == id).expect("every patient");
@@ -7618,13 +8236,141 @@ mod tests {
         assert_eq!(native.has_call, raw.has("call"), "a call column only when the output had one");
     }
 
+    // ── the cross-checked chances (brief 3): what the executor shows ────────
+
+    /// The scripted seam's deterministic per-call risk of a patient: the
+    /// value `write_predictions` derives from the patient's index in the
+    /// call's scored (sorted) list. `None` = the patient is not in this
+    /// call's surface.
+    fn seam_risk(scored: &[String], patient: &str) -> Option<f64> {
+        let i = scored.iter().position(|s| s == patient)?;
+        Some(0.1 + (i as f64) * 0.05)
+    }
+
+    /// The scripted seam's deterministic per-call native probability (the
+    /// same index formula as the risk).
+    fn seam_prob(scored: &[String], patient: &str) -> Option<f64> {
+        let i = scored.iter().position(|s| s == patient)?;
+        Some(0.2 + ((i % 12) as f64) * 0.05)
+    }
+
+    /// The cross-check facts `execute_train` derives for a method on the
+    /// cohort fixture — ONE construction (method_bundles + needs_list +
+    /// `run_task` + [`cohort_folds`]) so a test recomputes exactly the folds,
+    /// strata outcome and needs the executor used.
+    fn fixture_crosscheck(
+        train: &CanonicalBundle,
+        facts: &Method,
+    ) -> (
+        Vec<usize>,
+        bundle::TrainBundle,
+        bundle::BundleSettings,
+        Vec<(String, Option<f64>)>,
+    ) {
+        let config = RunConfig {
+            decision_day: 56.0,
+            look_ahead_day: 238.0,
+            save_models: true,
+            ..Default::default()
+        };
+        let settings = train_call_bundle_settings(&config, detect_cpus(), facts, train, None);
+        let bundles =
+            method_bundles(train, None, facts, &settings, facts.min_draws).expect("bundles");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        let displayed = run_task(facts, TxrEndpoint::Pfs, settings.look_ahead_day);
+        let folds = cohort_folds(&bundles.train, &needs, &displayed, &settings)
+            .expect("the fixture cohort passes the cross-check");
+        (folds, bundles.train, settings, needs)
+    }
+
+    /// The cohort patient's fold, in the ONE patient/fold order
+    /// ([`fixture_crosscheck`] built it).
+    fn fold_of_patients(
+        train_bundle: &bundle::TrainBundle,
+        folds: &[usize],
+    ) -> BTreeMap<String, usize> {
+        train_bundle
+            .patient_ids
+            .iter()
+            .zip(folds)
+            .map(|(id, k)| (id.clone(), *k))
+            .collect()
+    }
+
+    /// The outcomes table of ONE fold's calibration in the tests (F4): the
+    /// rows of the OTHER folds' patients — the same filtering the executor
+    /// applies, so the recomputed fold conversion's IPCW weights come from
+    /// the other folds' censoring estimate only, never the held-out fold's.
+    fn fold_calibration_outcomes(
+        outcomes: &bundle::CsvTable,
+        fold_of: &BTreeMap<String, usize>,
+        k: usize,
+    ) -> bundle::CsvTable {
+        let other: std::collections::BTreeSet<String> = fold_of
+            .iter()
+            .filter(|(_, kk)| **kk != k)
+            .map(|(id, _)| id.clone())
+            .collect();
+        predictions::outcomes_for_patients(outcomes, &other)
+    }
+
+    /// The Mann–Whitney AUC of (score, label) pairs, ties half-counted (the
+    /// engine's own-`own_auc` math, independent here so the test proves the
+    /// number equals the AUC of the shown stitched values).
+    fn auc_of(pairs: &[(f64, f64)]) -> f64 {
+        let mut wins = 0.0;
+        let mut ties = 0.0;
+        let mut cmps = 0.0;
+        for i in 0..pairs.len() {
+            for j in 0..pairs.len() {
+                if i == j || pairs[i].1 == pairs[j].1 {
+                    continue;
+                }
+                let (a, b) = (pairs[i].0, pairs[j].0);
+                let hi = if pairs[i].1 > pairs[j].1 {
+                    a > b
+                } else {
+                    a < b
+                };
+                cmps += 1.0;
+                if hi {
+                    wins += 1.0;
+                } else if a == b {
+                    ties += 1.0;
+                }
+            }
+        }
+        (wins + ties * 0.5) / cmps
+    }
+
+    /// The pfs label of one training row at the run's look-ahead day (the
+    /// `own_auc` IPCW rule's binary: event by h → 1, event-free beyond h →
+    /// 0, censored before h → dropped).
+    fn pfs_label(lbl: &predictions::TrainingLabel, h: f64) -> Option<f64> {
+        let (t, e) = (lbl.pfs_time?, lbl.pfs_event?);
+        if t <= h {
+            (e == 1.0).then_some(1.0)
+        } else {
+            Some(0.0)
+        }
+    }
+
     #[tokio::test]
-    async fn executor_native_method_reports_native_source_without_crossfit() {
+    async fn executor_native_method_reports_native_source_with_crossfit() {
         let _g = rootfs::scoped_data_root(test_data_dir("executor-native"));
         let pool = merged_pool().await;
         let seam = FakeStackRunSeam::new();
         let exec = StackMethodExecutor::with_seam(pool, seam.clone());
         let prepared = executor_prepared("jm-lme").await; // declares p_progression_H*
+        let facts = crate::modules::method_list::builtin()
+            .method("jm-lme")
+            .expect("facts");
+        let train = Arc::clone(
+            prepared
+                .train
+                .as_ref()
+                .expect("the cohort fixture's train side"),
+        );
         let run_dir = rootfs::data_root();
         make_method_dirs(&run_dir, "jm-lme");
 
@@ -7640,7 +8386,8 @@ mod tests {
         let outcome = exec.execute(ctx).await.expect("verdict");
         assert_eq!(outcome.state, TxrMethodState::Finished);
         assert_eq!(outcome.prob_source, Some(TxrProbSource::Native));
-        // The native method still needs death's conversion → the method is
+        // RENAMED for brief 3: a native LEARNER now CROSS-FITS (the reason in
+        // a comment): it still needs death's conversion → the method is
         // fitted → the 3-fold cross-fit runs (engine.cpp's fitted branch); the
         // DISPLAYED column stays native. Fold calls: 3 × (fit + predict).
         let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
@@ -7651,6 +8398,7 @@ mod tests {
             .filter(|c| c.mode == MethodRunMode::FitOnly)
             .count();
         assert_eq!(fold_fits, predictions::CROSS_FIT_FOLDS);
+        let full_scored = calls[calls.len() - 1].scored.clone();
         drop(calls);
         // The shown column is native and never converted, but the method
         // writes no probability for death: the cross-fit scores the run
@@ -7668,6 +8416,1149 @@ mod tests {
             2 + 2 * predictions::CROSS_FIT_FOLDS,
             "no extra call for the extra map"
         );
+        // The SHOWN progression column is the OOF native probability — each
+        // cohort patient's value comes from its own fold's predict call, so
+        // it differs from the full-fit column wherever the fold's index
+        // rotated. Never the in-sample value the model was fitted on.
+        let (folds, train_bundle, _, _) = fixture_crosscheck(&train, facts);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let chance = std::fs::read_to_string(run_dir.join("output/jm-lme/chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        let mut differs = false;
+        for (id, prob) in ids.iter().zip(probs) {
+            let k = fold_of.get(id).expect("a cohort patient's fold");
+            let fold_scored = &calls[2 + 2 * k].scored;
+            let expected = seam_prob(fold_scored, id).expect("the fold scored the patient");
+            assert_eq!(
+                prob,
+                &format!("{expected:.6}"),
+                "{id}: the shown chance is the OOF native probability"
+            );
+            // The full-fit value would be the final call's index-based value.
+            let full = seam_prob(&full_scored, id).expect("the final call scored the patient");
+            if (full - expected).abs() > 1e-9 {
+                differs = true;
+            }
+        }
+        assert!(
+            differs,
+            "the OOF indices differ from the full-fit's on this cohort: the test must see a difference"
+        );
+    }
+
+    /// Kind B: a fitted method that RETURNS its own probability (no need at
+    /// all — `landmark-cox-current` declares both survival columns) now runs
+    /// the SAME per-fold calls as the conversion band and shows the OOF
+    /// native probability + call; it gains an `own_auc`, and the run still
+    /// makes 2 + 2K container calls.
+    #[tokio::test]
+    async fn executor_native_learner_cross_fits_and_shows_out_of_fold_native_chances() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-native-kind-b"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("landmark-cox-current").await;
+        let facts = crate::modules::method_list::builtin()
+            .method("landmark-cox-current")
+            .expect("facts");
+        let train = Arc::clone(
+            prepared
+                .train
+                .as_ref()
+                .expect("the cohort fixture's train side"),
+        );
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "landmark-cox-current");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "landmark-cox-current",
+            prepared.train,
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Native));
+        assert_eq!(
+            outcome.coverage.map(|c| (c.scored, c.eligible)),
+            Some((30, 30))
+        );
+        let model = outcome.model.expect("save_models → produced model");
+        assert!(
+            model.own_auc.is_some(),
+            "kind B now has an own_auc (the stitched OOF numbers, not None)"
+        );
+
+        // 1 main fit + K × (fold fit + fold predict) + 1 final predict.
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            calls.len(),
+            2 + 2 * predictions::CROSS_FIT_FOLDS,
+            "2 + 2K runs"
+        );
+        assert_eq!(calls[0].mode, MethodRunMode::FitOnly);
+        let fold_fits = calls[1..1 + 2 * predictions::CROSS_FIT_FOLDS]
+            .iter()
+            .filter(|c| c.mode == MethodRunMode::FitOnly)
+            .count();
+        assert_eq!(fold_fits, predictions::CROSS_FIT_FOLDS);
+        let full_scored = calls[calls.len() - 1].scored.clone();
+        drop(calls);
+
+        // The shown chance = the OOF native probability (from each patient's
+        // own fold predict call), never the full-fit column's value.
+        let (folds, train_bundle, _, _) = fixture_crosscheck(&train, facts);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let chance =
+            std::fs::read_to_string(run_dir.join("output/landmark-cox-current/chance.csv"))
+                .unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        let mut oof_scores = Vec::new();
+        let mut differs = false;
+        for (id, prob) in ids.iter().zip(probs) {
+            let k = fold_of.get(id).expect("a cohort patient's fold");
+            let fold_scored = &calls[2 + 2 * k].scored;
+            let expected = seam_prob(fold_scored, id).expect("the fold scored the patient");
+            assert_eq!(
+                prob,
+                &format!("{expected:.6}"),
+                "{id}: the shown chance is the OOF native probability"
+            );
+            let full = seam_prob(&full_scored, id).expect("the final call scored the patient");
+            if (full - expected).abs() > 1e-9 {
+                differs = true;
+            }
+            oof_scores.push((
+                id.as_str(),
+                seam_risk(fold_scored, id).expect("an OOF risk"),
+            ));
+        }
+        assert!(
+            differs,
+            "the fold indices differ from the full-fit's on this cohort: the test must see a difference"
+        );
+        // The recorded own-results: the OOF score + call (the fixture writes
+        // call=1), not the full-fit values.
+        let native = predictions::read_native_column(&run_dir, "landmark-cox-current")
+            .expect("native.csv recorded");
+        assert!(native.has_call);
+        for (id, _) in &oof_scores {
+            let row = native
+                .rows
+                .iter()
+                .find(|n| &n.patient_id == *id)
+                .expect("every patient");
+            let k = fold_of.get(*id).expect("fold");
+            assert_eq!(
+                row.score,
+                seam_risk(&calls[2 + 2 * k].scored, id),
+                "{id}: the own-results score is the OOF risk"
+            );
+            assert_eq!(row.call, Some(1), "{id}: the OOF call");
+        }
+        // The own_auc equals the AUC recomputed from the SAME stitched OOF
+        // numbers against the labels.
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let labels = predictions::training_labels(&outcomes_csv);
+        let mut pairs = Vec::new();
+        for lbl in &labels {
+            let Some(label) = pfs_label(lbl, 238.0) else {
+                continue;
+            };
+            let Some((_, risk)) = oof_scores.iter().find(|(id, _)| *id == lbl.patient_id) else {
+                continue;
+            };
+            pairs.push((*risk, label));
+        }
+        let recomputed = auc_of(&pairs);
+        assert_eq!(
+            model.own_auc,
+            Some(recomputed),
+            "own_auc is the AUC of the shown stitched numbers"
+        );
+    }
+
+    /// Kind A: a score-only learner shows the OOF risk converted by the
+    /// fold's OWN conversion (fitted without that fold — never the full
+    /// conversion for a cohort patient); the run's recorded conversions.json
+    /// stays the FULL conversion on all OOF scores and the produced model
+    /// digest is the main fit's tree's.
+    #[tokio::test]
+    async fn executor_score_only_learner_shows_the_folds_own_conversion() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-kind-a"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("crbm").await;
+        let facts = crate::modules::method_list::builtin()
+            .method("crbm")
+            .expect("facts");
+        let train = Arc::clone(
+            prepared
+                .train
+                .as_ref()
+                .expect("the cohort fixture's train side"),
+        );
+        let run_dir = rootfs::data_root();
+        let (_, _, models) = make_method_dirs(&run_dir, "crbm");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "crbm",
+            prepared.train,
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Recalibrated));
+        let model = outcome.model.expect("save_models → produced model");
+
+        // Call count unchanged for kind A: 2 + 2K.
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 2 + 2 * predictions::CROSS_FIT_FOLDS);
+        drop(calls);
+
+        // The per-fold conversions (fitted on the OTHER folds' OOF scores) and
+        // the full conversion (ALL folds' OOF scores) — the exact maps the
+        // executor fits, recomputed here from the seam's values.
+        let (folds, train_bundle, _, _) = fixture_crosscheck(&train, facts);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        let score_maps: Vec<BTreeMap<String, Option<f64>>> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                calls[2 + 2 * k]
+                    .scored
+                    .iter()
+                    .map(|id| (id.clone(), seam_risk(&calls[2 + 2 * k].scored, id)))
+                    .collect()
+            })
+            .collect();
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let spec = predictions::PredictionSpec::new(facts);
+        let full_conversion = predictions::fit_recalibration(
+            &spec,
+            &outcomes_csv,
+            &score_maps
+                .iter()
+                .flat_map(|m| m.iter().map(|(id, r)| (id.clone(), *r)))
+                .collect(),
+            "progression",
+            Some(238.0),
+        )
+        .expect("the full conversion fits");
+        let fold_conversions: Vec<_> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                let others: BTreeMap<String, Option<f64>> = score_maps
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != k)
+                    .flat_map(|(_, m)| m.iter().map(|(id, r)| (id.clone(), *r)))
+                    .collect();
+                predictions::fit_recalibration(
+                    &spec,
+                    &fold_calibration_outcomes(&outcomes_csv, &fold_of, k),
+                    &others,
+                    "progression",
+                    Some(238.0),
+                )
+                .expect("the fold conversion fits")
+            })
+            .collect();
+        // The fold conversion for fold k is NOT the full conversion, and it
+        // never sees fold k's patients — its `n` is the other folds' usable
+        // labels, so including fold k WOULD change the answer (a case where
+        // the full map is not the honest one).
+        let full_n = full_conversion.n;
+        for (k, c) in fold_conversions.iter().enumerate() {
+            assert_ne!(
+                *c, full_conversion,
+                "fold {k}: the fold's own conversion differs"
+            );
+            assert!(
+                c.n < full_n && c.n > 0,
+                "fold {k}: fitted without fold k ({n} vs {full_n})",
+                n = c.n
+            );
+        }
+        // conversions.json stays the FULL conversion (all OOF scores), the
+        // produced model's map — never the per-fold ones.
+        let recorded = predictions::read_conversions(&run_dir, "crbm").expect("recorded");
+        assert_eq!(
+            recorded.keys().collect::<Vec<_>>(),
+            vec!["death@238", "progression@238"]
+        );
+        assert_eq!(
+            recorded["progression@238"], full_conversion,
+            "the recorded shown map is the full conversion on all OOF scores"
+        );
+        // The chance column: fold k's patients get fold k's conversion applied
+        // to their OOF risk — and at least one of them differs from what the
+        // full conversion would give.
+        let chance = std::fs::read_to_string(run_dir.join("output/crbm/chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        let mut differs = false;
+        for (id, prob) in ids.iter().zip(probs) {
+            let k = *fold_of.get(id).expect("a cohort patient's fold");
+            let risk = seam_risk(&calls[2 + 2 * k].scored, id).expect("an OOF risk");
+            let expected = fold_conversions[k]
+                .apply(Some(risk))
+                .expect("a scored risk");
+            assert_eq!(
+                prob,
+                &format!("{expected:.6}"),
+                "{id}: the fold's own conversion"
+            );
+            let full = full_conversion.apply(Some(risk)).expect("a scored risk");
+            if (full - expected).abs() > 1e-9 {
+                differs = true;
+            }
+        }
+        assert!(
+            differs,
+            "some patient's chance differs from the full conversion's (the fold's conversion is the honest one)"
+        );
+        // The produced model's digest is the MAIN fit's tree (the folds fit
+        // into .crossfit/<k> and never overwrite it).
+        let digest =
+            crate::modules::sandbox::stack::tree_sha256(&models).expect("the tree digests");
+        assert_eq!(model.model_out_digest, digest);
+        // And the own_auc uses the OOF risks — recomputed from them.
+        let labels = predictions::training_labels(&outcomes_csv);
+        let mut pairs = Vec::new();
+        for lbl in &labels {
+            let Some(label) = pfs_label(lbl, 238.0) else {
+                continue;
+            };
+            let k = fold_of.get(lbl.patient_id.as_str()).expect("fold");
+            let risk = seam_risk(&calls[2 + 2 * k].scored, &lbl.patient_id).expect("OOF risk");
+            pairs.push((risk, label));
+        }
+        assert_eq!(model.own_auc, Some(auc_of(&pairs)));
+    }
+
+    /// Kind C: a fixed-rule method with a conversion need does no extra
+    /// method runs — the one cohort predict stays — but its shown chances
+    /// are the SAME cohort score converted by the fold's OWN conversion
+    /// (fitted on the other folds' scores); `conversions.json` is the FULL
+    /// conversion on all cohort scores.
+    #[tokio::test]
+    async fn executor_fixed_rule_cross_fits_its_conversion() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-kind-c"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("facts");
+        let train = Arc::clone(
+            prepared
+                .train
+                .as_ref()
+                .expect("the cohort fixture's train side"),
+        );
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "ctdna-tf-four-group");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "ctdna-tf-four-group",
+            prepared.train,
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Recalibrated));
+
+        // Call count unchanged for kind C: fit + cohort predict + final.
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            calls.len(),
+            3,
+            "no extra calls for the cross-checked conversion"
+        );
+        let cohort_scored = calls[1].scored.clone();
+        let full_scored = calls[2].scored.clone();
+        drop(calls);
+        assert_eq!(
+            cohort_scored, full_scored,
+            "surface = cohort: the same scored set"
+        );
+
+        let (folds, train_bundle, _, _) = fixture_crosscheck(&train, facts);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let spec = predictions::PredictionSpec::new(facts);
+        let cohort_map: BTreeMap<String, Option<f64>> = cohort_scored
+            .iter()
+            .map(|id| (id.clone(), seam_risk(&cohort_scored, id)))
+            .collect();
+        let full_conversion = predictions::fit_recalibration(
+            &spec,
+            &outcomes_csv,
+            &cohort_map,
+            "progression",
+            Some(238.0),
+        )
+        .expect("the full conversion fits");
+        let fold_conversions: Vec<_> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                let others: BTreeMap<String, Option<f64>> = cohort_map
+                    .iter()
+                    .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                    .map(|(id, r)| (id.clone(), *r))
+                    .collect();
+                predictions::fit_recalibration(
+                    &spec,
+                    &fold_calibration_outcomes(&outcomes_csv, &fold_of, k),
+                    &others,
+                    "progression",
+                    Some(238.0),
+                )
+                .expect("the fold conversion fits")
+            })
+            .collect();
+        // The recorded shown map stays the FULL conversion (all cohort
+        // scores) — the per-fold ones only shape the shown column.
+        let recorded =
+            predictions::read_conversions(&run_dir, "ctdna-tf-four-group").expect("recorded");
+        assert_eq!(
+            recorded["progression@238"], full_conversion,
+            "conversions.json = the full conversion"
+        );
+        let chance =
+            std::fs::read_to_string(run_dir.join("output/ctdna-tf-four-group/chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        let mut differs = false;
+        for (id, prob) in ids.iter().zip(probs) {
+            let k = *fold_of.get(id).expect("a cohort patient's fold");
+            let risk = seam_risk(&cohort_scored, id).expect("a cohort score");
+            let expected = fold_conversions[k]
+                .apply(Some(risk))
+                .expect("a scored risk");
+            assert_eq!(
+                prob,
+                &format!("{expected:.6}"),
+                "{id}: the fold's own conversion"
+            );
+            let full = full_conversion.apply(Some(risk)).expect("a scored risk");
+            if (full - expected).abs() > 1e-9 {
+                differs = true;
+            }
+        }
+        assert!(
+            differs,
+            "the fold conversions differ from the full one on this cohort: the test must see it"
+        );
+    }
+
+    /// F1: with a SEPARATE predict file that does NOT contain the cohort, the
+    /// final predict's rows never include the training patients — the
+    /// own_auc must come out of the CHECKED rows first (the OOF numbers),
+    /// never be computed from the final call's rows only (walking those lost
+    /// the cohort, so own_auc was None in brief 3).
+    #[tokio::test]
+    async fn own_auc_survives_a_predict_file_without_the_cohort() {
+        use crate::modules::file_validator::types::CanonicalValue;
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-own-auc-disjoint-predict"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("facts");
+        let train = Arc::clone(
+            prepared
+                .train
+                .as_ref()
+                .expect("the cohort fixture's train side"),
+        );
+        // A predict surface of the SAME shape under DIFFERENT patient ids
+        // (X01..X30): the cohort is nowhere in the final predict call's rows.
+        let predict = Arc::new(CanonicalBundle {
+            patients: train
+                .patients
+                .iter()
+                .map(|p| CanonicalPatient {
+                    patient_id: format!("X{}", p.patient_id),
+                    ..p.clone()
+                })
+                .collect(),
+            values: train
+                .values
+                .iter()
+                .map(|v| CanonicalValue {
+                    patient_id: format!("X{}", v.patient_id),
+                    ..v.clone()
+                })
+                .collect(),
+            features: train.features.clone(),
+        });
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "ctdna-tf-four-group");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "ctdna-tf-four-group",
+            prepared.train,
+            Some(predict.clone()),
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        let model = outcome.model.expect("save_models → produced model");
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 3, "fit + cohort predict + final predict");
+        let cohort_scored = calls[1].scored.clone();
+        let full_scored = calls[2].scored.clone();
+        drop(calls);
+        assert!(
+            cohort_scored.iter().all(|id| !id.starts_with('X')),
+            "the cohort call scores the cohort"
+        );
+        assert!(
+            full_scored.iter().all(|id| id.starts_with('X')),
+            "the final call scores the separate predict file only (the cohort \
+             is NOT in its rows — the F1 condition)"
+        );
+        assert!(
+            cohort_scored.iter().all(|id| !full_scored.contains(id)),
+            "the two surfaces are disjoint"
+        );
+
+        // The own_auc IS set and equals the AUC of the OOF numbers: per
+        // cohort patient the one cohort predict's risk against the pfs label.
+        let (folds, train_bundle, _, _) = fixture_crosscheck_for(&train, &predict, facts);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        assert_eq!(fold_of.len(), 30);
+        let cohort_map: BTreeMap<String, f64> = cohort_scored
+            .iter()
+            .map(|id| (id.clone(), seam_risk(&cohort_scored, id).expect("scored")))
+            .collect();
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let labels = predictions::training_labels(&outcomes_csv);
+        let mut pairs = Vec::new();
+        for lbl in &labels {
+            let Some(label) = pfs_label(lbl, 238.0) else {
+                continue;
+            };
+            let Some(risk) = cohort_map.get(&lbl.patient_id).copied() else {
+                continue;
+            };
+            pairs.push((risk, label));
+        }
+        assert!(
+            model.own_auc.is_some(),
+            "own_auc is not lost with a separate predict file"
+        );
+        assert_eq!(
+            model.own_auc,
+            Some(auc_of(&pairs)),
+            "own_auc = the AUC of the OOF numbers (the cohort's checked rows, \
+             which the final call's rows do not contain)"
+        );
+    }
+
+    /// Patients on the predict surface who were never trained on keep the
+    /// final full-fit row converted with the FULL conversion — a fixed-rule
+    /// method (kind C) with a predict file of C01..C33 while the cohort is
+    /// C01..C30: the outsiders' chance is full_conversion(risk), never a fold
+    /// conversion.
+    #[tokio::test]
+    async fn executor_outside_patients_keep_the_full_fit_conversion() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-outsiders"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let mut measurements = cohort_measurements_table();
+        for i in 31..=33 {
+            for (day, value) in [("0", "100"), ("28", "110"), ("56", "105")] {
+                measurements.rows.push(vec![
+                    Some(format!("C{i:02}")),
+                    Some(day.to_string()),
+                    Some("14804-9".to_string()),
+                    Some(value.to_string()),
+                    Some("U/L".to_string()),
+                ]);
+            }
+        }
+        let mut req = cohort_run_request(&["ctdna-tf-four-group"], 2, true);
+        req.input.predict_measurements = Some(measurements);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Train,
+            &req.method_ids,
+            &[],
+        )
+        .expect("the train request with a larger predict file validates");
+        let facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("facts");
+        let train = Arc::clone(
+            prepared
+                .train
+                .as_ref()
+                .expect("the cohort fixture's train side"),
+        );
+        let predict = Arc::clone(prepared.predict.as_ref().expect("the predict file"));
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "ctdna-tf-four-group");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "ctdna-tf-four-group",
+            prepared.train,
+            Some(predict.clone()),
+            prepared.predict_patients.clone(),
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Recalibrated));
+
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 3);
+        let cohort_scored = calls[1].scored.clone();
+        let full_scored = calls[2].scored.clone();
+        drop(calls);
+        assert_eq!(cohort_scored.len(), 30, "the cohort call scores the cohort");
+        assert_eq!(
+            full_scored.len(),
+            33,
+            "the final call scores the full surface"
+        );
+        let outsiders: Vec<&String> = full_scored
+            .iter()
+            .filter(|id| !cohort_scored.contains(id))
+            .collect();
+        assert_eq!(outsiders.len(), 3);
+
+        let (folds, train_bundle, _, _) = fixture_crosscheck_for(&train, &predict, facts);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let spec = predictions::PredictionSpec::new(facts);
+        let cohort_map: BTreeMap<String, Option<f64>> = cohort_scored
+            .iter()
+            .map(|id| (id.clone(), seam_risk(&cohort_scored, id)))
+            .collect();
+        let full_conversion = predictions::fit_recalibration(
+            &spec,
+            &outcomes_csv,
+            &cohort_map,
+            "progression",
+            Some(238.0),
+        )
+        .expect("the full conversion fits");
+        let fold_conversions: Vec<_> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                let others: BTreeMap<String, Option<f64>> = cohort_map
+                    .iter()
+                    .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                    .map(|(id, r)| (id.clone(), *r))
+                    .collect();
+                predictions::fit_recalibration(
+                    &spec,
+                    &fold_calibration_outcomes(&outcomes_csv, &fold_of, k),
+                    &others,
+                    "progression",
+                    Some(238.0),
+                )
+                .expect("the fold conversion fits")
+            })
+            .collect();
+        let chance =
+            std::fs::read_to_string(run_dir.join("output/ctdna-tf-four-group/chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        assert_eq!(
+            ids.len(),
+            33,
+            "the chance column keeps every surface patient"
+        );
+        for (id, prob) in ids.iter().zip(probs) {
+            let outer = !cohort_scored.contains(id);
+            let (risk, conversion) = if outer {
+                (
+                    seam_risk(&full_scored, id).expect("the final call scored the outsider"),
+                    &full_conversion,
+                )
+            } else {
+                let k = *fold_of.get(id).expect("a cohort patient's fold");
+                (
+                    seam_risk(&cohort_scored, id).expect("a cohort score"),
+                    &fold_conversions[k],
+                )
+            };
+            let expected = conversion.apply(Some(risk)).expect("a scored risk");
+            assert_eq!(
+                prob,
+                &format!("{expected:.6}"),
+                "{id}: {}",
+                if outer {
+                    "outsider: the full-fit conversion"
+                } else {
+                    "cohort: the fold's own conversion"
+                }
+            );
+        }
+    }
+
+    /// Kind D: a fixed-rule method with its own probability for every learned
+    /// outcome is untouched — no folds, no cross-check: 2 calls, the
+    /// full-fit native column, no conversions.json.
+    #[tokio::test]
+    async fn executor_fixed_rule_native_method_is_not_crosschecked() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-kind-d"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let mut kind_d_list = (*crate::modules::method_list::builtin()).clone();
+        for m in &mut kind_d_list.catalogue.methods {
+            if m.id == "ctdna-tf-four-group" {
+                m.own_outputs = vec![
+                    "risk".to_string(),
+                    "p_progression_H*".to_string(),
+                    "p_death_H*".to_string(),
+                ];
+            }
+        }
+        let kind_d_list = Arc::new(kind_d_list);
+        let facts = kind_d_list.method("ctdna-tf-four-group").expect("facts");
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "ctdna-tf-four-group");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "ctdna-tf-four-group",
+            prepared.train,
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        ctx.list = kind_d_list;
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Native));
+        assert_eq!(
+            outcome.coverage.map(|c| (c.scored, c.eligible)),
+            Some((30, 30))
+        );
+        // F5: kind D keeps own_auc = None — nothing was cross-checked, so no
+        // shown number is measured (the pre-F5 code computed it from the
+        // full-fit rows).
+        let model = outcome.model.expect("save_models → produced model");
+        assert_eq!(
+            model.own_auc, None,
+            "kind D: own_auc stays None (never computed from full-fit rows)"
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            calls.len(),
+            2,
+            "fit + final predict: nothing learned, no folds"
+        );
+        assert_eq!(calls[0].mode, MethodRunMode::FitOnly);
+        assert_eq!(calls[1].mode, MethodRunMode::ReuseModel);
+        let full_scored = calls[1].scored.clone();
+        drop(calls);
+        // The shown chance is the full-fit native column (no OOF).
+        let chance =
+            std::fs::read_to_string(run_dir.join("output/ctdna-tf-four-group/chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        for (id, prob) in ids.iter().zip(probs) {
+            let expected = seam_prob(&full_scored, id).expect("the final call scored the patient");
+            assert_eq!(
+                prob,
+                &format!("{expected:.6}"),
+                "{id}: the native value stays"
+            );
+        }
+        assert_eq!(
+            predictions::read_conversions(&run_dir, "ctdna-tf-four-group").expect("recorded"),
+            predictions::Conversions::new(),
+            "no need, no conversion, no file"
+        );
+    }
+
+    /// The cohort + separate-predict-file cross-check facts (the same
+    /// construction as [`fixture_crosscheck`] with the run's predict side).
+    fn fixture_crosscheck_for(
+        train: &CanonicalBundle,
+        predict: &CanonicalBundle,
+        facts: &Method,
+    ) -> (
+        Vec<usize>,
+        bundle::TrainBundle,
+        bundle::BundleSettings,
+        Vec<(String, Option<f64>)>,
+    ) {
+        let config = RunConfig {
+            decision_day: 56.0,
+            look_ahead_day: 238.0,
+            save_models: true,
+            ..Default::default()
+        };
+        let settings =
+            train_call_bundle_settings(&config, detect_cpus(), facts, train, Some(predict));
+        let bundles = method_bundles(train, Some(predict), facts, &settings, facts.min_draws)
+            .expect("bundles");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        let displayed = run_task(facts, TxrEndpoint::Pfs, settings.look_ahead_day);
+        let folds = cohort_folds(&bundles.train, &needs, &displayed, &settings)
+            .expect("the fixture cohort passes the cross-check");
+        (folds, bundles.train, settings, needs)
+    }
+
+    /// The shown numbers are honest where the in-sample ones are optimistic:
+    /// a cohort where the full-fit (in-sample) risk is the label itself
+    /// (AUC 1, tiny Brier) but the cross-checked OOF risk carries no signal
+    /// (a constant — the fold conversions collapse to the event rate), so
+    /// the SHOWN chances have the worse (honest) AUC/Brier.
+    #[test]
+    fn in_sample_chances_are_optimistic_and_shown_crosschecked_chances_are_not() {
+        use crate::modules::method_catalogue::types::MethodGroup;
+
+        let settings = bundle::BundleSettings::for_run(
+            &RunConfig {
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            1,
+        );
+        let needs = vec![("progression".to_string(), Some(238.0))];
+        let displayed = TxrRunOutcomeSpec {
+            task: TxrTask::Pfs,
+            outcome: "progression",
+            horizon: Some(238.0),
+        };
+        let mut strata = vec![1usize; 8];
+        strata.resize(15, 2usize);
+        let train_bundle = crosscheck_bundle(&strata);
+        let folds = cohort_folds(&train_bundle, &needs, &displayed, &settings)
+            .expect("15 patients 8+7 pass the cross-check");
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("parses");
+        let own = vec!["risk".to_string()];
+        let spec = predictions::PredictionSpec {
+            method_id: "fake-overfit",
+            own_outputs: &own,
+            group: MethodGroup::StaticRisk,
+            constant_ok: None,
+        };
+        // In-sample: the full model fitted on everyone → risk = the label.
+        // Cross-checked: the OOF risk is uninformative (constant 0.5).
+        let in_risk: BTreeMap<String, Option<f64>> = (0..15)
+            .map(|i| {
+                (
+                    format!("C{i:02}"),
+                    Some(if strata[i] == 1 { 0.9 } else { 0.1 }),
+                )
+            })
+            .collect();
+        let oof_risk: BTreeMap<String, Option<f64>> =
+            (0..15).map(|i| (format!("C{i:02}"), Some(0.5))).collect();
+        let full_rows: Vec<predictions::PredictionRow> = (0..15)
+            .map(|i| predictions::PredictionRow {
+                patient_id: format!("C{i:02}"),
+                risk: in_risk[&format!("C{i:02}")],
+                probability: None,
+                note: String::new(),
+            })
+            .collect();
+        let oof_rows: BTreeMap<String, predictions::PredictionRow> = (0..15)
+            .map(|i| {
+                let id = format!("C{i:02}");
+                (
+                    id.clone(),
+                    predictions::PredictionRow {
+                        patient_id: id,
+                        risk: oof_risk[&format!("C{i:02}")],
+                        probability: None,
+                        note: String::new(),
+                    },
+                )
+            })
+            .collect();
+        let full_conversion = predictions::fit_recalibration(
+            &spec,
+            &outcomes_csv,
+            &in_risk,
+            "progression",
+            Some(238.0),
+        )
+        .expect("the in-sample conversion fits");
+        let fold_conversions: Vec<_> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                let others: BTreeMap<String, Option<f64>> = oof_risk
+                    .iter()
+                    .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                    .map(|(id, r)| (id.clone(), *r))
+                    .collect();
+                predictions::fit_recalibration(
+                    &spec,
+                    &fold_calibration_outcomes(&outcomes_csv, &fold_of, k),
+                    &others,
+                    "progression",
+                    Some(238.0),
+                )
+                .expect("the OOF conversion fits")
+            })
+            .collect();
+        let shown = predictions::crosschecked_rows(
+            &predictions::stitch_rows(&full_rows, &oof_rows),
+            &fold_of,
+            &fold_conversions,
+            &full_conversion,
+        );
+        let shown_map: BTreeMap<String, Option<f64>> = shown
+            .iter()
+            .map(|r| (r.patient_id.clone(), r.probability))
+            .collect();
+        let labels = predictions::training_labels(&outcomes_csv);
+        let label_of = |id: &str| -> Option<f64> {
+            let lbl = labels.iter().find(|l| l.patient_id == id)?;
+            pfs_label(lbl, 238.0)
+        };
+        let auc_in = own_auc(&in_risk, &train_bundle, "progression", Some(238.0))
+            .expect("the in-sample AUC exists");
+        let auc_shown = own_auc(&shown_map, &train_bundle, "progression", Some(238.0))
+            .expect("the shown AUC exists");
+        assert_eq!(auc_in, 1.0, "the in-sample risk IS the label");
+        assert!(
+            auc_shown < auc_in,
+            "the shown (cross-checked) chances are NOT optimistic: {auc_shown} < {auc_in}"
+        );
+        let brier = |map: &BTreeMap<String, Option<f64>>| -> f64 {
+            let mut n = 0usize;
+            let mut sum = 0.0;
+            for (id, prob) in map {
+                let Some(p) = prob else { continue };
+                let Some(label) = label_of(id) else { continue };
+                n += 1;
+                sum += (p - label) * (p - label);
+            }
+            sum / n as f64
+        };
+        assert!(
+            brier(&in_risk) < brier(&shown_map),
+            "the in-sample Brier is optimistic; the shown one is not"
+        );
+    }
+
+    /// Fix 3: the fold-bundle error path BETWEEN calls stays covered. The
+    /// cohort carries a second marker for all patients but the ones of fold 0
+    /// (the seam's marker-agnostic `crbm` selects every main marker), so the
+    /// MAIN bundles build, the cross-check passes, the main fit RUNS — and
+    /// fold 0's test bundle then refuses `BUNDLE_TEST_MARKER_MISSING` before
+    /// any fold call: the orchestration surfaces the bundle's own typed code,
+    /// never a panic or a silent fit-without-chances.
+    #[tokio::test]
+    async fn a_fold_bundle_error_between_calls_fails_with_the_bundle_code() {
+        use crate::modules::file_validator::types::{CanonicalFeature, CanonicalValue};
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-fold-bundle-error"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("crbm").await;
+        let facts = crate::modules::method_list::builtin()
+            .method("crbm")
+            .expect("facts");
+        let mut train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side")
+            .clone();
+        // A second marker for everyone (the same draw days, so eligibility,
+        // outcomes and folds do not change).
+        let mut add = |patient_id: &str| {
+            for day in [0.0, 28.0, 56.0] {
+                train.values.push(CanonicalValue {
+                    patient_id: patient_id.to_string(),
+                    day,
+                    feature: "9999-0".to_string(),
+                    value: Some(100.0 + day),
+                    unit: Some("U/L".to_string()),
+                });
+            }
+        };
+        for p in &train.patients {
+            add(&p.patient_id);
+        }
+        train.features.push(CanonicalFeature {
+            feature: "9999-0".to_string(),
+            unit: Some("U/L".to_string()),
+            marker_id: Some("9999-0".to_string()),
+            display_name: None,
+            standard_ids: Vec::new(),
+            is_detection_companion: false,
+        });
+        let (folds, _, _, _) = fixture_crosscheck(&train, facts);
+        // Drop the second marker from fold 0's patients only: the fold's
+        // test bundle loses a selected marker while the main bundles keep it.
+        let fold0_ids: Vec<String> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.clone())
+            .enumerate()
+            .filter(|(i, _)| folds[*i] == 0)
+            .map(|(_, id)| id)
+            .collect();
+        assert!(!fold0_ids.is_empty());
+        train
+            .values
+            .retain(|v| !(v.feature == "9999-0" && fold0_ids.contains(&v.patient_id)));
+        let train = Arc::new(train);
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "crbm");
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "crbm",
+            Some(train),
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("an executor verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        let reason = outcome.reason.expect("a refusal reason");
+        assert_eq!(reason.code, "BUNDLE_TEST_MARKER_MISSING", "{reason:?}");
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            calls.len(),
+            1,
+            "the main fit ran, then the fold 0 bundle refused BETWEEN calls"
+        );
+        assert_eq!(calls[0].mode, MethodRunMode::FitOnly);
     }
 
     // ── the bundle preflight against the executor's own bundle stage ──────
@@ -7685,29 +9576,581 @@ mod tests {
         subset_canonical(train, &keep)
     }
 
-    /// A fitted catalogue method plus a cohort size where the method's first
-    /// bundles build but a cross-fit fold's rest set learns no outcome — a
-    /// search over the catalogue and the sizes, so the case does not hang on
-    /// one method's facts.
-    fn crossfit_refusal_case(
-        train: &CanonicalBundle,
-        settings: &bundle::BundleSettings,
-    ) -> Option<(String, CanonicalBundle)> {
-        let cat = &crate::modules::method_list::builtin().catalogue;
-        let refused = Err(bundle::BundleError::NoLearnableOutcome {
-            min: bundle::MIN_TRAINING_PATIENTS,
+    /// The ONE-construction rule behind the executor/preflight parity: the
+    /// shared [`cohort_folds`] derives the strata from the FIRST learned
+    /// need's training labels (the written outcomes.csv — the sorted cohort)
+    /// and returns the balanced stratified partition the per-fold runs use,
+    /// byte-for-byte the public pieces recompute.
+    #[tokio::test]
+    async fn cohort_folds_are_the_stratified_partition_of_the_cohort() {
+        let _g = rootfs::scoped_data_root(test_data_dir("cohort-folds"));
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        let config = RunConfig {
+            decision_day: 56.0,
+            look_ahead_day: 238.0,
+            save_models: true,
+            ..Default::default()
+        };
+        let facts = crate::modules::method_list::builtin()
+            .method("ctdna-tf-four-group")
+            .expect("the fixture method's facts");
+        let settings = train_call_bundle_settings(&config, detect_cpus(), facts, train, None);
+        let bundles =
+            method_bundles(train, None, facts, &settings, facts.min_draws).expect("bundles");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        assert!(
+            !needs.is_empty(),
+            "the fixture cohort learns at least one outcome"
+        );
+
+        let folds = cohort_folds(
+            &bundles.train,
+            &needs,
+            &TxrRunOutcomeSpec {
+                task: TxrTask::Pfs,
+                outcome: "progression",
+                horizon: Some(config.look_ahead_day),
+            },
+            &settings,
+        )
+        .expect("the cohort's folds can be built (it passes the cross-check)");
+        assert_eq!(folds.len(), bundles.train.patient_ids.len());
+        let mut counts = [0usize; predictions::CROSS_FIT_FOLDS];
+        for f in &folds {
+            assert!(*f < predictions::CROSS_FIT_FOLDS, "folds are in 0..K");
+            counts[*f] += 1;
+        }
+        assert!(
+            counts.iter().max().unwrap() - counts.iter().min().unwrap() <= 1,
+            "the continued deal balances the fold sizes: {counts:?}"
+        );
+        assert!(counts.iter().all(|c| *c > 0), "every fold has patients");
+
+        // The same folds as the public pieces: strata from the first need's
+        // labels, then the stratified construction at the run's seed and K.
+        let outcomes_csv = bundles
+            .train
+            .files
+            .iter()
+            .find(|f| f.name == "outcomes.csv")
+            .expect("the train bundle writes outcomes.csv");
+        let table = bundle::parse_csv(&outcomes_csv.csv).expect("the bundle's own CSV parses");
+        let labels = predictions::training_labels(&table);
+        let strata = predictions::fold_strata(&labels, &needs[0].0, settings.look_ahead_day);
+        assert_eq!(
+            predictions::crossfit_folds_stratified(
+                &strata,
+                TxrLimits::SEED as u64,
+                predictions::CROSS_FIT_FOLDS
+            ),
+            folds,
+            "cohort_folds is exactly fold_strata + crossfit_folds_stratified"
+        );
+    }
+
+    /// The cross-check of [`cohort_folds`] when the outcome file is missing
+    /// or does not parse: the label table is then empty (or otherwise not the
+    /// sorted cohort), so the strata cannot index the patients — but more
+    /// fundamentally no label is known at all, so no fold's training part can
+    /// meet the cross-check minimum. The function must NOT propagate that as
+    /// empty folds (the cross-fit would give the conversion band no training
+    /// risks at all): it REFUSES with [`bundle::BundleError::CrossCheckTooSmall`],
+    /// the same refusal the user's "refuse the dataset if there is too few
+    /// patients" rule gives for a cohort whose labels are all unknown.
+    #[test]
+    fn cohort_folds_refuses_when_no_label_is_known() {
+        let settings = bundle::BundleSettings::for_run(
+            &RunConfig {
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            1,
+        );
+        let needs = vec![("no_response".to_string(), None)];
+        let displayed = TxrRunOutcomeSpec {
+            task: TxrTask::Response,
+            outcome: "no_response",
+            horizon: None,
+        };
+        let patient_ids: Vec<String> = (0..12).map(|i| format!("C{i:02}")).collect();
+        let bundle_with = |files: Vec<bundle::BundleFile>| bundle::TrainBundle {
+            files,
+            params: serde_json::json!({}),
+            outcomes: vec!["no_response".to_string()],
+            n_outcome: Default::default(),
+            warnings: Vec::new(),
+            marker_names: vec!["14804-9".to_string()],
+            patient_ids: patient_ids.clone(),
+        };
+        let too_small = Err(bundle::BundleError::CrossCheckTooSmall {
+            needed_patients: bundle::MIN_TRAINING_PATIENTS,
+            needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
         });
-        (bundle::MIN_TRAINING_PATIENTS..train.patients.len()).find_map(|n| {
-            let cut = first_cohort_patients(train, n);
-            cat.methods
-                .iter()
-                .filter(|m| m.fitted)
-                .find(|m| {
-                    method_bundles(&cut, None, m, settings, m.min_draws).is_ok()
-                        && train_bundle_preflight(&cut, None, m, settings, m.min_draws) == refused
-                })
-                .map(|m| (m.id.clone(), cut.clone()))
-        })
+
+        // outcomes.csv ABSENT: the bundle carries only the long tables.
+        let absent = bundle_with(vec![
+            bundle::BundleFile {
+                name: "long.csv",
+                csv: "patient_id,day,marker,value,unit\n".to_string(),
+            },
+            bundle::BundleFile {
+                name: "long_full.csv",
+                csv: "patient_id,day,marker,value,unit\n".to_string(),
+            },
+        ]);
+        assert_eq!(
+            cohort_folds(&absent, &needs, &displayed, &settings),
+            too_small
+        );
+
+        // outcomes.csv present but UNPARSABLE: the same refusal.
+        let unparsable = bundle_with(vec![bundle::BundleFile {
+            name: "outcomes.csv",
+            csv: "\"unterminated".to_string(),
+        }]);
+        assert_eq!(
+            cohort_folds(&unparsable, &needs, &displayed, &settings),
+            too_small
+        );
+
+        // A parseable table whose rows carry NO known label (every response
+        // cell empty): the strata are all-zero but the labels exist and index
+        // the cohort, and the per-fold check still refuses — zero known
+        // labels in every training part.
+        let all_unknown = bundle_with(vec![bundle::BundleFile {
+            name: "outcomes.csv",
+            csv: "patient_id,pfs_time,pfs_event,os_time,os_event,no_response,progressive_disease\n"
+                .to_string()
+                + &(0..12)
+                    .map(|i| format!("C{i:02},,,,,,\n"))
+                    .collect::<String>(),
+        }]);
+        assert_eq!(
+            cohort_folds(&all_unknown, &needs, &displayed, &settings),
+            too_small
+        );
+    }
+
+    /// Fix 1: the cross-check stratifies on the run's DISPLAYED outcome when
+    /// the method learns it — a death run never stratifies on progression.
+    /// Here every progression label is unknown (each pfs row censored before
+    /// the look-ahead day: stratum 0), so a run displaying progression cannot
+    /// cross-check; the SAME cohort's death labels straddle the day (8
+    /// events by it, 7 beyond), so a run displaying death passes — the old
+    /// `needs[0]`-always rule would wrongly refuse the death run (needs[0]
+    /// is progression) and the labels differ, exactly.
+    #[test]
+    fn cohort_folds_stratifies_on_the_displayed_outcome() {
+        let settings = bundle::BundleSettings::for_run(
+            &RunConfig {
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            1,
+        );
+        let needs = vec![
+            ("progression".to_string(), Some(238.0)),
+            ("death".to_string(), Some(238.0)),
+        ];
+        // 15 patients: pfs all censored before the day (stratum 0), os 8
+        // events by it / 7 beyond (strata 1/2).
+        let mut csv = String::from("patient_id,pfs_time,pfs_event,os_time,os_event\n");
+        for i in 0..15usize {
+            let (os_t, os_e) = if i < 8 { ("100", "1") } else { ("300", "0") };
+            csv.push_str(&format!("C{i:02},100,0,{os_t},{os_e}\n"));
+        }
+        let train = bundle::TrainBundle {
+            files: vec![bundle::BundleFile {
+                name: "outcomes.csv",
+                csv,
+            }],
+            params: serde_json::json!({}),
+            outcomes: vec!["progression".to_string(), "death".to_string()],
+            n_outcome: Default::default(),
+            warnings: Vec::new(),
+            marker_names: Vec::new(),
+            patient_ids: (0..15).map(|i| format!("C{i:02}")).collect(),
+        };
+        let too_small = Err(bundle::BundleError::CrossCheckTooSmall {
+            needed_patients: bundle::MIN_TRAINING_PATIENTS,
+            needed_per_class: bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+        });
+        let displayed_pfs = TxrRunOutcomeSpec {
+            task: TxrTask::Pfs,
+            outcome: "progression",
+            horizon: Some(238.0),
+        };
+        let displayed_os = TxrRunOutcomeSpec {
+            task: TxrTask::Os,
+            outcome: "death",
+            horizon: Some(238.0),
+        };
+        assert_eq!(
+            cohort_folds(&train, &needs, &displayed_pfs, &settings),
+            too_small,
+            "progression labels are all unknown: the displayed-progression run is refused"
+        );
+        assert!(
+            cohort_folds(&train, &needs, &displayed_os, &settings).is_ok(),
+            "the displayed DEATH run stratifies on death and passes the same cohort"
+        );
+    }
+
+    /// A cross-check [`bundle::TrainBundle`] from a strata pattern (the
+    /// synthetic `C00..` cohort; stratum 1 = event by the look-ahead day,
+    /// stratum 2 = followed beyond it, 0 = unknown) — the written
+    /// `outcomes.csv` the way [`cohort_folds`] reads it, over the `progression`
+    /// outcome at the run's look-ahead.
+    fn crosscheck_bundle(strata: &[usize]) -> bundle::TrainBundle {
+        let mut csv = String::from("patient_id,pfs_time,pfs_event\n");
+        for (i, s) in strata.iter().enumerate() {
+            let (t, e) = match s {
+                1 => ("100", "1"),
+                2 => ("300", "0"),
+                _ => ("", ""),
+            };
+            csv.push_str(&format!("C{i:02},{t},{e}\n"));
+        }
+        bundle::TrainBundle {
+            files: vec![bundle::BundleFile {
+                name: "outcomes.csv",
+                csv,
+            }],
+            params: serde_json::json!({}),
+            outcomes: vec!["progression".to_string()],
+            n_outcome: Default::default(),
+            warnings: Vec::new(),
+            marker_names: Vec::new(),
+            patient_ids: (0..strata.len()).map(|i| format!("C{i:02}")).collect(),
+        }
+    }
+
+    /// [`CROSSCHECK_MIN_PATIENTS`] and [`CROSSCHECK_MIN_PER_CLASS`] are NOT
+    /// hand-picked — they are exactly the brute-forced thresholds: the
+    /// smallest cohort (patients, and per-class count) where the K=3
+    /// stratified folds stop reporting a problem through [`cohort_folds`] +
+    /// [`predictions::crossfit_fold_problem`]. The check runs over every n in
+    /// 1..40 and every class split (the two strata only, every patient
+    /// known), and the pinned cases sit on the boundary: 15 patients (8+7
+    /// and 3+12) pass, 14 (7+7) and 2+13 fail.
+    #[test]
+    fn crosscheck_constants_are_the_smallest_passing_cohort_thresholds() {
+        let settings = bundle::BundleSettings::for_run(
+            &RunConfig {
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            1,
+        );
+        let needs = vec![("progression".to_string(), Some(238.0))];
+        let displayed = TxrRunOutcomeSpec {
+            task: TxrTask::Pfs,
+            outcome: "progression",
+            horizon: Some(238.0),
+        };
+        let passes = |n: usize, stratum1: usize| -> bool {
+            let mut strata = vec![1usize; stratum1];
+            strata.resize(n, 2usize);
+            cohort_folds(&crosscheck_bundle(&strata), &needs, &displayed, &settings).is_ok()
+        };
+        // The per-class threshold, independently: with the total condition out
+        // of the way (30 known labels), the smallest class count that keeps
+        // >= 2 of itself in every fold's training part.
+        let min_per_class = (1..=20)
+            .find(|&c| passes(30, c))
+            .expect("a class of 3 passes at n=30");
+        assert_eq!(min_per_class, bundle::CROSSCHECK_MIN_PER_CLASS);
+        // The patients threshold: the smallest n where EVERY class split with
+        // at least the per-class minimum in each class passes (below it the
+        // balanced split is the binding one — the fold's training part keeps
+        // fewer than MIN_TRAINING_PATIENTS).
+        let min_patients = (1..=40)
+            .find(|&n| {
+                n >= 2 * min_per_class
+                    && (min_per_class..=n - min_per_class).all(|c1| passes(n, c1))
+            })
+            .expect("n=15 and up passes every such split");
+        assert_eq!(min_patients, bundle::CROSSCHECK_MIN_PATIENTS);
+        // And NO cohort below the minimum passes for ANY class split — the
+        // threshold is an exact cut, never a per-split accident.
+        for n in 1..bundle::CROSSCHECK_MIN_PATIENTS {
+            for stratum1 in 0..=n {
+                assert!(
+                    !passes(n, stratum1),
+                    "n={n} class 1 = {stratum1}: below the minimum, no split may pass"
+                );
+            }
+        }
+        // The boundary cases the reasoning names.
+        assert!(passes(15, 8), "8+7 = 15: every fold's rest keeps 10 of 15");
+        assert!(!passes(14, 7), "7+7 = 14: a fold's rest keeps 9");
+        assert!(
+            passes(15, 3),
+            "3+12 = 15: the class of 3 keeps 2 in the rest"
+        );
+        assert!(!passes(15, 2), "2+13: the class of 2 keeps 1 in the rest");
+
+        // Unknown-label patients (stratum 0 — censored before the day) count
+        // for the fold sizes but NOT for the known-label minimum: 15 known
+        // (8+7) with 10 unknown pass (every fold's rest keeps 10 known), 14
+        // known (7+7) with the same 10 unknown fail (one fold's rest keeps
+        // only 9).
+        let passes_with_unknown = |known: usize, stratum1: usize, unknown: usize| -> bool {
+            let mut strata = vec![0usize; unknown];
+            strata.extend(std::iter::repeat(1usize).take(stratum1));
+            strata.extend(std::iter::repeat(2usize).take(known - stratum1));
+            cohort_folds(&crosscheck_bundle(&strata), &needs, &displayed, &settings).is_ok()
+        };
+        assert!(
+            passes_with_unknown(15, 8, 10),
+            "15 known + 10 unknown: the folds stay learnable"
+        );
+        assert!(
+            !passes_with_unknown(14, 7, 10),
+            "14 known + 10 unknown: one fold's rest keeps 9 known"
+        );
+    }
+
+    /// The cohort fixture's train side cut to its first `n` patients (sorted
+    /// ids) with the pfs labels forced to `stratum1` events by the look-ahead
+    /// and `n - stratum1` followed beyond it — the canonical shape the
+    /// small-cohort refusal tests control (every label known).
+    fn cohort_strata_cut(train: &CanonicalBundle, n: usize, stratum1: usize) -> CanonicalBundle {
+        let mut cut = first_cohort_patients(train, n);
+        for (i, p) in cut.patients.iter_mut().enumerate() {
+            if i < stratum1 {
+                p.pfs_days = Some(100.0);
+                p.pfs_event = Some(1);
+            } else {
+                p.pfs_days = Some(300.0);
+                p.pfs_event = Some(0);
+            }
+        }
+        cut
+    }
+
+    /// The small-cohort refusal per method kind. A file below the minimum
+    /// refuses EVERY method the cross-check concerns ([`needs_crosscheck`]:
+    /// a score-only learner — the conversion band needs the folds — an
+    /// own-probability learner — it ran no folds before: without this rule
+    /// its cohort was never checked — and a fixed-rule method WITH a
+    /// conversion need, whose shown chances are cross-checked too) with
+    /// `BUNDLE_CROSSCHECK_TOO_SMALL` and ZERO sandbox calls (the check is
+    /// before the fit), while a fixed-rule method with its own probability
+    /// for every learned outcome (kind D) is NOT refused and runs.
+    #[tokio::test]
+    async fn too_small_cohort_refuses_fitted_methods_before_any_call() {
+        let _g = rootfs::scoped_data_root(test_data_dir("too-small-cohort"));
+        let pool = merged_pool().await;
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        // 12 known-label patients: every bundle builds (12 >= MIN_TRAINING_PATIENTS
+        // for the first bundles), but each fold's training part keeps only
+        // 8 (< 10).
+        let small = Arc::new(first_cohort_patients(train, 12));
+        let cat = &crate::modules::method_list::builtin().catalogue;
+        // A fixed-rule method with its OWN probability for every learned
+        // outcome (kind D) — the catalogue has none on a cohort that learns
+        // progression + death, so the fixture clones `ctdna-tf-four-group`
+        // and declares the two native survival columns (the fake seam writes
+        // the superset).
+        let mut kind_d_list = (*crate::modules::method_list::builtin()).clone();
+        for m in &mut kind_d_list.catalogue.methods {
+            if m.id == "ctdna-tf-four-group" {
+                m.own_outputs = vec![
+                    "risk".to_string(),
+                    "p_progression_H*".to_string(),
+                    "p_death_H*".to_string(),
+                ];
+            }
+        }
+        let kind_d_list = Arc::new(kind_d_list);
+        for (method_id, expect_refused, kind_d) in [
+            // Score-only learner: the cross-fit folds are its conversion
+            // band's input.
+            ("crbm", true, false),
+            // Own-probability learner (p_progression_H* + p_death_H* → no
+            // need at all): it would otherwise run no folds.
+            ("landmark-cox-current", true, false),
+            // Fixed rule WITH a conversion need (its shown chances are
+            // cross-checked too — a conversion fitted on a few patients is
+            // not honest): now refused as well.
+            ("ctdna-tf-four-group", true, false),
+            // Fixed rule with its own probability for every learned outcome
+            // (nothing learned, no folds): never refused by this rule.
+            ("ctdna-tf-four-group", false, true),
+        ] {
+            let facts = cat.method(method_id).expect("a catalogue method");
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(format!("{method_id}-{kind_d}"));
+            make_method_dirs(&run_dir, method_id);
+            let (mut ctx, _cancel) = executor_ctx(
+                &run_dir,
+                method_id,
+                Some(small.clone()),
+                None,
+                None,
+                true,
+                RunTarget::TrainMethod,
+            );
+            ctx.min_draws = facts.min_draws;
+            if kind_d {
+                ctx.list = kind_d_list.clone();
+            }
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+            if expect_refused {
+                assert_eq!(outcome.state, TxrMethodState::Failed, "{method_id}");
+                let reason = outcome.reason.as_ref().expect("a refusal reason");
+                assert_eq!(
+                    reason.code, "BUNDLE_CROSSCHECK_TOO_SMALL",
+                    "{method_id}: {reason:?}"
+                );
+                assert_eq!(
+                    reason.detail,
+                    format!(
+                        "{}: too few patients to check the chances: each check needs at least {} \
+                         patients to learn from, with at least {} who had the outcome and {} who \
+                         did not",
+                        "BUNDLE_CROSSCHECK_TOO_SMALL",
+                        bundle::MIN_TRAINING_PATIENTS,
+                        bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+                        bundle::CROSSCHECK_FOLD_MIN_PER_CLASS,
+                    ),
+                    "{method_id}"
+                );
+                assert!(
+                    calls.is_empty(),
+                    "{method_id}: refused before any sandbox call: {:?}",
+                    calls
+                );
+            } else {
+                assert_eq!(
+                    outcome.state,
+                    TxrMethodState::Finished,
+                    "{method_id}: {:?}",
+                    outcome.reason
+                );
+                assert!(!calls.is_empty(), "{method_id}: the fixed-rule method runs");
+            }
+        }
+    }
+
+    /// The cohort just above the minimum is NOT refused: 15 patients with
+    /// 8/7 classes pass the check for an own-probability `fitted` method —
+    /// the kind that previously ran no folds at all — and the preflight and
+    /// the executor agree (both accept it). 14 patients (7/7) is one short
+    /// and both refuse it.
+    #[tokio::test]
+    async fn fifteen_patients_pass_and_fourteen_is_refused() {
+        let _g = rootfs::scoped_data_root(test_data_dir("threshold-cohort"));
+        let pool = merged_pool().await;
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        let method_id = "landmark-cox-current";
+        let facts = crate::modules::method_list::builtin()
+            .method(method_id)
+            .expect("facts");
+
+        for (n, stratum1, pass) in [(15, 8, true), (14, 7, false)] {
+            let cut = Arc::new(cohort_strata_cut(train, n, stratum1));
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(format!("{method_id}-{n}"));
+            make_method_dirs(&run_dir, method_id);
+            let (mut ctx, _cancel) = executor_ctx(
+                &run_dir,
+                method_id,
+                Some(cut.clone()),
+                None,
+                None,
+                true,
+                RunTarget::TrainMethod,
+            );
+            ctx.min_draws = facts.min_draws;
+            let preflight = call_bundle_preflight(&ctx, facts).expect("a train call's context");
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            if pass {
+                assert_eq!(preflight, Ok(()), "n={n}: the preflight is not refused");
+                assert_eq!(
+                    outcome.state,
+                    TxrMethodState::Finished,
+                    "n={n}: {:?}",
+                    outcome.reason
+                );
+                assert!(
+                    outcome.prob_source == Some(TxrProbSource::Native),
+                    "n={n}: the own-probability column stays native"
+                );
+            } else {
+                let err = preflight.expect_err("n={n}: the preflight refuses");
+                assert_eq!(err.code(), "BUNDLE_CROSSCHECK_TOO_SMALL", "n={n}");
+                assert_eq!(outcome.state, TxrMethodState::Failed, "n={n}");
+                let reason = outcome.reason.expect("a refusal reason");
+                assert_eq!(reason.code, "BUNDLE_CROSSCHECK_TOO_SMALL", "n={n}");
+            }
+            let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+            if !pass {
+                assert!(calls.is_empty(), "n={n}: refused before any call");
+            }
+        }
+    }
+
+    /// The class-imbalance case: 30 patients but only 2 with the outcome
+    /// (28 followed beyond the look-ahead) is refused — every fold's
+    /// training part keeps only 1 of the 2.
+    #[tokio::test]
+    async fn thirty_patients_with_two_events_are_refused() {
+        let _g = rootfs::scoped_data_root(test_data_dir("imbalanced-cohort"));
+        let pool = merged_pool().await;
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let train = prepared
+            .train
+            .as_deref()
+            .expect("the cohort fixture's train side");
+        let cut = Arc::new(cohort_strata_cut(train, 30, 2));
+        let method_id = "crbm";
+        let facts = crate::modules::method_list::builtin()
+            .method(method_id)
+            .expect("facts");
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root().join(method_id);
+        make_method_dirs(&run_dir, method_id);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            method_id,
+            Some(cut),
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        ctx.min_draws = facts.min_draws;
+        let outcome = exec.execute(ctx).await.expect("a verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        let reason = outcome.reason.expect("a refusal reason");
+        assert_eq!(reason.code, "BUNDLE_CROSSCHECK_TOO_SMALL", "{reason:?}");
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "refused before any sandbox call: {:?}",
+            calls
+        );
     }
 
     /// The per-method covariates rule (bug 2) — [`method_covariates`]: the
@@ -7797,9 +10240,16 @@ mod tests {
         // before anything is written.
         facts.covariates = CovariateMode::Required;
         let settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
-        let err = train_bundle_preflight(&train, None, &facts, &settings, facts.min_draws)
-            .err()
-            .expect("switch off + required → BUNDLE_COVARIATES_OFF");
+        let err = train_bundle_preflight(
+            &train,
+            None,
+            &facts,
+            req.config.endpoint,
+            &settings,
+            facts.min_draws,
+        )
+        .err()
+        .expect("switch off + required → BUNDLE_COVARIATES_OFF");
         assert_eq!(err, bundle::BundleError::CovariatesSwitchedOff);
 
         // Switch off + optional / none → today's rule: no refusal, no
@@ -7807,8 +10257,15 @@ mod tests {
         for mode in [CovariateMode::Optional, CovariateMode::None] {
             facts.covariates = mode;
             let settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
-            train_bundle_preflight(&train, None, &facts, &settings, facts.min_draws)
-                .expect("optional/none with the switch off still preflights");
+            train_bundle_preflight(
+                &train,
+                None,
+                &facts,
+                req.config.endpoint,
+                &settings,
+                facts.min_draws,
+            )
+            .expect("optional/none with the switch off still preflights");
             let b = method_bundles(&train, None, &facts, &settings, facts.min_draws)
                 .expect("optional/none with the switch off still builds");
             assert_eq!(b.train.params["covariates"], serde_json::json!(false), "{mode:?}");
@@ -7834,8 +10291,15 @@ mod tests {
         config_on.covariates = true;
         facts.covariates = CovariateMode::Required;
         let settings = train_call_bundle_settings(&config_on, 4, &facts, &with_cov, None);
-        train_bundle_preflight(&with_cov, None, &facts, &settings, facts.min_draws)
-            .expect("switch on + required + columns preflights");
+        train_bundle_preflight(
+            &with_cov,
+            None,
+            &facts,
+            config_on.endpoint,
+            &settings,
+            facts.min_draws,
+        )
+        .expect("switch on + required + columns preflights");
         let b = method_bundles(&with_cov, None, &facts, &settings, facts.min_draws)
             .expect("switch on + required + columns builds");
         assert_eq!(b.train.params["covariates"], serde_json::json!(true));
@@ -7887,9 +10351,16 @@ mod tests {
         // The same method + switch + data IS refused on the train path (the
         // per-method train settings), so the two paths stay split.
         let train_settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
-        let refused = train_bundle_preflight(&train, None, &facts, &train_settings, facts.min_draws)
-            .err()
-            .expect("the train preflight refuses the same inputs");
+        let refused = train_bundle_preflight(
+            &train,
+            None,
+            &facts,
+            req.config.endpoint,
+            &train_settings,
+            facts.min_draws,
+        )
+        .err()
+        .expect("the train preflight refuses the same inputs");
         assert_eq!(refused, bundle::BundleError::CovariatesSwitchedOff);
     }
 
@@ -7900,11 +10371,13 @@ mod tests {
     /// `BUNDLE_*` code. The cases cover each leg on the cohort fixture: the
     /// marker rule, the train bundle (draw minimum, covariates), the test
     /// bundle over a separate predict file (covariates without a predict
-    /// patients table, a missing marker) and a cross-fit fold refused after
-    /// the main fit call.
+    /// patients table, a missing marker) and a cohort too small to
+    /// cross-check (the refusal now comes before the first call; it replaced
+    /// the fold-bundle `BUNDLE_NO_LEARNABLE_OUTCOME` refusal, which the
+    /// cross-check's ≥ 10 known labels per fold makes unreachable).
     #[tokio::test]
     async fn call_bundle_preflight_matches_the_executor_bundle_stage() {
-        use crate::modules::file_validator::types::CanonCell;
+        use crate::modules::file_validator::types::{CanonCell, CanonicalValue};
 
         let _g = rootfs::scoped_data_root(test_data_dir("executor-preflight-parity"));
         let pool = merged_pool().await;
@@ -7919,7 +10392,6 @@ mod tests {
             save_models: true,
             ..Default::default()
         };
-        let settings = method_bundle_settings(&config, detect_cpus());
         let cat = &crate::modules::method_list::builtin().catalogue;
 
         // A method the cohort's one marker cannot satisfy.
@@ -7959,8 +10431,6 @@ mod tests {
             .clone();
         let mut without_marker = (*train).clone();
         without_marker.values.retain(|v| v.feature != main);
-        let (crossfit, small) = crossfit_refusal_case(&train, &settings)
-            .expect("a fitted method refused only at its cross-fit folds");
 
         let covariates_on = RunConfig {
             covariates: true,
@@ -7993,6 +10463,10 @@ mod tests {
             /// The method runs as `required`-covariates (the list + facts
             /// above replace the shipped `none` mode).
             required: bool,
+            /// How many calls the executor had made when a refusal hits it
+            /// (0 = the bundle stage refuses before the first call; 1 = a
+            /// fold-level error BETWEEN calls, after the main fit ran).
+            refused_calls: usize,
         }
         let case = |name, method: &str, train: &Arc<CanonicalBundle>| Case {
             name,
@@ -8003,7 +10477,61 @@ mod tests {
             min_draws: None,
             expect: None,
             required: false,
+            refused_calls: 0,
         };
+        // A kind-B FOLD-LEVEL bundle error (F3): `bjm` is a fitted method
+        // with NO conversion need (both survival probabilities native), so it
+        // is kind B — the executor cross-fits it with the SAME per-fold
+        // calls, and the preflight must check those fold bundles too. A
+        // second marker for everyone but fold 0's patients keeps the MAIN
+        // bundles buildable and the cross-check passing, then refuses fold
+        // 0's test bundle `BUNDLE_TEST_MARKER_MISSING` BETWEEN calls —
+        // preflight and executor must agree (the pick then never offers it).
+        let mut kind_b_train = (*train).clone();
+        {
+            use crate::modules::file_validator::types::CanonicalFeature;
+            for p in kind_b_train.patients.clone() {
+                for day in [0.0, 28.0, 56.0] {
+                    kind_b_train.values.push(CanonicalValue {
+                        patient_id: p.patient_id.clone(),
+                        day,
+                        feature: "9999-0".to_string(),
+                        value: Some(100.0 + day),
+                        unit: Some("U/L".to_string()),
+                    });
+                }
+            }
+            kind_b_train.features.push(CanonicalFeature {
+                feature: "9999-0".to_string(),
+                unit: Some("U/L".to_string()),
+                marker_id: Some("9999-0".to_string()),
+                display_name: None,
+                standard_ids: Vec::new(),
+                is_detection_companion: false,
+            });
+        }
+        let kind_b = "bjm";
+        let kind_b_facts = crate::modules::method_list::builtin()
+            .method(kind_b)
+            .expect("facts");
+        let (folds, _, _, kind_b_needs) = fixture_crosscheck(&kind_b_train, kind_b_facts);
+        assert!(
+            kind_b_needs.is_empty(),
+            "{kind_b} is a kind-B method on this cohort (no conversion need)"
+        );
+        let fold0_ids: std::collections::BTreeSet<String> = kind_b_train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.clone())
+            .enumerate()
+            .filter(|(i, _)| folds[*i] == 0)
+            .map(|(_, id)| id)
+            .collect();
+        assert!(!fold0_ids.is_empty(), "fold 0 has patients");
+        kind_b_train
+            .values
+            .retain(|v| !(v.feature == "9999-0" && fold0_ids.contains(&v.patient_id)));
+        let kind_b_train = Arc::new(kind_b_train);
         let cases = vec![
             case("the base method on the cohort", base, &train),
             Case {
@@ -8072,11 +10600,28 @@ mod tests {
                 ..case("a predict file without the trained marker", base, &train)
             },
             Case {
-                expect: Some("BUNDLE_NO_LEARNABLE_OUTCOME"),
+                expect: Some("BUNDLE_CROSSCHECK_TOO_SMALL"),
                 ..case(
-                    "a cross-fit fold too small to learn",
-                    &crossfit,
-                    &Arc::new(small),
+                    "a cohort too small to cross-check",
+                    "crbm",
+                    &Arc::new(first_cohort_patients(&train, 12)),
+                )
+            },
+            Case {
+                expect: Some("BUNDLE_CROSSCHECK_TOO_SMALL"),
+                ..case(
+                    "a cohort too small for a fixed-rule method with a conversion need",
+                    "ctdna-tf-four-group",
+                    &Arc::new(first_cohort_patients(&train, 12)),
+                )
+            },
+            Case {
+                expect: Some("BUNDLE_TEST_MARKER_MISSING"),
+                refused_calls: 1,
+                ..case(
+                    "a kind-B fold bundle marker missing (refused between calls)",
+                    kind_b,
+                    &kind_b_train,
                 )
             },
         ];
@@ -8136,13 +10681,19 @@ mod tests {
                 "{name}: the case reaches the leg it names"
             );
             let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
-            if name == "a cross-fit fold too small to learn" {
-                // The fold bundles are built between calls, as before: the
-                // main fit ran, then the first fold's bundle was refused.
-                assert_eq!(calls.len(), 1, "{name}: only the main fit ran");
-                assert_eq!(calls[0].mode, MethodRunMode::FitOnly, "{name}");
-            } else if preflight.is_err() {
-                assert!(calls.is_empty(), "{name}: refused before any call");
+            if preflight.is_err() {
+                // The too-small and every other bundle refusal happen BEFORE
+                // any container call (for `fitted` methods the cross-check
+                // replaced the old fold-bundle refusal, which sat between
+                // calls) — EXCEPT a fold-level bundle error: the main fit has
+                // run by then, so [refused_calls] names exactly the calls the
+                // executor made (the preflight still refuses on the same
+                // input, just before running anything).
+                assert_eq!(
+                    calls.len(),
+                    case.refused_calls,
+                    "{name}: the executor had made exactly the calls the case names"
+                );
             }
         }
     }
@@ -8255,6 +10806,97 @@ mod tests {
         let keep: std::collections::HashSet<&str> = ids.into_iter().take(12).collect();
         let predict = Arc::new(subset_canonical(predict, &keep));
         (train, predict)
+    }
+
+    /// [`cohort_patients_table`] cut to the first `n` patients (the
+    /// small-cohort reuse tests).
+    fn cohort_patients_table_n(n: usize) -> crate::modules::file_validator::types::ParsedTable {
+        let mut t = cohort_patients_table();
+        t.rows.truncate(n);
+        t
+    }
+
+    /// [`cohort_measurements_table`] cut to the first `n` patients.
+    fn cohort_measurements_table_n(n: usize) -> crate::modules::file_validator::types::ParsedTable {
+        let mut t = cohort_measurements_table();
+        t.rows.truncate(n * 3);
+        t
+    }
+
+    /// [`cohort_reuse_request`] over the first `n` patients (a cohort below
+    /// the cross-check minimum; Files-mode reuse reads the predict
+    /// measurements as the run's own, so both sides are cut together).
+    fn small_cohort_reuse_request(
+        asset_dir: &Path,
+        digest: &str,
+        method_id: &str,
+        n: usize,
+    ) -> CreateRunRequest {
+        let mut req = cohort_reuse_request(asset_dir, digest, method_id);
+        req.input.patients = Some(cohort_patients_table_n(n));
+        req.input.measurements = cohort_measurements_table_n(n);
+        req.input.predict_measurements = Some(cohort_measurements_table_n(n));
+        req
+    }
+
+    /// The reuse fixture's prepared sides with the predict file kept whole
+    /// AND three patients the cohort never saw appended (X31..X33, the same
+    /// 3-draw pattern as C01): the predict surface is a strict superset of
+    /// the cohort, so the shown column has both a cohort patient's
+    /// cross-checked chance and an outsider's full-conversion one.
+    fn reuse_sides_with_outsider_patients(
+        prepared: &PreparedRun,
+    ) -> (Arc<CanonicalBundle>, Arc<CanonicalBundle>) {
+        let train = prepared
+            .train
+            .clone()
+            .expect("a Files-mode reuse carries the cohort");
+        let predict = prepared.predict.as_deref().expect("the predict file");
+        let src: Vec<&crate::modules::file_validator::types::CanonicalValue> = predict
+            .values
+            .iter()
+            .filter(|v| v.patient_id == "C01")
+            .collect();
+        assert_eq!(
+            src.len(),
+            3,
+            "the outsider fixture clones C01's three draws"
+        );
+        let mut values = predict.values.clone();
+        for i in 31..=33 {
+            for v in &src {
+                let mut x = (*v).clone();
+                x.patient_id = format!("X{i:02}");
+                values.push(x);
+            }
+        }
+        let predict = Arc::new(CanonicalBundle {
+            values,
+            ..predict.clone()
+        });
+        (train, predict)
+    }
+
+    /// The cross-check facts `execute_reuse` derives for a Files-mode reuse
+    /// — ONE construction (method_bundles + needs_list + [`run_task`] +
+    /// [`cohort_folds`]) with the REUSE path's own settings
+    /// ([`method_bundle_settings`], NOT the train call's covariates-bearing
+    /// ones, and the context's cpus/min_draws) — so a test recomputes
+    /// exactly the folds, strata outcome and needs the executor used.
+    fn reuse_fixture_crosscheck(
+        train: &CanonicalBundle,
+        facts: &Method,
+        config: &RunConfig,
+        cpus: u32,
+        min_draws: u32,
+    ) -> (Vec<usize>, bundle::TrainBundle) {
+        let settings = method_bundle_settings(config, cpus);
+        let bundles = method_bundles(train, None, facts, &settings, min_draws).expect("bundles");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        let displayed = run_task(facts, config.endpoint, settings.look_ahead_day);
+        let folds = cohort_folds(&bundles.train, &needs, &displayed, &settings)
+            .expect("the reuse cohort passes the cross-check");
+        (folds, bundles.train)
     }
 
     /// The data-carrying reuse conversion builds the cohort's bundles with
@@ -8498,14 +11140,16 @@ mod tests {
     }
 
     /// A refusal while building the reuse conversion's cohort bundles is
-    /// [`method_bundles`]' refusal (no predict file), code and detail. The
-    /// case, with covariates on: the cohort's measurements carry a patient
-    /// (`X99`) that its patients table does not, and the predict file is a
-    /// smaller set of table patients. The predict-surface call runs; then the
-    /// cohort's test bundle — over the cohort with its own patients table —
-    /// scores `X99` and is refused `BUNDLE_TEST_PATIENT_UNKNOWN`. A cohort
-    /// test bundle built over the predict file instead would be refused
-    /// differently (no predict patients table).
+    /// [`method_bundles`]' refusal (no predict file), code and detail, and it
+    /// comes BEFORE any container call (brief 4's order: the cohort stage is
+    /// bundle-stage — a refusal never reaches the sandbox, the train path's
+    /// rule). The case, with covariates on: the cohort's measurements carry a
+    /// patient (`X99`) that its patients table does not, and the predict file
+    /// is a smaller set of table patients. The cohort's test bundle — over
+    /// the cohort with its own patients table — scores `X99` and is refused
+    /// `BUNDLE_TEST_PATIENT_UNKNOWN`. A cohort test bundle built over the
+    /// predict file instead would be refused differently (no predict patients
+    /// table).
     #[tokio::test]
     async fn executor_reuse_cohort_refusal_is_the_train_call_bundle_refusal() {
         use crate::modules::file_validator::types::{CanonCell, CanonicalValue};
@@ -8589,13 +11233,323 @@ mod tests {
             (refusal.code(), refusal.to_string())
         );
         let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "the cohort bundle refusal is before the first call — no call ran \
+             (brief 4 moved the cohort stage ahead of the predict-surface call)"
+        );
+        drop(calls);
+    }
+
+    /// Brief 4: a data-carrying reuse cross-fits ITS conversion on the
+    /// cohort folds ([`cohort_folds`], the train path's ONE construction) —
+    /// with no extra method runs: a cohort patient's shown chance is
+    /// conversion_k applied to its cohort score (fitted on the OTHER folds'
+    /// scores + outcomes only), a predict-surface patient the cohort never
+    /// saw keeps the full-cohort conversion, conversions.json keeps its one
+    /// entry (the FULL conversion — the per-fold maps only shape the shown
+    /// column), and the call count stays the two calls of before (predict
+    /// surface + cohort).
+    #[tokio::test]
+    async fn executor_reuse_cross_fits_its_conversion() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-crossfit"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let mut req = cohort_reuse_request(&asset_dir, &digest, method);
+        let saved = saved_logistic_map();
+        req.model_ids[0].conversions = saved.clone();
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_outsider_patients(&prepared);
+        let facts = crate::modules::method_list::builtin()
+            .method(method)
+            .expect("facts");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train.clone()),
+            Some(predict),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        let (config, cpus, min_draws) = (req.config.clone(), ctx.cpus, ctx.min_draws);
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Recalibrated));
+        assert_eq!(
+            outcome.coverage.map(|c| (c.scored, c.eligible)),
+            Some((33, 33)),
+            "the column covers the whole predict surface"
+        );
+
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            calls.len(),
+            2,
+            "no new container calls: the predict surface + the cohort, as before"
+        );
+        assert!(calls.iter().all(|c| c.mode == MethodRunMode::ReuseModel));
+        let full_scored = calls[0].scored.clone();
+        let cohort_scored = calls[1].scored.clone();
+        drop(calls);
+        assert_eq!(full_scored.len(), 33, "the predict surface + the outsiders");
+        assert_eq!(cohort_scored.len(), 30, "the cohort");
+        let outsiders: Vec<&String> = full_scored
+            .iter()
+            .filter(|id| !cohort_scored.contains(id))
+            .collect();
+        assert_eq!(outsiders.len(), 3, "X31..X33 are never in the cohort");
+
+        // Recompute the cross-check the executor used (the reuse path's own
+        // settings/context) and the fold conversions from the seam's scores —
+        // exactly the train-path tests' recomputation.
+        let (folds, train_bundle) =
+            reuse_fixture_crosscheck(&train, facts, &config, cpus, min_draws);
+        let fold_of = fold_of_patients(&train_bundle, &folds);
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .expect("outcomes.csv")
+                .csv,
+        )
+        .expect("the bundle's own CSV parses");
+        let spec = predictions::PredictionSpec::new(facts);
+        let cohort_map: BTreeMap<String, Option<f64>> = cohort_scored
+            .iter()
+            .map(|id| (id.clone(), seam_risk(&cohort_scored, id)))
+            .collect();
+        let full_conversion = predictions::fit_recalibration(
+            &spec,
+            &outcomes_csv,
+            &cohort_map,
+            "progression",
+            Some(238.0),
+        )
+        .expect("the full conversion fits");
+        let fold_conversions: Vec<_> = (0..predictions::CROSS_FIT_FOLDS)
+            .map(|k| {
+                let others: BTreeMap<String, Option<f64>> = cohort_map
+                    .iter()
+                    .filter(|(id, _)| fold_of.get(id.as_str()).copied() != Some(k))
+                    .map(|(id, r)| (id.clone(), *r))
+                    .collect();
+                predictions::fit_recalibration(
+                    &spec,
+                    &fold_calibration_outcomes(&outcomes_csv, &fold_of, k),
+                    &others,
+                    "progression",
+                    Some(238.0),
+                )
+                .expect("the fold conversion fits")
+            })
+            .collect();
+        // conversions.json keeps its one entry, the FULL conversion on all
+        // cohort scores (the per-fold maps only shape the shown column).
+        let recorded = predictions::read_conversions(&run_dir, "m-1").expect("recorded");
+        assert_eq!(
+            recorded.keys().collect::<Vec<_>>(),
+            vec!["progression@238"],
+            "the recorded map's shape is unchanged"
+        );
+        assert_eq!(
+            recorded["progression@238"], full_conversion,
+            "conversions.json = the full cohort conversion"
+        );
+        assert_ne!(
+            recorded, saved,
+            "the cohort refit, not the saved training map"
+        );
+
+        // The shown column: the predict surface's rows in its order; a
+        // cohort patient's chance = conversion_k applied to its COHORT
+        // score, an outsider's = the full conversion applied to the
+        // predict-call score.
+        let chance = std::fs::read_to_string(run_dir.join("output/m-1/chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let (ids, probs) = (
+            chance.col("patient_id").unwrap(),
+            chance.col("probability").unwrap(),
+        );
+        assert_eq!(ids.len(), 33, "every surface patient keeps its row");
+        let mut differs = false;
+        for (id, prob) in ids.iter().zip(probs) {
+            let (risk, conversion, which) = if cohort_scored.contains(id) {
+                let k = *fold_of.get(id.as_str()).expect("a cohort patient's fold");
+                (
+                    seam_risk(&cohort_scored, id).expect("a cohort score"),
+                    &fold_conversions[k],
+                    "the fold's own conversion",
+                )
+            } else {
+                (
+                    seam_risk(&full_scored, id).expect("an outsider score"),
+                    &full_conversion,
+                    "the full-cohort conversion (never in it)",
+                )
+            };
+            let expected = conversion.apply(Some(risk)).expect("a scored risk");
+            assert_eq!(prob, &format!("{expected:.6}"), "{id}: {which}");
+            if (full_conversion.apply(Some(risk)).unwrap() - expected).abs() > 1e-9 {
+                differs = true;
+            }
+        }
+        assert!(
+            differs,
+            "the fold conversions differ from the full one on this cohort: the test must see it"
+        );
+    }
+
+    /// Brief 4: a data-carrying reuse whose cohort is too small for the
+    /// cross-check is refused with the train path's
+    /// `BUNDLE_CROSSCHECK_TOO_SMALL` — before ANY container call (the check
+    /// is part of the cohort bundle stage, ahead of the predict-surface
+    /// call). A predict-only reuse (no cohort at all) and a
+    /// native-probability model (no conversion to cross-check) are never
+    /// refused by this.
+    #[tokio::test]
+    async fn executor_reuse_refuses_a_cohort_too_small_for_the_crosscheck() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-too-small"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        // 14 < 15 = [`bundle::CROSSCHECK_MIN_PATIENTS`]: the cohort's
+        // bundles still build (every outcome has 14 eligible patients,
+        // >= MIN_TRAINING_PATIENTS), but some fold's training part has only
+        // 14 - ceil(14/3) = 9 < 10 known labels — the train path's refusal.
+        let n = bundle::CROSSCHECK_MIN_PATIENTS - 1;
+        let req = small_cohort_reuse_request(&asset_dir, &digest, method, n);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the small-cohort reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let facts = crate::modules::method_list::builtin()
+            .method(method)
+            .expect("facts");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train.clone()),
+            Some(predict),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        // The refusal is [`cohort_folds`]'s OWN over the same cohort bundle,
+        // code and detail — the one construction the train path refuses on.
+        let settings = method_bundle_settings(&ctx.config, ctx.cpus);
+        let bundles = method_bundles(&train, None, facts, &settings, ctx.min_draws)
+            .expect("the 14-patient cohort's bundles still build");
+        let needs = needs_list(facts, &bundles.train.outcomes, &settings);
+        let displayed = run_task(facts, ctx.config.endpoint, settings.look_ahead_day);
+        let refusal = cohort_folds(&bundles.train, &needs, &displayed, &settings)
+            .expect_err("14 patients: some fold's training part has fewer than 10 known labels");
+
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        let reason = outcome.reason.expect("a failure reason");
+        assert_eq!(
+            (reason.code.as_str(), reason.detail),
+            (refusal.code(), refusal.to_string())
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "zero container calls for a too-small cohort (the predict-surface \
+             call is skipped too: the cohort stage comes first)"
+        );
+        drop(calls);
+    }
+
+    /// A native-probability saved model (landmark-cox-current declares
+    /// p_progression_H*) over a small cohort is NEVER refused by the
+    /// cross-check: its shown column is its own probability, there is no
+    /// conversion to cross-fit, so the data-carrying branch is skipped
+    /// entirely and the run finishes Native with the one predict-surface
+    /// call (no cohort call).
+    #[tokio::test]
+    async fn executor_reuse_native_model_with_a_small_cohort_is_not_refused() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-native-small"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "landmark-cox-current";
+        let n = bundle::CROSSCHECK_MIN_PATIENTS - 1;
+        let req = small_cohort_reuse_request(&asset_dir, &digest, method, n);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the native small-cohort reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train),
+            Some(predict),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Native));
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             calls.len(),
             1,
-            "the reuse call ran before the cohort refusal"
+            "the one predict-surface call — no cohort call, no cross-check"
         );
         assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
-        assert!(!calls[0].scored.contains(&"X99".to_string()));
         drop(calls);
     }
 
@@ -10086,6 +13040,7 @@ mod tests {
             },
         ];
         let prepared = PreparedRun {
+            mode: TxrRunMode::Train,
             train: None,
             predict: None,
             predict_patients: None,
@@ -10189,6 +13144,7 @@ mod tests {
         let dir5 = run_dir_root().join("marker-choice-record-none");
         std::fs::create_dir_all(dir5.join("input")).unwrap();
         let prepared_fixed = PreparedRun {
+            mode: TxrRunMode::Train,
             plans: vec![MethodPlan {
                 method_id: "asm-best-change-rule".to_string(),
                 label: "asm-best-change-rule".to_string(),
@@ -10230,6 +13186,9 @@ mod tests {
     /// plan into its settings, exactly like the train executor does — a
     /// single no-list method on a 3-marker file is refused by the preflight
     /// WITHOUT the plan (the count rule) and admitted WITH it (the top 1).
+    /// The 30-patient fixture (15 events by the 238-day look-ahead, 15
+    /// followed beyond it) also clears the cross-check minimum, so the plan
+    /// verdict is the ONE leg the assertions read.
     #[test]
     fn call_bundle_preflight_carries_the_marker_plan() {
         use crate::modules::execution_engine::marker_rank::{
@@ -10238,11 +13197,11 @@ mod tests {
         use crate::modules::file_validator::types::{CanonicalBundle, CanonicalPatient, CanonicalValue};
         let mut patients = Vec::new();
         let mut values = Vec::new();
-        for i in 0..12 {
+        for i in 0..30 {
             let id = format!("P{i:02}");
             patients.push(CanonicalPatient {
                 patient_id: id.clone(),
-                pfs_days: Some(if i % 2 == 0 { 70.0 } else { 90.0 }),
+                pfs_days: Some(if i % 2 == 0 { 70.0 } else { 400.0 }),
                 pfs_event: Some(if i % 2 == 0 { 1 } else { 0 }),
                 os_days: None,
                 os_event: None,
@@ -10295,13 +13254,13 @@ mod tests {
             baseline_max_day: 0.0,
             result: Ok(MarkerRanking {
                 ranking: vec![
-                    RankedMarker { marker: "LDH".to_string(), score: 0.5, n: 12, coverage: 1.0 },
-                    RankedMarker { marker: "CEA".to_string(), score: 0.4, n: 12, coverage: 1.0 },
-                    RankedMarker { marker: "CA199".to_string(), score: 0.3, n: 12, coverage: 1.0 },
+                    RankedMarker { marker: "LDH".to_string(), score: 0.5, n: 30, coverage: 1.0 },
+                    RankedMarker { marker: "CEA".to_string(), score: 0.4, n: 30, coverage: 1.0 },
+                    RankedMarker { marker: "CA199".to_string(), score: 0.3, n: 30, coverage: 1.0 },
                 ],
                 offered: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
                 top: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
-                ranking_patients: 12,
+                ranking_patients: 30,
             }),
         });
         let preflight = call_bundle_preflight(&ctx, facts).expect("with the plan");

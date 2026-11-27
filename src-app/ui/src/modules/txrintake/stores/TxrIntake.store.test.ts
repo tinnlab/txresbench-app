@@ -444,7 +444,7 @@ describe('TEST-INT-26 — the ONE validation response lifecycle (acceptance)', (
     const timeline = {
       draw_days: [[21, 42]],
       outcomes: [],
-      limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+      limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10, crosscheck_min_patients: 15, crosscheck_min_per_class: 3 },
     }
     TxrIntake.adoptFile('measurements', loadedFile())
     TxrIntake.applyValidation(validationOf({ timeline }), TxrIntake.currentValidationKey())
@@ -480,7 +480,7 @@ describe('TEST-INT-26 — the ONE validation response lifecycle (acceptance)', (
     const timeline = {
       draw_days: [[21, 42]],
       outcomes: [],
-      limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+      limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10, crosscheck_min_patients: 15, crosscheck_min_per_class: 3 },
     }
     const withFacts = () => TxrIntake.applyValidation(validationOf({ timeline }), TxrIntake.currentValidationKey())
 
