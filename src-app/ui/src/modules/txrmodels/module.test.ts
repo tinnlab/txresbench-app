@@ -402,7 +402,12 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           // skipped rows come from the execution_engine run record
           // (execution_engine/repository.rs — the RunRow counts pick).
           p !== 'src-app/server/src/modules/history_store/repository.rs' &&
-          p !== 'src-app/server/src/modules/execution_engine/repository.rs',
+          p !== 'src-app/server/src/modules/execution_engine/repository.rs' &&
+          // crosschecked-chances: the timing-sample `crosschecked` column (migration + sqlite chain pins) and the calibration sample tag.
+          p !== 'src-app/server/src/modules/execution_engine/migrations/202611260001_txr_timing_samples_crosschecked.sql' &&
+          p !== 'src-app/server/src/modules/method_catalogue/calibration.rs' &&
+          p !== 'src-app/server/tests/sqlite/apply_chain.rs' &&
+          p !== 'src-app/server/tests/sqlite/final_layout.rs',
       ),
     ).toEqual([])
     // TEN sanctioned exceptions (the DRIFT-1 #8 class + the `/history` +

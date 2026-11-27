@@ -362,7 +362,7 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/server/src/modules/demo/eligibility.rs' &&
           p !== 'src-app/server/src/modules/model_store/eligibility.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/eligibility.rs' &&
-          p !== 'src-app/server/src/modules/execution_engine/migrations/202611190001_txr_timing_samples_crosschecked.sql' &&
+          p !== 'src-app/server/src/modules/execution_engine/migrations/202611260001_txr_timing_samples_crosschecked.sql' &&
           p !== 'src-app/server/tests/sqlite/apply_chain.rs' &&
           p !== 'src-app/server/tests/sqlite/final_layout.rs',
       ),
