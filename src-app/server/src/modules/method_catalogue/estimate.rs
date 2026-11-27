@@ -28,9 +28,10 @@
 //!
 //! The request's optional `mode` is the ONE input the run kind adds (absent =
 //! today's numbers, old callers unchanged): a LEARNING run (mode `train`)
-//! cross-checks its chances — a method that learns is fitted three more times
-//! (one fit + predict per fold, each on ~2/3 of the cohort), so its estimate
-//! is about 3× a single fit+predict — [`calibration::CROSSCHECK_TIME_FACTOR`]
+//! cross-checks its chances — a method that learns runs its fit four times,
+//! once on all patients and three more times on a fold's training part (one
+//! fit + predict per fold, each on ~2/3 of the cohort), so its estimate is
+//! about 4× a single fit+predict — [`calibration::CROSSCHECK_TIME_FACTOR`]
 //! applied to the generated (unmeasured) base. The factor is applied ONCE,
 //! here, to the method's seconds; the eligibility rows use the SAME
 //! mode-aware base ([`calibration::calibrated_estimate_seconds_for_mode`]), so
@@ -38,7 +39,10 @@
 //! The engine's create-time/lane-change estimates follow the run's own mode
 //! ([`crate::modules::execution_engine::orchestrator`]'s `compute_estimate` /
 //! `recompute_run_estimate`). A measured (calibrated) value is NEVER factored
-//! again — the seconds the app measured already include the folds that ran.
+//! again — the seconds the app measured already include the folds that ran
+//! (score-only learners ran them before the cross-check too, so their cost is
+//! unchanged; the factor's 4 came from measuring own-probability learners at
+//! 4.1x and 4.4x).
 //!
 //! ## The schedule total
 //!
@@ -611,10 +615,10 @@ mod tests {
     }
 
     #[test]
-    fn train_mode_triples_only_uncalibrated_learning_methods() {
+    fn train_mode_quadruples_only_uncalibrated_learning_methods() {
         use crate::modules::method_catalogue::types::EstimateMode;
-        // crosschecked-chances: on a learning run a method that learns is
-        // fitted 3 more times (about 3x), a fixed-rule method and reuse mode
+        // crosschecked-chances: on a learning run a method that learns runs
+        // its fit four times (about 4x), a fixed-rule method and reuse mode
         // keep today's numbers, and an absent mode is exactly today's.
         // Flip the fitted flag on the learner fixture (method_json defaults
         // to fitted: false — the loader facts come from the JSON).
@@ -627,12 +631,12 @@ mod tests {
             r.mode = Some(EstimateMode::Train);
             estimate_for(&cat, &r).unwrap()
         };
-        // A learner estimated at 30 s becomes 90 s — over the UI's
+        // A learner estimated at 30 s becomes 120 s — over the UI's
         // "Fast only" one-minute ceiling, so it drops out of Fast on a
         // learning run (60 s is the filter's constant, not this module's).
         let r = train(&["fx-learner"]);
-        assert_eq!(r.methods[0].estimated_seconds, 90.0);
-        assert_eq!(r.total_seconds, 90.0);
+        assert_eq!(r.methods[0].estimated_seconds, 120.0);
+        assert_eq!(r.total_seconds, 120.0);
         // The fixed-rule method keeps its 30 s in train mode.
         let r = train(&["fx-rule"]);
         assert_eq!(r.methods[0].estimated_seconds, 30.0);
@@ -662,13 +666,22 @@ mod tests {
             r.methods[0].estimate_quality,
             crate::modules::method_catalogue::types::TimingQuality::Measured
         );
-        // Deterministic: the same train request yields the same response.
+        // Deterministic: two identical train requests yield the same
+        // response (the uncalibrated numbers, factor included — the
+        // calibrated run above is a different input, so it is not the
+        // comparison's other side).
+        let first = {
+            let mut r = req(&["fx-learner"], 150, Some(4), 3);
+            r.mode = Some(EstimateMode::Train);
+            estimate_for(&cat, &r).unwrap()
+        };
         let again = {
             let mut r = req(&["fx-learner"], 150, Some(4), 3);
             r.mode = Some(EstimateMode::Train);
             estimate_for(&cat, &r).unwrap()
         };
-        assert_eq!(r.methods[0].estimated_seconds, again.methods[0].estimated_seconds);
+        assert_eq!(first.methods[0].estimated_seconds, again.methods[0].estimated_seconds);
+        assert_eq!(again.methods[0].estimated_seconds, 120.0);
     }
 
     #[test]

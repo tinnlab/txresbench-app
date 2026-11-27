@@ -8946,7 +8946,7 @@
         "description": "The run kind an estimate concerns — the only input the cross-check time\n factor depends on. `train` is a learning run (the method is fitted on the\n uploaded cohort and the shown chances are cross-checked); `reuse` is a\n saved-model predict (no fit, no cross-check).",
         "oneOf": [
           {
-            "description": "A learning run: a method that learns from the cohort is also fitted\n three more times to check its chances, so its estimate carries\n [`calibration::CROSSCHECK_TIME_FACTOR`] when the app has not measured it.",
+            "description": "A learning run: a method that learns from the cohort runs its fit four\n times — once on all patients and three more times on a fold's training\n part — to check its chances, so its estimate carries\n [`calibration::CROSSCHECK_TIME_FACTOR`] when the app has not measured it.",
             "type": "string",
             "const": "train"
           },
@@ -8985,7 +8985,7 @@
             }
           },
           "mode": {
-            "description": "The run kind the numbers are estimated for: `train` (a learning run —\n a method that learns is also cross-fitted, see\n [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model\n predict). Absent (or `null`) is exactly today's estimate — no\n cross-check factor and the full calibration snapshot — so existing\n callers keep their numbers.",
+            "description": "The run kind the numbers are estimated for: `train` (a learning run —\n a method that learns is cross-fitted, see\n [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model\n predict). Absent (or `null`) is exactly today's estimate — no\n cross-check factor and the full calibration snapshot — so existing\n callers keep their numbers.",
             "anyOf": [
               {
                 "$ref": "#/components/schemas/EstimateMode"

@@ -1243,6 +1243,7 @@ mod tests {
                     &inputs.train,
                     inputs.predict.as_deref(),
                     method,
+                    inputs.config.endpoint,
                     &settings,
                     method.min_draws,
                 ),
@@ -1358,9 +1359,9 @@ mod tests {
     #[test]
     fn example_cohort_clears_the_crosscheck_minimum() {
         let inputs = inputs();
-        // The strata of the run's displayed outcome (progression at the
-        // run's look-ahead day) over the canonical train side the pick
-        // judges: the cohort-level form of the per-fold rule.
+        // The strata of the run's displayed outcome (the displayed survival
+        // outcome at the run's look-ahead day) over the canonical train side
+        // the pick judges: the cohort-level form of the per-fold rule.
         let h = inputs.config.look_ahead_day;
         let (event, beyond) =
             inputs

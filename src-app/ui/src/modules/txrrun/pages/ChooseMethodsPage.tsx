@@ -1228,6 +1228,13 @@ export function ChooseMethodsPage() {
                   ) : null}
                 </p>
               ) : null}
+              {crosscheckNotice !== null ? (
+                <Alert
+                  tone="warning"
+                  data-testid="txr-run-crosscheck-notice"
+                  title={crosscheckNotice}
+                />
+              ) : null}
               {settingsInventory === null ? (
                 <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
                   <p style={PENDING_LINE}>{PENDING_REFRESH_LINE}</p>

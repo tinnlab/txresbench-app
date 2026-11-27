@@ -3547,7 +3547,7 @@ mod tests {
 
     /// crosschecked-chances: the row's `estimated_seconds` is the ONE number
     /// the "Fast only" preset reads, and it carries the cross-check factor in
-    /// train mode — a learner at a 30 s base becomes 90 s (over the 60 s
+    /// train mode — a learner at a 30 s base becomes 120 s (over the 60 s
     /// ceiling, so it drops out of Fast on a learning run), a fixed-rule
     /// method stays 30 s, and an absent mode is today's number. The factor is
     /// applied HERE (server-side), never in the UI.
@@ -3573,14 +3573,14 @@ mod tests {
             v.estimated_seconds,
             30.0 * (1.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
         );
-        // Train mode: the learner's row is x3 (and 90 s > the 60 s Fast
+        // Train mode: the learner's row is x4 (and 120 s > the 60 s Fast
         // ceiling — the preset membership changes exactly here).
         let mut train = base.clone();
         train.mode = Some(crate::modules::method_catalogue::types::EstimateMode::Train);
         let v = verdict_of(&cat, &train, "fx-learner");
         assert_eq!(
             v.estimated_seconds,
-            90.0 * (1.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
+            120.0 * (1.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
         );
         // A fixed-rule method stays at 30 s even in train mode.
         let v = verdict_of(&cat, &train, "fx-rule");

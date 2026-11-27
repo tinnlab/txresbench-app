@@ -1,7 +1,8 @@
 -- execution_engine module — the calibration sample's cross-check marker
--- (crosschecked-chances): a TRAIN-mode method that learns is now fitted
--- three more times to check its chances, so a run measured after this change
--- carries ~3x the old one-fit cost in `measured_ms`.
+-- (crosschecked-chances): a TRAIN-mode method that learns runs its fit four
+-- times — once on all patients and three more times on a fold's training
+-- part to check its chances — so a run measured after this change carries
+-- ~4x the old one-fit cost in `measured_ms`.
 --
 -- `crosschecked = 1` tags exactly those samples (the engine writes the flag
 -- from the method's own facts: `fitted` on the catalogue row). The rows

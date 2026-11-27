@@ -2727,6 +2727,80 @@ describe('AOC part 2 — the Extra-inputs switch turns on / unticks with require
 })
 
 
+describe('ChooseMethodsPage the cross-check notice (txr-run-crosscheck-notice)', () => {
+  /** The facts' limits (the engine's 15 / 3, no UI constant — the string is
+   *  built from these). */
+  const CROSSCHECK_LIMITS = {
+    baseline_max_day: 0,
+    look_ahead_day_max: 730,
+    min_training_patients: 10,
+    crosscheck_min_patients: 15,
+    crosscheck_min_per_class: 3,
+  }
+  const EXACT =
+    'This file has too few patients to check the chances: it needs at least 15 patients, with at least 3 who had the outcome and 3 who did not. Methods that learn from the outcomes, or that need a conversion to a chance, will not run on it; methods that return their own chance with a fixed rule still do.'
+
+  /** `known` patients, `events` of them with the event at day 120, the rest
+   *  followed to day 500 without it (a 7/7 split at day 238). */
+  const cohort = (known: number, events: number): FileTimeline => ({
+    draw_days: Array.from({ length: known }, () => [28, 56]),
+    outcomes: [
+      ...Array.from({ length: events }, () => ({ pfs: { days: 120, event: 1 } })),
+      ...Array.from({ length: known - events }, () => ({ pfs: { days: 500, event: 0 } })),
+    ],
+    limits: CROSSCHECK_LIMITS,
+  })
+
+  const renderWith = async (facts: FileTimeline): Promise<void> => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ dayFacts: facts, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+  }
+
+  it('shows one warning line, verbatim, above the method list when the file is too small (14 patients, 7/7)', async () => {
+    await renderWith(cohort(14, 7))
+    const notice = screen.getByTestId('txr-run-crosscheck-notice')
+    expect(notice.getAttribute('role')).toBe('alert')
+    expect(notice.textContent).toBe(EXACT)
+    // The numbers in the string are the facts' own limits (never a constant).
+    expect(EXACT).toContain(`at least ${CROSSCHECK_LIMITS.crosscheck_min_patients}`)
+    expect(EXACT).toContain(`at least ${CROSSCHECK_LIMITS.crosscheck_min_per_class}`)
+    // One line only.
+    expect(notice.textContent?.split('\n')).toHaveLength(1)
+    // The notice sits ABOVE the method list (the picker's first card).
+    const first = screen.getByTestId('txr-method-card-direct-on')
+    expect(
+      notice.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    // A notice only: it never unticked a method (the recommended set stands).
+    expect(
+      screen.getByTestId('txr-method-card-direct-on').getAttribute('data-selected'),
+    ).toBe('true')
+  })
+
+  it('shows it with 30 patients and 2 events (the event class is below 3)', async () => {
+    await renderWith(cohort(30, 2))
+    expect(screen.getByTestId('txr-run-crosscheck-notice').textContent).toBe(EXACT)
+  })
+
+  it('does not show it at 15 patients with 8/7 or with 3/12 (both classes hold)', async () => {
+    await renderWith(cohort(15, 8))
+    expect(screen.queryByTestId('txr-run-crosscheck-notice')).toBeNull()
+    await cleanup()
+    await renderWith(cohort(15, 3))
+    expect(screen.queryByTestId('txr-run-crosscheck-notice')).toBeNull()
+  })
+
+  it('does not show it while the file facts are absent', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    expect(screen.queryByTestId('txr-run-crosscheck-notice')).toBeNull()
+  })
+})
+
 describe('ChooseMethodsPage single-marker-choice round 2', () => {
   /** The file's two main markers (the ranking's candidates). */
   const MAIN_MARKERS: InventoryMarker[] = [

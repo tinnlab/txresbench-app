@@ -26,11 +26,15 @@
 //!
 //! ## The cross-check factor (crosschecked-chances)
 //!
-//! A learning run cross-checks its chances: a method that learns is fitted
-//! [`CROSS_FIT_FOLDS`](crate::modules::execution_engine::predictions::CROSS_FIT_FOLDS)
-//! more times (one fit + predict per fold, each on ~2/3 of the cohort), so
-//! its UNCALIBRATED estimate is about three times a single fit+predict —
-//! [`CROSSCHECK_TIME_FACTOR`]. Two rules keep measured numbers honest:
+//! A learning run cross-checks its chances: a method that learns runs its
+//! fit FOUR times in total — once on all patients, then three more times on
+//! a fold's training part (one fit + predict per fold, each on ~2/3 of the
+//! cohort), so its UNCALIBRATED estimate is about four times a single
+//! fit+predict — [`CROSSCHECK_TIME_FACTOR`]. The app measured 4.1x and 4.4x
+//! on own-probability learners (their fit is ~1 s and the extra is mostly the
+//! three extra container starts); score-only learners already ran the folds
+//! before and are unchanged — a measured value is never factor-multiplied.
+//! Two rules keep measured numbers honest:
 //!
 //! - A measured sample already includes the folds that ran when it was
 //!   recorded, so a calibrated value is NEVER factor-multiplied again (the
@@ -45,7 +49,7 @@
 //!   catalogue whether a particular run needed a conversion (that depends on
 //!   the file's outcomes), so it treats EVERY `fitted` method that way in
 //!   train mode — the safe side: an untagged measured value for a method
-//!   whose cost did not change is dropped, and the generated base × 3 takes
+//!   whose cost did not change is dropped, and the generated base × 4 takes
 //!   over instead.
 //!
 //! ## Who feeds it
@@ -78,15 +82,16 @@ use crate::modules::method_catalogue::eligibility::{REFERENCE_CPUS, REFERENCE_PA
 use crate::modules::method_catalogue::types::{EstimateMode, Method, TimingQuality};
 
 /// The cross-check's time factor for a learning run: a method that learns
-/// from the cohort is also fitted [`CROSS_FIT_FOLDS`]
-/// (crate::modules::execution_engine::predictions::CROSS_FIT_FOLDS) more
-/// times — one fit + predict per fold, each on ~2/3 of the data — to check
-/// its chances, so its uncalibrated estimate is about 3x the single
-/// fit+predict in total. Applied ONLY to the generated-base estimate of a
-/// `fitted` method in [`EstimateMode::Train`]: a measured sample already
-/// includes the folds that ran when it was recorded, so a calibrated value
-/// is never multiplied again.
-pub const CROSSCHECK_TIME_FACTOR: f64 = 3.0;
+/// from the cohort runs its fit FOUR times in total — once on all patients,
+/// then [`CROSS_FIT_FOLDS`](crate::modules::execution_engine::predictions::CROSS_FIT_FOLDS)
+/// more times, one fit + predict per fold on ~2/3 of the data, to check its
+/// chances — so its uncalibrated estimate is about 4x the single fit+predict
+/// in total (measured 4.1x and 4.4x on own-probability learners whose fit is
+/// ~1 s; the extra is mostly the three extra container starts). Applied ONLY
+/// to the generated-base estimate of a `fitted` method in
+/// [`EstimateMode::Train`]: a measured sample already includes the folds that
+/// ran when it was recorded, so a calibrated value is never multiplied again.
+pub const CROSSCHECK_TIME_FACTOR: f64 = 4.0;
 
 /// One measured method run, as the estimate engine needs it (the repository
 /// row's facts — see the `txr_timing_samples` migration).
@@ -307,7 +312,7 @@ pub fn calibrated_estimate_quality_for(
 /// wear the measured label. Without a cross-checked sample the seconds are
 /// the generated base × [`CROSSCHECK_TIME_FACTOR`] — a GENERATED number, so
 /// the quality reads `estimate` even when the benchmark's own per-fold fact
-/// is `measured` (the benchmark never measured the ×3 run).
+/// is `measured` (the benchmark never measured the ×4 run).
 pub fn calibrated_estimate_quality_for_mode(
     method: &Method,
     calibration: &TimingCalibration,
@@ -449,7 +454,7 @@ mod tests {
         let fixed = cat.method("asm-best-change-rule").expect("a fixed-rule method");
         assert!(!fixed.fitted, "the fixture is a fixed-rule method");
 
-        // Unmeasured, train mode: the learner is ×3, the fixed-rule is not.
+        // Unmeasured, train mode: the learner is ×4, the fixed-rule is not.
         let empty = TimingCalibration::empty();
         assert_eq!(
             calibrated_estimate_seconds_for_mode(learner, 150, 4, &empty, Some(EstimateMode::Train)),
@@ -472,7 +477,7 @@ mod tests {
         );
 
         // Measured (tagged) train mode: the measured seconds already include
-        // the folds — the value is used as-is, never ×3.
+        // the folds — the value is used as-is, never ×4.
         let measured = TimingCalibration::from_samples(&[crosschecked_sample(
             "landmark-cox-current",
             45_000,
@@ -490,7 +495,7 @@ mod tests {
         );
 
         // Untagged-only (pre-cross-check) measurement: train mode ignores it
-        // (never deletes) and falls back to the generated base × 3 — a
+        // (never deletes) and falls back to the generated base × 4 — a
         // GENERATED number, so the quality reads `estimate` (never the
         // benchmark's `measured` label).
         let old = TimingCalibration::from_samples(&[sample("landmark-cox-current", 15_000, 150, 4)]);
@@ -502,7 +507,7 @@ mod tests {
         assert_eq!(
             calibrated_estimate_quality_for_mode(learner, &old, Some(EstimateMode::Train)),
             TimingQuality::Estimate,
-            "an uncalibrated learner's ×3 number is an estimate, not the benchmark's measured"
+            "an uncalibrated learner's ×4 number is an estimate, not the benchmark's measured"
         );
         // The same old sample still calibrates the absent-mode and fixed-rule
         // numbers (today's behavior).
@@ -521,7 +526,7 @@ mod tests {
     #[test]
     fn an_uncalibrated_learner_in_train_mode_reads_estimate_not_measured() {
         // crosschecked-chances (audit 7): with NO crosschecked sample the
-        // train-mode seconds are the generated base × 3 — the benchmark's
+        // train-mode seconds are the generated base × 4 — the benchmark's
         // `measured` fact (measured once, at the one-fit cost) does NOT back
         // that number, so the quality must read `estimate`.
         let cat = &crate::modules::method_list::builtin().catalogue;
@@ -533,12 +538,12 @@ mod tests {
             "the fixture's benchmark fact is 'measured' — the case the audit called out"
         );
 
-        // No samples at all: the generated base × 3, quality `estimate`.
+        // No samples at all: the generated base × 4, quality `estimate`.
         let empty = TimingCalibration::empty();
         assert_eq!(
             calibrated_estimate_quality_for_mode(learner, &empty, Some(EstimateMode::Train)),
             TimingQuality::Estimate,
-            "an empty calibration never claims Measured for a ×3 generated number"
+            "an empty calibration never claims Measured for a ×4 generated number"
         );
         // Unmeasured (untagged sample only): same verdict.
         let old = TimingCalibration::from_samples(&[sample("landmark-cox-current", 15_000, 150, 4)]);

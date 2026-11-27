@@ -1081,8 +1081,9 @@ pub struct EligibilityResponse {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EstimateMode {
-    /// A learning run: a method that learns from the cohort is also fitted
-    /// three more times to check its chances, so its estimate carries
+    /// A learning run: a method that learns from the cohort runs its fit four
+    /// times — once on all patients and three more times on a fold's training
+    /// part — to check its chances, so its estimate carries
     /// [`calibration::CROSSCHECK_TIME_FACTOR`] when the app has not measured it.
     Train,
     /// A saved-model reuse run: the model predicts with no fit — the
@@ -1107,7 +1108,7 @@ pub struct EstimateRequest {
     #[serde(default = "default_estimate_at_a_time")]
     pub at_a_time: u32,
     /// The run kind the numbers are estimated for: `train` (a learning run —
-    /// a method that learns is also cross-fitted, see
+    /// a method that learns is cross-fitted, see
     /// [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model
     /// predict). Absent (or `null`) is exactly today's estimate — no
     /// cross-check factor and the full calibration snapshot — so existing

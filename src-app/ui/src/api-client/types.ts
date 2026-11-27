@@ -692,7 +692,7 @@ export interface EstimateRequest {
   method_ids: string[]
   /**
    * The run kind the numbers are estimated for: `train` (a learning run —
-   *  a method that learns is also cross-fitted, see
+   *  a method that learns is cross-fitted, see
    *  [`calibration::CROSSCHECK_TIME_FACTOR`]) or `reuse` (a saved-model
    *  predict). Absent (or `null`) is exactly today's estimate — no
    *  cross-check factor and the full calibration snapshot — so existing

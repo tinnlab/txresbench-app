@@ -209,7 +209,8 @@ applied map recorded as `conversions.json`), the live
   produced-model columns of `txr_run_methods` + the additive `0006` run
   estimate column of `txr_runs`;
   `migrations/202610260011_txr_timing_samples.sql` + the additive
-  `202611190001_txr_timing_samples_crosschecked.sql` — the estimate
+  `202611260001_txr_timing_samples_crosschecked.sql` (after
+  `202611240001_txr_run_methods_markers_used.sql`) — the estimate
   calibration's `txr_timing_samples` table + its `crosschecked` marker column.
 
 ## Data hygiene rules

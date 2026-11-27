@@ -1597,9 +1597,30 @@ impl StackMethodExecutor {
             ),
         ) {
             (Some(train), false) => {
-                let bundles = match method_bundles(train, None, facts, settings, ctx.min_draws) {
-                    Ok(b) => b,
-                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                // The cohort's marker set, train bundle and test bundle over
+                // the cohort itself are exactly a train call's first bundles
+                // with no predict file ([`method_bundles`]) — and exactly the
+                // selection the conversion's cohort refit uses (audit fix 3):
+                // the recorded-features selection applies ONLY when the model
+                // HAS recorded features and has no fixed list; otherwise this
+                // is [`method_bundles`] exactly as before (the count rule over
+                // the run's training side), never the predict side's selection.
+                let bundles = if recorded_selection {
+                    match method_bundles_with_selection(
+                        train,
+                        None,
+                        settings,
+                        ctx.min_draws,
+                        &selection,
+                    ) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    }
+                } else {
+                    match method_bundles(train, None, facts, settings, ctx.min_draws) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    }
                 };
                 let needs = needs_list(facts, &bundles.train.outcomes, settings);
                 match cohort_folds(&bundles.train, &needs, &outcome_spec, settings) {
@@ -7232,7 +7253,7 @@ mod tests {
         // about the RECORD, not the download delay.
         let env = Arc::new(FakeEnv::new(Duration::from_millis(20)));
         let executor = Arc::new(FakeExecutor::new(Duration::from_millis(30)));
-        let req = cohort_run_request(&["landmark-cox-current"], 1, true);
+        let req = cohort_run_request(&["landmark-cox-current", "ctdna-tf-four-group"], 1, true);
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
             .await
             .expect("create");
@@ -9495,6 +9516,8 @@ mod tests {
             feature: "9999-0".to_string(),
             unit: Some("U/L".to_string()),
             marker_id: Some("9999-0".to_string()),
+            display_name: None,
+            standard_ids: Vec::new(),
             is_detection_companion: false,
         });
         let (folds, _, _, _) = fixture_crosscheck(&train, facts);
@@ -10217,9 +10240,16 @@ mod tests {
         // before anything is written.
         facts.covariates = CovariateMode::Required;
         let settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
-        let err = train_bundle_preflight(&train, None, &facts, &settings, facts.min_draws)
-            .err()
-            .expect("switch off + required → BUNDLE_COVARIATES_OFF");
+        let err = train_bundle_preflight(
+            &train,
+            None,
+            &facts,
+            req.config.endpoint,
+            &settings,
+            facts.min_draws,
+        )
+        .err()
+        .expect("switch off + required → BUNDLE_COVARIATES_OFF");
         assert_eq!(err, bundle::BundleError::CovariatesSwitchedOff);
 
         // Switch off + optional / none → today's rule: no refusal, no
@@ -10227,8 +10257,15 @@ mod tests {
         for mode in [CovariateMode::Optional, CovariateMode::None] {
             facts.covariates = mode;
             let settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
-            train_bundle_preflight(&train, None, &facts, &settings, facts.min_draws)
-                .expect("optional/none with the switch off still preflights");
+            train_bundle_preflight(
+                &train,
+                None,
+                &facts,
+                req.config.endpoint,
+                &settings,
+                facts.min_draws,
+            )
+            .expect("optional/none with the switch off still preflights");
             let b = method_bundles(&train, None, &facts, &settings, facts.min_draws)
                 .expect("optional/none with the switch off still builds");
             assert_eq!(b.train.params["covariates"], serde_json::json!(false), "{mode:?}");
@@ -10254,8 +10291,15 @@ mod tests {
         config_on.covariates = true;
         facts.covariates = CovariateMode::Required;
         let settings = train_call_bundle_settings(&config_on, 4, &facts, &with_cov, None);
-        train_bundle_preflight(&with_cov, None, &facts, &settings, facts.min_draws)
-            .expect("switch on + required + columns preflights");
+        train_bundle_preflight(
+            &with_cov,
+            None,
+            &facts,
+            config_on.endpoint,
+            &settings,
+            facts.min_draws,
+        )
+        .expect("switch on + required + columns preflights");
         let b = method_bundles(&with_cov, None, &facts, &settings, facts.min_draws)
             .expect("switch on + required + columns builds");
         assert_eq!(b.train.params["covariates"], serde_json::json!(true));
@@ -10307,9 +10351,16 @@ mod tests {
         // The same method + switch + data IS refused on the train path (the
         // per-method train settings), so the two paths stay split.
         let train_settings = train_call_bundle_settings(&req.config, 4, &facts, &train, None);
-        let refused = train_bundle_preflight(&train, None, &facts, &train_settings, facts.min_draws)
-            .err()
-            .expect("the train preflight refuses the same inputs");
+        let refused = train_bundle_preflight(
+            &train,
+            None,
+            &facts,
+            req.config.endpoint,
+            &train_settings,
+            facts.min_draws,
+        )
+        .err()
+        .expect("the train preflight refuses the same inputs");
         assert_eq!(refused, bundle::BundleError::CovariatesSwitchedOff);
     }
 
@@ -10454,6 +10505,8 @@ mod tests {
                 feature: "9999-0".to_string(),
                 unit: Some("U/L".to_string()),
                 marker_id: Some("9999-0".to_string()),
+                display_name: None,
+                standard_ids: Vec::new(),
                 is_detection_companion: false,
             });
         }
@@ -12987,6 +13040,7 @@ mod tests {
             },
         ];
         let prepared = PreparedRun {
+            mode: TxrRunMode::Train,
             train: None,
             predict: None,
             predict_patients: None,
@@ -13090,6 +13144,7 @@ mod tests {
         let dir5 = run_dir_root().join("marker-choice-record-none");
         std::fs::create_dir_all(dir5.join("input")).unwrap();
         let prepared_fixed = PreparedRun {
+            mode: TxrRunMode::Train,
             plans: vec![MethodPlan {
                 method_id: "asm-best-change-rule".to_string(),
                 label: "asm-best-change-rule".to_string(),
@@ -13131,6 +13186,9 @@ mod tests {
     /// plan into its settings, exactly like the train executor does — a
     /// single no-list method on a 3-marker file is refused by the preflight
     /// WITHOUT the plan (the count rule) and admitted WITH it (the top 1).
+    /// The 30-patient fixture (15 events by the 238-day look-ahead, 15
+    /// followed beyond it) also clears the cross-check minimum, so the plan
+    /// verdict is the ONE leg the assertions read.
     #[test]
     fn call_bundle_preflight_carries_the_marker_plan() {
         use crate::modules::execution_engine::marker_rank::{
@@ -13139,11 +13197,11 @@ mod tests {
         use crate::modules::file_validator::types::{CanonicalBundle, CanonicalPatient, CanonicalValue};
         let mut patients = Vec::new();
         let mut values = Vec::new();
-        for i in 0..12 {
+        for i in 0..30 {
             let id = format!("P{i:02}");
             patients.push(CanonicalPatient {
                 patient_id: id.clone(),
-                pfs_days: Some(if i % 2 == 0 { 70.0 } else { 90.0 }),
+                pfs_days: Some(if i % 2 == 0 { 70.0 } else { 400.0 }),
                 pfs_event: Some(if i % 2 == 0 { 1 } else { 0 }),
                 os_days: None,
                 os_event: None,
@@ -13196,13 +13254,13 @@ mod tests {
             baseline_max_day: 0.0,
             result: Ok(MarkerRanking {
                 ranking: vec![
-                    RankedMarker { marker: "LDH".to_string(), score: 0.5, n: 12, coverage: 1.0 },
-                    RankedMarker { marker: "CEA".to_string(), score: 0.4, n: 12, coverage: 1.0 },
-                    RankedMarker { marker: "CA199".to_string(), score: 0.3, n: 12, coverage: 1.0 },
+                    RankedMarker { marker: "LDH".to_string(), score: 0.5, n: 30, coverage: 1.0 },
+                    RankedMarker { marker: "CEA".to_string(), score: 0.4, n: 30, coverage: 1.0 },
+                    RankedMarker { marker: "CA199".to_string(), score: 0.3, n: 30, coverage: 1.0 },
                 ],
                 offered: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
                 top: vec!["LDH".to_string(), "CEA".to_string(), "CA199".to_string()],
-                ranking_patients: 12,
+                ranking_patients: 30,
             }),
         });
         let preflight = call_bundle_preflight(&ctx, facts).expect("with the plan");

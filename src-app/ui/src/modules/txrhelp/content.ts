@@ -346,7 +346,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         kind: 'bullets',
         items: [
           'The estimate is the benchmark\'s measured runtime scaled to your file — about 150 patients and 4 CPUs are the reference, so more patients or fewer CPUs lengthen the estimate. The run bar sums your selection; the estimate lines say they are estimates. "More settings" explains this and sets the CPUs and how many methods run at once.',
-          'On a learning run, a method that learns from the outcomes takes about three times as long, because it is also fitted three more times to check its chances.',
+          'On a learning run, a method that learns from the outcomes takes about four times as long, because it is also fitted three more times to check its chances.',
           '"Save the trained models" in the run bar keeps each trained method so you can use it later without re-training. The analyses always run with one fixed seed, so the same settings give the same numbers.',
           'Methods that cannot run are never silent — they sit in a collapsed section at the bottom, one chip per reason: no published environment, a marker the file does not have (the chip names it), an outcome the file does not have, not enough draws per patient, or extra inputs the file lacks. Each expands into the rows with the reason and the one-line fix.',
           'When a setting changes, the list re-checks your files and settings: the methods that still fit keep their tick, and the ones that no longer fit are unticked with a note naming how many.',
